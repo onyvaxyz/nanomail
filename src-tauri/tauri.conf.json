@@ -24,7 +24,7 @@
   "bundle": {
     "active": true,
     "targets": ["deb"],
-    "category": "Office",
+    "category": "Productivity",
     "shortDescription": "Mail- & Kalender-Client",
     "longDescription": "Eigener Mail- (IMAP/SMTP) und Kalender-Client (CalDAV) für Ubuntu.",
     "icon": [

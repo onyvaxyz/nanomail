@@ -10,7 +10,7 @@ Stand: 2026-07-04
 
 | Nr. | Meilenstein | Inhalt | Status |
 |---|---|---|---|
-| M0 | Projektgerüst | Tauri-App-Skelett, Grundlayout, Logging, CI, `.deb`-Build, Doku/Skills | 🔵 In Arbeit |
+| M0 | Projektgerüst | Tauri-App-Skelett, Grundlayout, Logging, CI, `.deb`-Build, Doku/Skills | 🟡 Wartet auf Freigabe |
 | M1 | Erstes Konto lesend | Infomaniak-IMAP: Ordner & Mails anzeigen (HTML bereinigt, Bilder blockiert), SQLite-Cache, Passwort im Keyring | ⚪ Offen |
 | M2 | Senden | Verfassen, Antworten, Weiterleiten, Anhänge, Ablage im „Gesendet“-Ordner | ⚪ Offen |
 | M3 | Multi-Account | Die beiden OpenXchange-Konten (generische Kontoverwaltung) | ⚪ Offen |
