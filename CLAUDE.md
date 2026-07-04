@@ -63,7 +63,10 @@ Kommunikation ausschließlich über Tauri-Commands/Events
 ## Verbindliche Konventionen
 
 - **Zugangsdaten:** Passwörter/Tokens ausschließlich im GNOME Keyring
-  (`keyring`-Crate). Niemals im Klartext in Dateien, SQLite oder Logs.
+  (`keyring-core` + `zbus-secret-service-keyring-store`; die `keyring`-Fassade
+  v4.1.3 hat einen Init-Bug). Zugriffe immer über `src/schluesselbund.rs`
+  und — wichtig — nur via `spawn_blocking` (zbus blockiert intern).
+  Niemals im Klartext in Dateien, SQLite oder Logs.
 - **HTML-Mails:** Vor Anzeige mit `ammonia` sanitizen. Externe Bilder
   standardmäßig blockieren („Bilder laden“-Button). Kein Skript aus
   Mail-Inhalten darf je ausgeführt werden.

@@ -10,25 +10,78 @@
   <div id="app">
     <aside id="sidebar">
       <h1 class="logo">Nanomail</h1>
-      <nav id="konten">
-        <p class="platzhalter">Noch keine Konten eingerichtet.<br />Kommt mit Meilenstein M1.</p>
-      </nav>
+      <div id="konto-bereich">
+        <p class="platzhalter">Noch kein Konto eingerichtet.</p>
+      </div>
+      <button id="aktualisieren-knopf" class="knopf-sekundaer versteckt" type="button">
+        ⟳ Aktualisieren
+      </button>
     </aside>
 
     <section id="mailliste">
-      <header class="spalten-kopf">Posteingang</header>
-      <div class="platzhalter">Hier erscheint die Mail-Liste (M1).</div>
+      <header class="spalten-kopf" id="ordner-titel">Posteingang</header>
+      <div id="mail-eintraege" class="scrollbereich">
+        <div class="platzhalter">Hier erscheint die Mail-Liste.</div>
+      </div>
     </section>
 
     <section id="lesebereich">
-      <header class="spalten-kopf">Vorschau</header>
-      <div class="platzhalter">Hier erscheint der Mail-Inhalt (M1).</div>
+      <header class="spalten-kopf" id="mail-titel">Vorschau</header>
+      <div id="mail-meta" class="mail-meta versteckt"></div>
+      <div id="bilder-leiste" class="hinweis-leiste versteckt">
+        <span>Externe Bilder wurden blockiert.</span>
+        <button id="bilder-laden-knopf" class="knopf-sekundaer" type="button">Bilder laden</button>
+      </div>
+      <!-- Bereinigtes HTML wird ausschließlich hier angezeigt:
+           sandbox ohne Rechte = keine Skripte, kein Zugriff auf die App. -->
+      <iframe id="mail-html" class="versteckt" sandbox=""></iframe>
+      <div id="mail-text" class="scrollbereich versteckt"></div>
+      <div id="lese-platzhalter" class="platzhalter">Wähle links eine Mail aus.</div>
     </section>
   </div>
 
   <footer id="statusleiste">
-    <span id="backend-status">Verbinde mit Backend …</span>
+    <span id="backend-status">Starte …</span>
   </footer>
+
+  <dialog id="konto-dialog">
+    <form id="konto-formular" method="dialog">
+      <h2>Mail-Konto einrichten</h2>
+      <p class="dialog-untertitel">
+        Für Infomaniak sind Server und Port bereits ausgefüllt.
+        Empfohlen: ein App-Passwort verwenden (im Infomaniak-Konto erstellbar).
+      </p>
+
+      <label>Kontoname (frei wählbar)
+        <input name="name" required placeholder="z. B. Infomaniak privat" />
+      </label>
+      <label>E-Mail-Adresse
+        <input name="email" type="email" required placeholder="name@example.com" />
+      </label>
+      <label>Benutzername (meist die E-Mail-Adresse)
+        <input name="benutzer" required placeholder="name@example.com" />
+      </label>
+      <label>Passwort / App-Passwort
+        <input name="passwort" type="password" required />
+      </label>
+      <div class="feld-reihe">
+        <label class="feld-breit">IMAP-Server
+          <input name="imapHost" required value="mail.infomaniak.com" />
+        </label>
+        <label class="feld-schmal">Port
+          <input name="imapPort" type="number" required value="993" min="1" max="65535" />
+        </label>
+      </div>
+
+      <p id="dialog-fehler" class="fehler-text versteckt"></p>
+
+      <div class="dialog-knoepfe">
+        <button id="konto-speichern-knopf" class="knopf-primaer" type="submit">
+          Verbindung prüfen &amp; speichern
+        </button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="main.js"></script>
 </body>

@@ -1,14 +1,18 @@
-/* Nanomail — Grundlayout (M0).
+/* Nanomail — Oberfläche (M1).
    Farben und Maße sind als Variablen definiert und können hier
    gefahrlos angepasst werden — danach reicht ein Neustart der App. */
 
 :root {
   --farbe-akzent: #3f51b5;
+  --farbe-akzent-hell: #e8eaf6;
   --farbe-hintergrund: #fafafa;
   --farbe-seitenleiste: #eceff4;
   --farbe-rahmen: #d5d9e0;
   --farbe-text: #24292f;
   --farbe-text-gedimmt: #6e7781;
+  --farbe-ok: #1a7f37;
+  --farbe-fehler: #cf222e;
+  --farbe-hinweis-hintergrund: #fff8e5;
   --breite-seitenleiste: 220px;
   --breite-mailliste: 340px;
 }
@@ -34,33 +38,166 @@ body {
   min-height: 0;
 }
 
+.versteckt { display: none !important; }
+
+.scrollbereich { overflow-y: auto; }
+
+/* ------------------------------------------------------ Seitenleiste -- */
+
 #sidebar {
   background: var(--farbe-seitenleiste);
   border-right: 1px solid var(--farbe-rahmen);
   padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
 }
 
 .logo {
   font-size: 1.1rem;
   color: var(--farbe-akzent);
-  margin-bottom: 16px;
 }
+
+.konto-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+}
+
+.ordner-liste {
+  list-style: none;
+}
+
+.ordner-eintrag {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.ordner-eintrag:hover { background: rgba(0, 0, 0, 0.05); }
+
+.ordner-eintrag.aktiv {
+  background: var(--farbe-akzent-hell);
+  color: var(--farbe-akzent);
+  font-weight: 600;
+}
+
+.ungelesen-zaehler {
+  background: var(--farbe-akzent);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  padding: 1px 7px;
+}
+
+/* -------------------------------------------------------- Mail-Liste -- */
 
 #mailliste {
   border-right: 1px solid var(--farbe-rahmen);
   display: flex;
   flex-direction: column;
-}
-
-#lesebereich {
-  display: flex;
-  flex-direction: column;
+  min-height: 0;
 }
 
 .spalten-kopf {
   padding: 10px 12px;
   font-weight: 600;
   border-bottom: 1px solid var(--farbe-rahmen);
+  background: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#mail-eintraege { flex: 1; }
+
+.mail-eintrag {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--farbe-rahmen);
+  cursor: pointer;
+}
+
+.mail-eintrag:hover { background: rgba(0, 0, 0, 0.03); }
+.mail-eintrag.aktiv { background: var(--farbe-akzent-hell); }
+
+.mail-zeile-oben {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--farbe-text-gedimmt);
+}
+
+.mail-von {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-datum { flex-shrink: 0; }
+
+.mail-betreff {
+  font-size: 0.9rem;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-eintrag.ungelesen .mail-betreff,
+.mail-eintrag.ungelesen .mail-von {
+  font-weight: 700;
+  color: var(--farbe-text);
+}
+
+/* ------------------------------------------------------ Lesebereich -- */
+
+#lesebereich {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.mail-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: var(--farbe-text-gedimmt);
+  border-bottom: 1px solid var(--farbe-rahmen);
+  background: #fff;
+}
+
+.hinweis-leiste {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  background: var(--farbe-hinweis-hintergrund);
+  border-bottom: 1px solid var(--farbe-rahmen);
+}
+
+#mail-html {
+  flex: 1;
+  border: none;
+  background: #fff;
+}
+
+#mail-text {
+  flex: 1;
+  padding: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-size: 0.9rem;
+  line-height: 1.5;
   background: #fff;
 }
 
@@ -71,6 +208,8 @@ body {
   line-height: 1.5;
 }
 
+/* ------------------------------------------------------ Statusleiste -- */
+
 #statusleiste {
   padding: 6px 12px;
   font-size: 0.8rem;
@@ -79,5 +218,92 @@ body {
   background: #fff;
 }
 
-#statusleiste .ok { color: #1a7f37; }
-#statusleiste .fehler { color: #cf222e; }
+#statusleiste .ok { color: var(--farbe-ok); }
+#statusleiste .fehler { color: var(--farbe-fehler); }
+
+/* ------------------------------------------------------------ Knöpfe -- */
+
+.knopf-primaer,
+.knopf-sekundaer {
+  font: inherit;
+  padding: 7px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--farbe-rahmen);
+}
+
+.knopf-primaer {
+  background: var(--farbe-akzent);
+  color: #fff;
+  border-color: var(--farbe-akzent);
+}
+
+.knopf-primaer:disabled,
+.knopf-sekundaer:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.knopf-sekundaer { background: #fff; }
+.knopf-sekundaer:hover { background: var(--farbe-akzent-hell); }
+
+/* ------------------------------------------------------ Konto-Dialog -- */
+
+#konto-dialog {
+  margin: auto;
+  border: 1px solid var(--farbe-rahmen);
+  border-radius: 10px;
+  padding: 24px;
+  width: min(440px, 90vw);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+#konto-dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+
+#konto-dialog h2 { font-size: 1.05rem; margin-bottom: 4px; }
+
+.dialog-untertitel {
+  font-size: 0.82rem;
+  color: var(--farbe-text-gedimmt);
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+
+#konto-formular label {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--farbe-text-gedimmt);
+  margin-bottom: 10px;
+}
+
+#konto-formular input {
+  display: block;
+  width: 100%;
+  font: inherit;
+  padding: 7px 9px;
+  margin-top: 3px;
+  border: 1px solid var(--farbe-rahmen);
+  border-radius: 6px;
+}
+
+#konto-formular input:focus {
+  outline: 2px solid var(--farbe-akzent);
+  outline-offset: -1px;
+}
+
+.feld-reihe { display: flex; gap: 10px; }
+.feld-breit { flex: 1; }
+.feld-schmal { width: 90px; }
+
+.fehler-text {
+  color: var(--farbe-fehler);
+  font-size: 0.85rem;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.dialog-knoepfe {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}

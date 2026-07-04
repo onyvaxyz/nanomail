@@ -1,7 +1,11 @@
 //! IMAP-Anbindung (ab Meilenstein M1).
 //!
-//! Zuständig für: Verbindung zu den Mail-Konten (Infomaniak, 2× OpenXchange,
-//! später Microsoft), Ordnerliste, Mail-Abruf und Abgleich (Sync) mit dem
-//! lokalen SQLite-Cache.
+//! - `sync`: reine, unit-getestete Sync-Entscheidungslogik (kein Netzwerk)
+//! - `parsen`: Kopfzeilen-Parsing mit `mail-parser` (kein Netzwerk)
+//! - `verbindung`: dünne TLS/IMAP-Netzschicht auf `async-imap`
 //!
 //! Konventionen: siehe `.claude/skills/imap/SKILL.md`.
+
+pub mod parsen;
+pub mod sync;
+pub mod verbindung;
