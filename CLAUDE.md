@@ -17,6 +17,16 @@ Daraus folgen die wichtigsten Regeln dieses Projekts:
 4. **Qualität ist automatisiert abgesichert:** Tests für Kernlogik, CI muss
    grün sein (`test`, `clippy -D warnings`, `fmt`), Logging für Fehlerberichte.
 
+## Prinzipien
+
+SIMPLICITY:   Jede Änderung so klein wie möglich. Minimaler Impact auf bestehenden Code.
+NO_LAZINESS:  Root cause finden. Keine temporären Fixes. Kein "das reicht erstmal".
+ELEGANCE:     Bei nicht-trivialen Änderungen: "Gibt es einen eleganteren Weg?"
+              Ausnahme: einfache, offensichtliche Fixes — nicht über-engineeren.
+SURGICAL_CHANGES: Touch only what the task requires. Do not improve neighboring code. Do not refactor what is not broken. Every changed line should trace back to the request.
+
+---
+
 ## Tech-Stack
 
 | Layer | Technologie |
