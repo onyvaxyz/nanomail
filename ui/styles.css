@@ -1,0 +1,83 @@
+/* Nanomail — Grundlayout (M0).
+   Farben und Maße sind als Variablen definiert und können hier
+   gefahrlos angepasst werden — danach reicht ein Neustart der App. */
+
+:root {
+  --farbe-akzent: #3f51b5;
+  --farbe-hintergrund: #fafafa;
+  --farbe-seitenleiste: #eceff4;
+  --farbe-rahmen: #d5d9e0;
+  --farbe-text: #24292f;
+  --farbe-text-gedimmt: #6e7781;
+  --breite-seitenleiste: 220px;
+  --breite-mailliste: 340px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: system-ui, sans-serif;
+  color: var(--farbe-text);
+  background: var(--farbe-hintergrund);
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+#app {
+  flex: 1;
+  display: grid;
+  grid-template-columns: var(--breite-seitenleiste) var(--breite-mailliste) 1fr;
+  min-height: 0;
+}
+
+#sidebar {
+  background: var(--farbe-seitenleiste);
+  border-right: 1px solid var(--farbe-rahmen);
+  padding: 12px;
+}
+
+.logo {
+  font-size: 1.1rem;
+  color: var(--farbe-akzent);
+  margin-bottom: 16px;
+}
+
+#mailliste {
+  border-right: 1px solid var(--farbe-rahmen);
+  display: flex;
+  flex-direction: column;
+}
+
+#lesebereich {
+  display: flex;
+  flex-direction: column;
+}
+
+.spalten-kopf {
+  padding: 10px 12px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--farbe-rahmen);
+  background: #fff;
+}
+
+.platzhalter {
+  padding: 16px 12px;
+  color: var(--farbe-text-gedimmt);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+#statusleiste {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: var(--farbe-text-gedimmt);
+  border-top: 1px solid var(--farbe-rahmen);
+  background: #fff;
+}
+
+#statusleiste .ok { color: #1a7f37; }
+#statusleiste .fehler { color: #cf222e; }

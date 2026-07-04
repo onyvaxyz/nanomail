@@ -1,0 +1,5 @@
+# Rust-Build-Artefakte
+src-tauri/target/
+
+# Tauri generiert diese Datei beim Build
+src-tauri/gen/
