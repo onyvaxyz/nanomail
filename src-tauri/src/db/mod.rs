@@ -19,6 +19,9 @@ pub struct Konto {
     pub imap_host: String,
     pub imap_port: u16,
     pub benutzer: String,
+    /// Leer = SMTP noch nicht eingerichtet (Konto aus M1-Bestand).
+    pub smtp_host: String,
+    pub smtp_port: u16,
 }
 
 /// Ein IMAP-Ordner samt Cache-Stand und Zählern für die Anzeige.
@@ -31,6 +34,8 @@ pub struct Ordner {
     pub anzeige_name: String,
     #[serde(skip)]
     pub uidvalidity: Option<u32>,
+    /// Sonderrolle laut Server (IMAP SPECIAL-USE), z. B. `gesendet`.
+    pub rolle: Option<String>,
     pub gesamt: i64,
     pub ungelesen: i64,
 }
@@ -153,38 +158,88 @@ fn migrieren(conn: &Connection) -> Result<()> {
         )
         .context("Migration 1 ausführen")?;
     }
+    if version < 2 {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE konten ADD COLUMN smtp_host TEXT NOT NULL DEFAULT '';
+            ALTER TABLE konten ADD COLUMN smtp_port INTEGER NOT NULL DEFAULT 465;
+            ALTER TABLE ordner ADD COLUMN rolle TEXT;
+            INSERT INTO schema_version (version) VALUES (2);
+            "#,
+        )
+        .context("Migration 2 ausführen")?;
+    }
     Ok(())
 }
 
 // ---------------------------------------------------------------- Konten --
 
-pub fn konto_anlegen(
-    conn: &Connection,
-    name: &str,
-    email: &str,
-    imap_host: &str,
-    imap_port: u16,
-    benutzer: &str,
-) -> Result<Konto> {
+/// Konto-Stammdaten ohne `id` (für Anlegen und Bearbeiten).
+#[derive(Debug, Clone)]
+pub struct KontoDaten {
+    pub name: String,
+    pub email: String,
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub benutzer: String,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+}
+
+pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
     conn.execute(
-        "INSERT INTO konten (name, email, imap_host, imap_port, benutzer) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![name, email, imap_host, imap_port, benutzer],
+        "INSERT INTO konten (name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            daten.name,
+            daten.email,
+            daten.imap_host,
+            daten.imap_port,
+            daten.benutzer,
+            daten.smtp_host,
+            daten.smtp_port
+        ],
     )
     .context("Konto speichern")?;
     let id = conn.last_insert_rowid();
     Ok(Konto {
         id,
-        name: name.into(),
-        email: email.into(),
-        imap_host: imap_host.into(),
-        imap_port,
-        benutzer: benutzer.into(),
+        name: daten.name.clone(),
+        email: daten.email.clone(),
+        imap_host: daten.imap_host.clone(),
+        imap_port: daten.imap_port,
+        benutzer: daten.benutzer.clone(),
+        smtp_host: daten.smtp_host.clone(),
+        smtp_port: daten.smtp_port,
     })
+}
+
+pub fn konto_aktualisieren(conn: &Connection, id: i64, daten: &KontoDaten) -> Result<()> {
+    conn.execute(
+        "UPDATE konten SET name = ?2, email = ?3, imap_host = ?4, imap_port = ?5,
+                           benutzer = ?6, smtp_host = ?7, smtp_port = ?8
+         WHERE id = ?1",
+        params![
+            id,
+            daten.name,
+            daten.email,
+            daten.imap_host,
+            daten.imap_port,
+            daten.benutzer,
+            daten.smtp_host,
+            daten.smtp_port
+        ],
+    )
+    .context("Konto aktualisieren")?;
+    Ok(())
 }
 
 pub fn konten_liste(conn: &Connection) -> Result<Vec<Konto>> {
     let mut stmt = conn
-        .prepare("SELECT id, name, email, imap_host, imap_port, benutzer FROM konten ORDER BY id")
+        .prepare(
+            "SELECT id, name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port
+             FROM konten ORDER BY id",
+        )
         .context("Konten abfragen")?;
     let konten = stmt
         .query_map([], zeile_zu_konto)
@@ -195,7 +250,8 @@ pub fn konten_liste(conn: &Connection) -> Result<Vec<Konto>> {
 
 pub fn konto_holen(conn: &Connection, id: i64) -> Result<Option<Konto>> {
     conn.query_row(
-        "SELECT id, name, email, imap_host, imap_port, benutzer FROM konten WHERE id = ?1",
+        "SELECT id, name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port
+         FROM konten WHERE id = ?1",
         params![id],
         zeile_zu_konto,
     )
@@ -211,23 +267,28 @@ fn zeile_zu_konto(zeile: &rusqlite::Row<'_>) -> rusqlite::Result<Konto> {
         imap_host: zeile.get(3)?,
         imap_port: zeile.get(4)?,
         benutzer: zeile.get(5)?,
+        smtp_host: zeile.get(6)?,
+        smtp_port: zeile.get(7)?,
     })
 }
 
 // ---------------------------------------------------------------- Ordner --
 
-/// Legt einen Ordner an oder aktualisiert den Anzeigenamen.
+/// Legt einen Ordner an oder aktualisiert Anzeigename und Rolle.
 /// Cache-Stand (uidvalidity) bleibt dabei unangetastet.
 pub fn ordner_upsert(
     conn: &Connection,
     konto_id: i64,
     name: &str,
     anzeige_name: &str,
+    rolle: Option<&str>,
 ) -> Result<i64> {
     conn.execute(
-        "INSERT INTO ordner (konto_id, name, anzeige_name) VALUES (?1, ?2, ?3)
-         ON CONFLICT(konto_id, name) DO UPDATE SET anzeige_name = excluded.anzeige_name",
-        params![konto_id, name, anzeige_name],
+        "INSERT INTO ordner (konto_id, name, anzeige_name, rolle) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(konto_id, name) DO UPDATE SET
+             anzeige_name = excluded.anzeige_name,
+             rolle = excluded.rolle",
+        params![konto_id, name, anzeige_name, rolle],
     )
     .context("Ordner speichern")?;
     let id = conn
@@ -261,7 +322,7 @@ pub fn ordner_bereinigen(conn: &Connection, konto_id: i64, server_namen: &[Strin
 pub fn ordner_liste(conn: &Connection, konto_id: i64) -> Result<Vec<Ordner>> {
     let mut stmt = conn
         .prepare(
-            "SELECT o.id, o.konto_id, o.name, o.anzeige_name, o.uidvalidity,
+            "SELECT o.id, o.konto_id, o.name, o.anzeige_name, o.uidvalidity, o.rolle,
                     (SELECT COUNT(*) FROM mails m WHERE m.ordner_id = o.id),
                     (SELECT COUNT(*) FROM mails m WHERE m.ordner_id = o.id AND m.gelesen = 0)
              FROM ordner o WHERE o.konto_id = ?1
@@ -277,7 +338,7 @@ pub fn ordner_liste(conn: &Connection, konto_id: i64) -> Result<Vec<Ordner>> {
 
 pub fn ordner_holen(conn: &Connection, id: i64) -> Result<Option<Ordner>> {
     conn.query_row(
-        "SELECT o.id, o.konto_id, o.name, o.anzeige_name, o.uidvalidity,
+        "SELECT o.id, o.konto_id, o.name, o.anzeige_name, o.uidvalidity, o.rolle,
                 (SELECT COUNT(*) FROM mails m WHERE m.ordner_id = o.id),
                 (SELECT COUNT(*) FROM mails m WHERE m.ordner_id = o.id AND m.gelesen = 0)
          FROM ordner o WHERE o.id = ?1",
@@ -295,9 +356,31 @@ fn zeile_zu_ordner(zeile: &rusqlite::Row<'_>) -> rusqlite::Result<Ordner> {
         name: zeile.get(2)?,
         anzeige_name: zeile.get(3)?,
         uidvalidity: zeile.get(4)?,
-        gesamt: zeile.get(5)?,
-        ungelesen: zeile.get(6)?,
+        rolle: zeile.get(5)?,
+        gesamt: zeile.get(6)?,
+        ungelesen: zeile.get(7)?,
     })
+}
+
+/// Findet den „Gesendet“-Ordner: bevorzugt die Server-Rolle (SPECIAL-USE),
+/// sonst über gängige Namen.
+pub fn finde_gesendet_ordner(ordner: &[Ordner]) -> Option<&Ordner> {
+    const NAMEN: [&str; 5] = [
+        "gesendet",
+        "sent",
+        "sent items",
+        "sent messages",
+        "gesendete objekte",
+    ];
+    ordner
+        .iter()
+        .find(|o| o.rolle.as_deref() == Some("gesendet"))
+        .or_else(|| {
+            ordner.iter().find(|o| {
+                let kurzname = o.name.rsplit(['/', '.']).next().unwrap_or(&o.name);
+                NAMEN.contains(&kurzname.to_lowercase().as_str())
+            })
+        })
 }
 
 /// UIDVALIDITY hat sich geändert: kompletten Ordner-Cache verwerfen.
@@ -494,16 +577,20 @@ pub fn inhalt_speichern(conn: &Connection, mail_id: i64, inhalt: &MailInhalt) ->
 mod tests {
     use super::*;
 
+    fn beispiel_daten() -> KontoDaten {
+        KontoDaten {
+            name: "Test".into(),
+            email: "test@example.org".into(),
+            imap_host: "imap.example.org".into(),
+            imap_port: 993,
+            benutzer: "test".into(),
+            smtp_host: "smtp.example.org".into(),
+            smtp_port: 465,
+        }
+    }
+
     fn beispiel_konto(conn: &Connection) -> Konto {
-        konto_anlegen(
-            conn,
-            "Test",
-            "test@example.org",
-            "imap.example.org",
-            993,
-            "test",
-        )
-        .unwrap()
+        konto_anlegen(conn, &beispiel_daten()).unwrap()
     }
 
     #[test]
@@ -513,7 +600,103 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
+    }
+
+    #[test]
+    fn migration_2_erhaelt_bestandsdaten_aus_version_1() {
+        // Nachbau einer M1-Datenbank (Schema-Version 1), dann migrieren.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE schema_version (version INTEGER NOT NULL);
+            CREATE TABLE konten (
+                id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
+                imap_host TEXT NOT NULL, imap_port INTEGER NOT NULL DEFAULT 993,
+                benutzer TEXT NOT NULL
+            );
+            CREATE TABLE ordner (
+                id INTEGER PRIMARY KEY,
+                konto_id INTEGER NOT NULL REFERENCES konten(id) ON DELETE CASCADE,
+                name TEXT NOT NULL, anzeige_name TEXT NOT NULL, uidvalidity INTEGER,
+                UNIQUE(konto_id, name)
+            );
+            CREATE TABLE mails (
+                id INTEGER PRIMARY KEY,
+                ordner_id INTEGER NOT NULL REFERENCES ordner(id) ON DELETE CASCADE,
+                uid INTEGER NOT NULL, betreff TEXT NOT NULL DEFAULT '',
+                von TEXT NOT NULL DEFAULT '', datum INTEGER,
+                gelesen INTEGER NOT NULL DEFAULT 0, hat_anhang INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(ordner_id, uid)
+            );
+            CREATE TABLE mail_bodies (
+                mail_id INTEGER PRIMARY KEY REFERENCES mails(id) ON DELETE CASCADE,
+                text TEXT NOT NULL DEFAULT '', html_bereinigt TEXT,
+                hatte_externe_bilder INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO schema_version (version) VALUES (1);
+            INSERT INTO konten (name, email, imap_host, benutzer)
+                VALUES ('Bestand', 'alt@example.org', 'imap.alt.example', 'alt');
+            INSERT INTO ordner (konto_id, name, anzeige_name) VALUES (1, 'INBOX', 'Posteingang');
+            INSERT INTO mails (ordner_id, uid, betreff) VALUES (1, 7, 'Alte Mail');
+            "#,
+        )
+        .unwrap();
+
+        migrieren(&conn).unwrap();
+
+        let konto = &konten_liste(&conn).unwrap()[0];
+        assert_eq!(konto.email, "alt@example.org");
+        assert_eq!(konto.smtp_host, ""); // leer = SMTP noch nicht eingerichtet
+        assert_eq!(konto.smtp_port, 465);
+        let ordner = &ordner_liste(&conn, konto.id).unwrap()[0];
+        assert_eq!(ordner.rolle, None);
+        assert_eq!(ordner.gesamt, 1);
+        assert_eq!(
+            mails_liste(&conn, ordner.id, 0, 10).unwrap()[0].betreff,
+            "Alte Mail"
+        );
+    }
+
+    #[test]
+    fn gesendet_ordner_wird_ueber_rolle_oder_namen_gefunden() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        ordner_upsert(&conn, konto.id, "INBOX/Sent Items", "Sent Items", None).unwrap();
+        let ordner = ordner_liste(&conn, konto.id).unwrap();
+        // Ohne Rolle greift die Namensliste (auch bei Unterordner-Pfaden).
+        assert_eq!(
+            finde_gesendet_ordner(&ordner).unwrap().name,
+            "INBOX/Sent Items"
+        );
+
+        // Mit Server-Rolle gewinnt diese.
+        ordner_upsert(&conn, konto.id, "Ausgang", "Ausgang", Some("gesendet")).unwrap();
+        let ordner = ordner_liste(&conn, konto.id).unwrap();
+        assert_eq!(finde_gesendet_ordner(&ordner).unwrap().name, "Ausgang");
+
+        // Gar kein Kandidat → None.
+        let nur_inbox: Vec<Ordner> = ordner
+            .iter()
+            .filter(|o| o.name == "INBOX")
+            .cloned()
+            .collect();
+        assert!(finde_gesendet_ordner(&nur_inbox).is_none());
+    }
+
+    #[test]
+    fn konto_aktualisieren_aendert_smtp_daten() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let mut daten = beispiel_daten();
+        daten.smtp_host = "mail.neu.example".into();
+        daten.smtp_port = 587;
+        konto_aktualisieren(&conn, konto.id, &daten).unwrap();
+        let neu = konto_holen(&conn, konto.id).unwrap().unwrap();
+        assert_eq!(neu.smtp_host, "mail.neu.example");
+        assert_eq!(neu.smtp_port, 587);
+        assert_eq!(neu.benutzer, "test");
     }
 
     #[test]
@@ -533,10 +716,10 @@ mod tests {
     fn ordner_upsert_erhaelt_cache_stand() {
         let conn = oeffnen_im_speicher().unwrap();
         let konto = beispiel_konto(&conn);
-        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang").unwrap();
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
         ordner_setze_uidvalidity(&conn, id, 42).unwrap();
         // Zweiter Upsert (z. B. nach erneutem LIST) darf den Stand nicht verlieren.
-        let id2 = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang").unwrap();
+        let id2 = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
         assert_eq!(id, id2);
         let ordner = ordner_holen(&conn, id).unwrap().unwrap();
         assert_eq!(ordner.uidvalidity, Some(42));
@@ -546,7 +729,7 @@ mod tests {
     fn cache_verwerfen_leert_mails_und_setzt_zurueck() {
         let conn = oeffnen_im_speicher().unwrap();
         let konto = beispiel_konto(&conn);
-        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang").unwrap();
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
         mails_einfuegen(
             &conn,
             id,
@@ -570,7 +753,7 @@ mod tests {
     fn mail_liste_neueste_zuerst_und_paginiert() {
         let conn = oeffnen_im_speicher().unwrap();
         let konto = beispiel_konto(&conn);
-        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang").unwrap();
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
         let koepfe: Vec<NeuerMailKopf> = (1..=5)
             .map(|i| NeuerMailKopf {
                 uid: i,
@@ -598,7 +781,7 @@ mod tests {
     fn flags_und_loeschungen_wirken_auf_cache() {
         let conn = oeffnen_im_speicher().unwrap();
         let konto = beispiel_konto(&conn);
-        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang").unwrap();
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
         mails_einfuegen(
             &conn,
             id,
@@ -632,7 +815,7 @@ mod tests {
     fn inhalt_speichern_und_lesen() {
         let conn = oeffnen_im_speicher().unwrap();
         let konto = beispiel_konto(&conn);
-        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang").unwrap();
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
         mails_einfuegen(
             &conn,
             id,

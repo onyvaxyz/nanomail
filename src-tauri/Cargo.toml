@@ -21,7 +21,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 directories = "6"
-tokio = { version = "1.52.3", features = ["rt-multi-thread", "net", "io-util", "macros", "time"] }
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "net", "io-util", "macros", "time", "fs"] }
 async-imap = { version = "0.11.2", default-features = false, features = ["runtime-tokio"] }
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring", "logging", "tls12"] }
 rustls-pki-types = "1.15.0"
@@ -37,6 +37,10 @@ futures = "0.3.32"
 rusqlite = { version = "0.37", features = ["bundled"] }
 keyring-core = "1.0.0"
 zbus-secret-service-keyring-store = { version = "1.0.0", features = ["rt-tokio-crypto-rust"] }
+mime_guess = "2.0.5"
+tauri-plugin-dialog = "2.7.1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+lettre = { version = "0.11.22", default-features = false, features = ["builder", "smtp-transport", "hostname", "tokio1", "tokio1-rustls", "rustls-no-provider", "webpki-roots"] }
 
 [profile.release]
 strip = true

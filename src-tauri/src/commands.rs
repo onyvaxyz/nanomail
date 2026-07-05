@@ -16,6 +16,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::db::{self, Konto, MailKopf, NeuerMailKopf, Ordner};
 use crate::imap::verbindung::ImapVerbindung;
 use crate::imap::{parsen, sync};
+use crate::smtp::{nachricht, versand};
 use crate::{anzeige, schluesselbund};
 
 /// Kopfzeilen-Batchgröße beim Sync — klein genug, dass die UI früh
@@ -45,13 +46,33 @@ fn mit_db<T>(
     aktion(&conn)
 }
 
+/// Markiert eine Meldung als „direkt für den Nutzer bestimmt“ —
+/// `als_meldung` reicht sie unverändert durch.
+fn nutzerfehler(text: impl std::fmt::Display) -> anyhow::Error {
+    anyhow!("NUTZERFEHLER:{text}")
+}
+
 /// Übersetzt technische Fehler in eine verständliche deutsche Meldung
 /// und protokolliert die Details.
 fn als_meldung(fehler: &anyhow::Error) -> String {
     let kette = format!("{fehler:#}");
     tracing::error!("{kette}");
-    if kette.contains("Anmeldung abgelehnt") {
-        "Anmeldung fehlgeschlagen — bitte Benutzername und (App-)Passwort prüfen.".into()
+    if let Some(pos) = kette.find("NUTZERFEHLER:") {
+        return kette[pos + "NUTZERFEHLER:".len()..].trim().to_string();
+    }
+    if let Some(pos) = kette.find("Anmeldung abgelehnt:") {
+        // Die konkrete Serverantwort hilft bei der Diagnose (enthält nie
+        // Zugangsdaten — der Server nennt nur den Ablehnungsgrund).
+        let detail: String = kette[pos + "Anmeldung abgelehnt:".len()..]
+            .trim()
+            .chars()
+            .take(160)
+            .collect();
+        format!(
+            "Anmeldung fehlgeschlagen. Bitte prüfen: Benutzername muss meist die \
+             vollständige E-Mail-Adresse sein; bei aktivierter Zwei-Faktor-Anmeldung \
+             ist ein App-Passwort zwingend. Serverantwort: „{detail}“"
+        )
     } else if kette.contains("nicht erreichbar") || kette.contains("TLS-Verbindung") {
         "Server nicht erreichbar — bitte Serveradresse, Port und Internetverbindung prüfen.".into()
     } else if kette.contains("Schlüsselbund") {
@@ -120,49 +141,91 @@ fn melde_sync(app: &AppHandle, konto_id: i64, status: &'static str, meldung: Opt
 
 // ---------------------------------------------------------------- Konten --
 
+/// Eingaben des Konto-Dialogs (Anlegen und Bearbeiten).
+#[derive(serde::Deserialize)]
+pub struct KontoFormular {
+    pub name: String,
+    pub email: String,
+    pub benutzer: String,
+    /// Beim Bearbeiten leer lassen = Passwort unverändert.
+    pub passwort: String,
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+}
+
+impl KontoFormular {
+    fn bereinigt(mut self) -> Result<Self> {
+        self.name = self.name.trim().to_string();
+        self.email = self.email.trim().to_string();
+        self.benutzer = self.benutzer.trim().to_string();
+        self.imap_host = self.imap_host.trim().to_string();
+        self.smtp_host = self.smtp_host.trim().to_string();
+        if self.name.is_empty()
+            || self.benutzer.is_empty()
+            || self.imap_host.is_empty()
+            || self.smtp_host.is_empty()
+        {
+            anyhow::bail!("Anmeldung abgelehnt: Pflichtfelder fehlen");
+        }
+        Ok(self)
+    }
+
+    fn als_daten(&self) -> db::KontoDaten {
+        db::KontoDaten {
+            name: self.name.clone(),
+            email: self.email.clone(),
+            imap_host: self.imap_host.clone(),
+            imap_port: self.imap_port,
+            benutzer: self.benutzer.clone(),
+            smtp_host: self.smtp_host.clone(),
+            smtp_port: self.smtp_port,
+        }
+    }
+}
+
+/// Prüft IMAP- und SMTP-Zugangsdaten, bevor irgendetwas gespeichert wird.
+async fn zugangsdaten_pruefen(formular: &KontoFormular, passwort: &str) -> Result<()> {
+    let probe = ImapVerbindung::verbinden(
+        &formular.imap_host,
+        formular.imap_port,
+        &formular.benutzer,
+        passwort,
+    )
+    .await?;
+    probe.abmelden().await;
+    crate::smtp::versand::probe(
+        &formular.smtp_host,
+        formular.smtp_port,
+        &formular.benutzer,
+        passwort,
+    )
+    .await
+}
+
 #[tauri::command]
 pub async fn konto_anlegen(
     zustand: State<'_, AppZustand>,
-    name: String,
-    email: String,
-    benutzer: String,
-    passwort: String,
-    imap_host: String,
-    imap_port: u16,
+    formular: KontoFormular,
 ) -> Result<Konto, String> {
-    konto_anlegen_intern(
-        &zustand, name, email, benutzer, passwort, imap_host, imap_port,
-    )
-    .await
-    .map_err(|f| als_meldung(&f))
+    konto_anlegen_intern(&zustand, formular)
+        .await
+        .map_err(|f| als_meldung(&f))
 }
 
-async fn konto_anlegen_intern(
-    zustand: &AppZustand,
-    name: String,
-    email: String,
-    benutzer: String,
-    passwort: String,
-    imap_host: String,
-    imap_port: u16,
-) -> Result<Konto> {
-    let name = name.trim().to_string();
-    let email = email.trim().to_string();
-    let benutzer = benutzer.trim().to_string();
-    let imap_host = imap_host.trim().to_string();
-    if name.is_empty() || benutzer.is_empty() || passwort.is_empty() || imap_host.is_empty() {
-        anyhow::bail!("Anmeldung abgelehnt: Pflichtfelder fehlen");
+async fn konto_anlegen_intern(zustand: &AppZustand, formular: KontoFormular) -> Result<Konto> {
+    let formular = formular.bereinigt()?;
+    if formular.passwort.is_empty() {
+        anyhow::bail!("Anmeldung abgelehnt: Passwort fehlt");
     }
-
-    // Erst prüfen, ob die Zugangsdaten stimmen — dann speichern.
-    let probe = ImapVerbindung::verbinden(&imap_host, imap_port, &benutzer, &passwort).await?;
-    probe.abmelden().await;
+    zugangsdaten_pruefen(&formular, &formular.passwort).await?;
 
     let konto = mit_db(zustand, |conn| {
-        db::konto_anlegen(conn, &name, &email, &imap_host, imap_port, &benutzer)
+        db::konto_anlegen(conn, &formular.als_daten())
     })?;
 
-    if let Err(fehler) = passwort_speichern(konto.id, passwort).await {
+    if let Err(fehler) = passwort_speichern(konto.id, formular.passwort).await {
         // Ohne Passwort im Schlüsselbund ist das Konto nutzlos → zurückrollen.
         let _ = mit_db(zustand, |conn| {
             conn.execute("DELETE FROM konten WHERE id = ?1", [konto.id])
@@ -173,6 +236,43 @@ async fn konto_anlegen_intern(
     }
     tracing::info!(konto_id = konto.id, "Konto angelegt");
     Ok(konto)
+}
+
+#[tauri::command]
+pub async fn konto_bearbeiten(
+    zustand: State<'_, AppZustand>,
+    konto_id: i64,
+    formular: KontoFormular,
+) -> Result<Konto, String> {
+    konto_bearbeiten_intern(&zustand, konto_id, formular)
+        .await
+        .map_err(|f| als_meldung(&f))
+}
+
+async fn konto_bearbeiten_intern(
+    zustand: &AppZustand,
+    konto_id: i64,
+    formular: KontoFormular,
+) -> Result<Konto> {
+    let formular = formular.bereinigt()?;
+    konto_laden(zustand, konto_id)?; // muss existieren
+
+    // Leeres Passwort = bestehendes weiterverwenden.
+    let passwort = if formular.passwort.is_empty() {
+        passwort_holen(konto_id).await?
+    } else {
+        formular.passwort.clone()
+    };
+    zugangsdaten_pruefen(&formular, &passwort).await?;
+
+    mit_db(zustand, |conn| {
+        db::konto_aktualisieren(conn, konto_id, &formular.als_daten())
+    })?;
+    if !formular.passwort.is_empty() {
+        passwort_speichern(konto_id, formular.passwort).await?;
+    }
+    tracing::info!(konto_id, "Konto aktualisiert");
+    konto_laden(zustand, konto_id)
 }
 
 #[tauri::command]
@@ -237,7 +337,13 @@ async fn konto_synchronisieren(app: &AppHandle, zustand: &AppZustand, konto_id: 
         let namen: Vec<String> = server_ordner.iter().map(|o| o.name.clone()).collect();
         db::ordner_bereinigen(conn, konto_id, &namen)?;
         for eintrag in &server_ordner {
-            db::ordner_upsert(conn, konto_id, &eintrag.name, &eintrag.anzeige_name)?;
+            db::ordner_upsert(
+                conn,
+                konto_id,
+                &eintrag.name,
+                &eintrag.anzeige_name,
+                eintrag.rolle.as_deref(),
+            )?;
         }
         db::ordner_liste(conn, konto_id)
     })?;
@@ -360,11 +466,7 @@ pub async fn mail_lesen(
 }
 
 async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAnsicht> {
-    let mail = mit_db(zustand, |conn| db::mail_holen(conn, mail_id))?
-        .ok_or_else(|| anyhow!("Mail {mail_id} ist nicht (mehr) im Cache"))?;
-    let ordner = mit_db(zustand, |conn| db::ordner_holen(conn, mail.ordner_id))?
-        .ok_or_else(|| anyhow!("Ordner der Mail ist nicht (mehr) vorhanden"))?;
-    let konto = konto_laden(zustand, ordner.konto_id)?;
+    let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
 
     let (inhalt, hat_anhang, server_flag_gesetzt) =
         match mit_db(zustand, |conn| db::inhalt_holen(conn, mail_id))? {
@@ -445,21 +547,32 @@ pub async fn mail_bilder_laden(
         .map_err(|f| als_meldung(&f))
 }
 
-/// Lädt die externen Bilder einer Mail herunter und liefert das HTML mit
-/// eingebetteten `data:`-URIs. Wird bewusst nicht gecacht: Der Nutzer
-/// entscheidet pro Anzeige, ob externe Inhalte geladen werden.
-async fn mail_bilder_laden_intern(zustand: &AppZustand, mail_id: i64) -> Result<String> {
+/// Mail + Ordner + Konto zu einer Mail-ID aus dem Cache laden.
+fn mail_kontext(zustand: &AppZustand, mail_id: i64) -> Result<(MailKopf, Ordner, Konto)> {
     let mail = mit_db(zustand, |conn| db::mail_holen(conn, mail_id))?
         .ok_or_else(|| anyhow!("Mail {mail_id} ist nicht (mehr) im Cache"))?;
     let ordner = mit_db(zustand, |conn| db::ordner_holen(conn, mail.ordner_id))?
         .ok_or_else(|| anyhow!("Ordner der Mail ist nicht (mehr) vorhanden"))?;
     let konto = konto_laden(zustand, ordner.konto_id)?;
+    Ok((mail, ordner, konto))
+}
 
-    // Original frisch vom Server holen — unbereinigtes HTML wird nie gecacht.
-    let mut verbindung = verbindung_zum_konto(&konto).await?;
-    verbindung.ordner_waehlen(&ordner.name).await?;
-    let roh = verbindung.nachricht_laden(mail.uid).await?;
+/// Holt die Original-Rohbytes einer Mail frisch vom Server.
+async fn roh_nachricht_laden(konto: &Konto, ordner_name: &str, uid: u32) -> Result<Vec<u8>> {
+    let mut verbindung = verbindung_zum_konto(konto).await?;
+    verbindung.ordner_waehlen(ordner_name).await?;
+    let roh = verbindung.nachricht_laden(uid).await?;
     verbindung.abmelden().await;
+    Ok(roh)
+}
+
+/// Lädt die externen Bilder einer Mail herunter und liefert das HTML mit
+/// eingebetteten `data:`-URIs. Wird bewusst nicht gecacht: Der Nutzer
+/// entscheidet pro Anzeige, ob externe Inhalte geladen werden.
+async fn mail_bilder_laden_intern(zustand: &AppZustand, mail_id: i64) -> Result<String> {
+    let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
+    // Original frisch vom Server holen — unbereinigtes HTML wird nie gecacht.
+    let roh = roh_nachricht_laden(&konto, &ordner.name, mail.uid).await?;
 
     let urls = anzeige::externe_bild_urls(&roh);
     let geladene = bilder_herunterladen(&urls).await;
@@ -523,4 +636,223 @@ async fn bild_holen(client: &reqwest::Client, url: &str) -> Result<String> {
     }
     let daten = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{mime};base64,{daten}"))
+}
+
+// ----------------------------------------------------------------- Senden --
+
+/// Eingaben des Verfassen-Dialogs.
+#[derive(serde::Deserialize)]
+pub struct SendeFormular {
+    /// Empfänger, mehrere durch Komma/Semikolon getrennt.
+    pub an: String,
+    pub cc: String,
+    pub betreff: String,
+    pub text: String,
+    /// Dateipfade der Anhänge (aus dem Datei-Dialog).
+    pub anhaenge: Vec<String>,
+    /// Mail-ID des Originals bei Antworten/Weiterleiten.
+    pub antwort_auf: Option<i64>,
+    pub weiterleiten: bool,
+}
+
+/// Vorbelegung für den Verfassen-Dialog (Antworten/Weiterleiten).
+#[derive(Serialize)]
+pub struct Vorlage {
+    pub an: String,
+    pub betreff: String,
+    pub text: String,
+}
+
+/// Gesamtlimit für Anhänge (viele Server lehnen mehr ab).
+const MAX_ANHANG_BYTES: usize = 25 * 1024 * 1024;
+
+#[tauri::command]
+pub async fn antwort_vorbereiten(
+    zustand: State<'_, AppZustand>,
+    mail_id: i64,
+    weiterleiten: bool,
+) -> Result<Vorlage, String> {
+    antwort_vorbereiten_intern(&zustand, mail_id, weiterleiten)
+        .await
+        .map_err(|f| als_meldung(&f))
+}
+
+async fn antwort_vorbereiten_intern(
+    zustand: &AppZustand,
+    mail_id: i64,
+    weiterleiten: bool,
+) -> Result<Vorlage> {
+    let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
+    let roh = roh_nachricht_laden(&konto, &ordner.name, mail.uid).await?;
+    let daten = parsen::parse_fuer_antwort(&roh);
+
+    if weiterleiten {
+        Ok(Vorlage {
+            an: String::new(),
+            betreff: nachricht::weiterleit_betreff(&daten.betreff),
+            text: nachricht::weiterleit_block(
+                &daten.von_anzeige,
+                daten.datum,
+                &daten.betreff,
+                &daten.an_anzeige,
+                &daten.text,
+            ),
+        })
+    } else {
+        Ok(Vorlage {
+            an: daten.antwort_an,
+            betreff: nachricht::antwort_betreff(&daten.betreff),
+            text: nachricht::zitat_block(daten.datum, &daten.von_anzeige, &daten.text),
+        })
+    }
+}
+
+#[tauri::command]
+pub async fn mail_senden(
+    app: AppHandle,
+    zustand: State<'_, AppZustand>,
+    konto_id: i64,
+    formular: SendeFormular,
+) -> Result<String, String> {
+    mail_senden_intern(&app, &zustand, konto_id, formular)
+        .await
+        .map_err(|f| als_meldung(&f))
+}
+
+async fn mail_senden_intern(
+    app: &AppHandle,
+    zustand: &AppZustand,
+    konto_id: i64,
+    formular: SendeFormular,
+) -> Result<String> {
+    let konto = konto_laden(zustand, konto_id)?;
+    if konto.smtp_host.is_empty() {
+        return Err(nutzerfehler(
+            "Für dieses Konto ist noch kein Versand-Server (SMTP) hinterlegt — \
+             bitte über „Konto bearbeiten“ ergänzen.",
+        ));
+    }
+
+    let an = adressliste(&formular.an);
+    let cc = adressliste(&formular.cc);
+    if an.is_empty() {
+        return Err(nutzerfehler("Bitte mindestens einen Empfänger angeben."));
+    }
+
+    // Anhänge von der Platte lesen (Pfade kommen aus dem Datei-Dialog).
+    let mut anhaenge = Vec::new();
+    let mut gesamt = 0usize;
+    for pfad in &formular.anhaenge {
+        let daten = tokio::fs::read(pfad)
+            .await
+            .map_err(|f| nutzerfehler(format!("Anhang „{pfad}“ ließ sich nicht lesen: {f}")))?;
+        gesamt += daten.len();
+        anhaenge.push(nachricht::Anhang {
+            dateiname: std::path::Path::new(pfad)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "anhang.bin".to_string()),
+            mime: mime_guess::from_path(pfad)
+                .first_or_octet_stream()
+                .to_string(),
+            daten,
+        });
+    }
+
+    // Bezug zum Original (Antwort: Threading-Header; Weiterleiten: Anhänge).
+    let mut antwort = None;
+    if let Some(original_id) = formular.antwort_auf {
+        let (original, original_ordner, original_konto) = mail_kontext(zustand, original_id)?;
+        let roh = roh_nachricht_laden(&original_konto, &original_ordner.name, original.uid).await?;
+        if formular.weiterleiten {
+            anhaenge.extend(nachricht::anhaenge_extrahieren(&roh));
+        } else {
+            let daten = parsen::parse_fuer_antwort(&roh);
+            antwort = Some(nachricht::AntwortKontext {
+                message_id: daten.message_id,
+                references: daten.references,
+            });
+        }
+    }
+
+    gesamt += anhaenge.iter().map(|a| a.daten.len()).sum::<usize>();
+    if gesamt > MAX_ANHANG_BYTES {
+        return Err(nutzerfehler(
+            "Die Anhänge sind zusammen größer als 25 MB — das lehnen die meisten \
+             Mail-Server ab. Bitte verkleinern.",
+        ));
+    }
+
+    let neue = nachricht::NeueNachricht {
+        von_name: String::new(), // M2: schlichte Absenderadresse, Name kommt mit Signaturen
+        von_adresse: konto.email.clone(),
+        an,
+        cc,
+        betreff: formular.betreff.trim().to_string(),
+        text: formular.text.clone(),
+        anhaenge,
+        antwort,
+    };
+    let (fertig, rohbytes) =
+        nachricht::baue_nachricht(&neue).map_err(|f| nutzerfehler(f.to_string()))?;
+
+    // Versand — schlägt das fehl, wird nichts abgelegt.
+    let passwort = passwort_holen(konto.id).await?;
+    versand::senden(
+        &konto.smtp_host,
+        konto.smtp_port,
+        &konto.benutzer,
+        &passwort,
+        fertig,
+    )
+    .await?;
+
+    // Kopie in den „Gesendet“-Ordner (Fehler hier machen den Versand nicht kaputt).
+    let alle_ordner = mit_db(zustand, |conn| db::ordner_liste(conn, konto.id))?;
+    match db::finde_gesendet_ordner(&alle_ordner) {
+        Some(gesendet) => match sent_ablage(app, zustand, &konto, gesendet, &rohbytes).await {
+            Ok(()) => Ok("Mail gesendet.".to_string()),
+            Err(fehler) => {
+                tracing::error!("Gesendet-Ablage fehlgeschlagen: {fehler:#}");
+                Ok("Mail gesendet — aber die Kopie im „Gesendet“-Ordner \
+                    konnte nicht abgelegt werden."
+                    .to_string())
+            }
+        },
+        None => {
+            tracing::warn!(konto_id, "Kein Gesendet-Ordner gefunden");
+            Ok(
+                "Mail gesendet — es wurde aber kein „Gesendet“-Ordner gefunden, \
+                daher liegt dort keine Kopie."
+                    .to_string(),
+            )
+        }
+    }
+}
+
+async fn sent_ablage(
+    app: &AppHandle,
+    zustand: &AppZustand,
+    konto: &Konto,
+    gesendet: &Ordner,
+    rohbytes: &[u8],
+) -> Result<()> {
+    let mut verbindung = verbindung_zum_konto(konto).await?;
+    verbindung
+        .nachricht_ablegen(&gesendet.name, rohbytes)
+        .await?;
+    // Ordner direkt abgleichen, damit die Kopie sofort in der App auftaucht.
+    ordner_synchronisieren(app, zustand, &mut verbindung, gesendet).await?;
+    verbindung.abmelden().await;
+    Ok(())
+}
+
+/// Zerlegt „a@b.c, d@e.f; g@h.i“ in einzelne Adressen.
+fn adressliste(eingabe: &str) -> Vec<String> {
+    eingabe
+        .split([',', ';'])
+        .map(str::trim)
+        .filter(|teil| !teil.is_empty())
+        .map(str::to_string)
+        .collect()
 }

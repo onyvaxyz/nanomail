@@ -1,4 +1,10 @@
 //! Mail-Versand über SMTP mit `lettre` (ab Meilenstein M2).
 //!
-//! Zuständig für: Verfassen/Antworten/Weiterleiten, Anhänge, Signaturen
-//! sowie das Ablegen gesendeter Mails im „Gesendet“-Ordner via IMAP APPEND.
+//! - `nachricht`: reiner, unit-getesteter Nachrichtenbau (Re:/Fwd:,
+//!   Zitat, Threading-Header, Anhänge)
+//! - `versand`: dünne TLS-Versandschicht (465 implizit, sonst STARTTLS)
+//!
+//! Die Ablage im „Gesendet“-Ordner läuft über IMAP APPEND (`imap/`).
+
+pub mod nachricht;
+pub mod versand;

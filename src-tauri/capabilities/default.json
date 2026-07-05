@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Standard-Rechte des Hauptfensters: Core-APIs (u. a. Events) für die Kommunikation mit dem Backend.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:allow-open"]
 }

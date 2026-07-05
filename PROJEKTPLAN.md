@@ -11,8 +11,8 @@ Stand: 2026-07-04
 | Nr. | Meilenstein | Inhalt | Status |
 |---|---|---|---|
 | M0 | Projektgerüst | Tauri-App-Skelett, Grundlayout, Logging, CI, `.deb`-Build, Doku/Skills | 🟢 Freigegeben |
-| M1 | Erstes Konto lesend | Infomaniak-IMAP: Ordner & Mails anzeigen (HTML bereinigt, Bilder blockiert), SQLite-Cache, Passwort im Keyring | 🟡 Wartet auf Freigabe |
-| M2 | Senden | Verfassen, Antworten, Weiterleiten, Anhänge, Ablage im „Gesendet“-Ordner | ⚪ Offen |
+| M1 | Erstes Konto lesend | IMAP: Ordner & Mails anzeigen (HTML bereinigt, Bilder blockiert), SQLite-Cache, Passwort im Keyring | 🟢 Freigegeben |
+| M2 | Senden | Verfassen, Antworten, Weiterleiten, Anhänge, Ablage im „Gesendet“-Ordner | 🟡 Wartet auf Freigabe |
 | M3 | Multi-Account | Die beiden OpenXchange-Konten (generische Kontoverwaltung) | ⚪ Offen |
 | M4 | Kalender lesend | 3× Nextcloud-CalDAV, Wiederholungstermine, Zeitzonen, Offline-Cache | ⚪ Offen |
 | M5 | Kalender schreibend *(optional)* | Termine erstellen/bearbeiten/löschen, Konfliktbehandlung | ⚪ Offen |
@@ -40,33 +40,42 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 | 2026-07-04 | M1: Mail gilt als gelesen, sobald sie geöffnet wird (Flag wird zum Server übertragen) |
 | 2026-07-04 | M1: „Bilder laden“ lädt externe Bilder über das Backend und bettet sie ein — die Original-Mail wird dafür frisch vom Server geholt, unbereinigtes HTML wird nie gespeichert |
 | 2026-07-04 | M1: Neue Mails per „Aktualisieren“-Knopf und Sync beim Start; automatisches Live-Update (IMAP IDLE) kommt mit M3 |
+| 2026-07-05 | M1 mit OpenXchange-Konto abgenommen; Infomaniak-Anmeldung scheiterte serverseitig → Fehlermeldung zeigt jetzt die Serverantwort + Hinweis auf App-Passwort/vollständige Adresse |
+| 2026-07-05 | M2: Nur-Text-Mails verfassen (HTML-Verfassen, Entwürfe, Signaturen bewusst später) |
+| 2026-07-05 | M2: Weiterleiten übernimmt die Original-Anhänge automatisch |
+| 2026-07-05 | M2: „Gesendet“-Ordner wird über die Server-Kennzeichnung erkannt (Fallback: gängige Namen) |
 
-## So testest du den aktuellen Stand (M1)
+## So testest du den aktuellen Stand (M2)
 
 1. Bauen und installieren wie gehabt:
    `cd src-tauri && cargo tauri build`, dann
    `sudo dpkg -i src-tauri/target/release/bundle/deb/Nanomail_0.1.0_amd64.deb`
-2. „Nanomail“ starten → ein Dialog fragt nach deinem Mail-Konto.
-   Für Infomaniak sind Server (`mail.infomaniak.com`) und Port (993)
-   vorausgefüllt. **Empfehlung:** In deinem Infomaniak-Konto ein
-   App-Passwort erstellen und das hier verwenden.
-3. Nach „Verbindung prüfen & speichern“ gleicht die App dein Postfach ab.
-   Erwartung:
-   - Links erscheinen deine Ordner mit Ungelesen-Zählern
-   - In der Mitte die Mails (neueste oben, ungelesene fett)
-   - Klick auf eine Mail zeigt sie rechts an und markiert sie als gelesen
-     (auch am Handy/Webmail sichtbar)
-   - Bei HTML-Mails mit externen Bildern erscheint eine gelbe Leiste
-     „Externe Bilder wurden blockiert“ mit „Bilder laden“-Knopf
-4. Das Passwort liegt danach im Ubuntu-Schlüsselbund
-   (nachprüfbar mit dem Programm „Passwörter und Verschlüsselung“,
-   Eintrag „nanomail“) — nirgendwo sonst.
+2. **Dein bestehendes Konto bleibt erhalten** (die Datenbank wird beim
+   ersten Start automatisch erweitert). Neu: Klick auf das ⚙-Zahnrad
+   neben dem Kontonamen öffnet „Konto bearbeiten“ — dort einmalig den
+   **Versand-Server (SMTP)** eintragen (bei OpenXchange/Infomaniak meist
+   derselbe Servername, Port 465). Passwortfeld leer lassen = Passwort
+   bleibt unverändert.
+3. **Senden testen** (am einfachsten an dich selbst):
+   - „✉ Verfassen“ → Mail an deine eigene Adresse → Senden.
+     Erwartung: Status „✓ Mail gesendet.“, die Mail kommt an und liegt
+     zusätzlich im „Gesendet“-Ordner.
+   - Eine empfangene Mail öffnen → „↩ Antworten“: Empfänger und
+     „Re:“-Betreff sind vorausgefüllt, darunter das Zitat.
+   - Eine Mail mit Anhang öffnen → „↪ Weiterleiten“: Der Anhang wird
+     automatisch mitgeschickt.
+   - „📎 Datei anhängen“ im Verfassen-Fenster hängt eigene Dateien an.
+4. **Infomaniak nochmal probieren:** Die Fehlermeldung zeigt jetzt die
+   konkrete Serverantwort. Benutzername = vollständige E-Mail-Adresse;
+   bei aktivierter Zwei-Faktor-Anmeldung im Infomaniak-Manager unter
+   Sicherheit → Anwendungspasswörter ein App-Passwort erstellen.
 5. Bei Problemen: Log-Datei unter `~/.local/share/nanomail/logs/` mitschicken.
 
-Wenn das passt: M1 freigeben → M2 (Senden) beginnt.
+Wenn das passt: M2 freigeben → M3 (die beiden OpenXchange-Konten
+gleichzeitig, automatisches Live-Update) beginnt.
 
-## Was in M1 bewusst noch fehlt
+## Was in M2 bewusst noch fehlt
 
-Senden/Antworten (M2), weitere Konten (M3), automatisches Live-Update
-neuer Mails (M3), Mail-Suche, Löschen/Verschieben, Anhänge öffnen
-(nur 📎-Kennzeichnung). Kalender ab M4.
+Mehrere Konten gleichzeitig + Live-Update neuer Mails (M3), HTML-Mails
+verfassen, Entwürfe, Signaturen, Mail-Suche, Löschen/Verschieben,
+Anhänge aus Mails öffnen/speichern. Kalender ab M4.

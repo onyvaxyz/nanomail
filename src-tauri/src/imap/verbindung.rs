@@ -23,6 +23,8 @@ type Session = async_imap::Session<TlsStream<TcpStream>>;
 pub struct OrdnerEintrag {
     pub name: String,
     pub anzeige_name: String,
+    /// Sonderrolle aus SPECIAL-USE (RFC 6154), z. B. `gesendet`.
+    pub rolle: Option<String>,
 }
 
 /// Zustand eines Ordners nach SELECT.
@@ -91,12 +93,32 @@ impl ImapVerbindung {
             } else {
                 letzter_teil
             };
+            let rolle = name.attributes().iter().find_map(|attribut| {
+                Some(match attribut {
+                    NameAttribute::Sent => "gesendet",
+                    NameAttribute::Drafts => "entwuerfe",
+                    NameAttribute::Trash => "papierkorb",
+                    NameAttribute::Junk => "spam",
+                    NameAttribute::Archive => "archiv",
+                    _ => return None,
+                })
+            });
             ordner.push(OrdnerEintrag {
                 name: voller_name,
                 anzeige_name,
+                rolle: rolle.map(str::to_string),
             });
         }
         Ok(ordner)
+    }
+
+    /// Legt eine Nachricht (Rohbytes) als gelesen in einem Ordner ab —
+    /// für die „Gesendet“-Ablage nach dem SMTP-Versand.
+    pub async fn nachricht_ablegen(&mut self, ordner: &str, roh: &[u8]) -> Result<()> {
+        self.session
+            .append(ordner, Some("(\\Seen)"), None, roh)
+            .await
+            .with_context(|| format!("Nachricht in „{ordner}“ ablegen (APPEND)"))
     }
 
     /// Wählt einen Ordner aus; alle folgenden UID-Operationen beziehen

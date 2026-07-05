@@ -1,10 +1,11 @@
-// Nanomail — Frontend-Logik (M1).
+// Nanomail — Frontend-Logik (M2).
 // Reine Darstellung: alle Daten kommen fertig aufbereitet aus dem
 // Rust-Backend (Tauri-Commands/-Events). Kein Parsing, keine
 // Sync-Entscheidungen, keine Zugangsdaten in dieser Datei.
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
+const dateiDialog = window.__TAURI__.dialog.open;
 
 const SEITENGROESSE = 50;
 
@@ -17,6 +18,8 @@ const zustand = {
   offset: 0,
   alleGeladen: false,
   laedtNach: false,
+  kontoDialogModus: "anlegen", // "anlegen" | "bearbeiten"
+  verfassen: { anhaenge: [], antwortAuf: null, weiterleiten: false },
 };
 
 // ---------------------------------------------------------- DOM-Kürzel --
@@ -45,11 +48,11 @@ async function start() {
   try {
     const konten = await invoke("konten_liste");
     if (konten.length === 0) {
-      el("konto-dialog").showModal();
+      kontoDialogOeffnen("anlegen");
       status("Bitte zuerst ein Mail-Konto einrichten.");
       return;
     }
-    zustand.konto = konten[0]; // M1: genau ein Konto
+    zustand.konto = konten[0]; // M2: genau ein Konto
     await kontoAnzeigen();
     synchronisieren();
   } catch (fehler) {
@@ -59,8 +62,8 @@ async function start() {
 
 async function kontoAnzeigen() {
   zeige("aktualisieren-knopf", true);
+  zeige("verfassen-knopf", true);
   await ordnerNeuLaden();
-  // Posteingang (erster Ordner) automatisch öffnen
   if (!zustand.aktiverOrdnerId && zustand.ordner.length > 0) {
     ordnerOeffnen(zustand.ordner[0].id);
   }
@@ -73,10 +76,18 @@ async function ordnerNeuLaden() {
   const bereich = el("konto-bereich");
   bereich.innerHTML = "";
 
-  const kontoName = document.createElement("div");
+  const kopfzeile = document.createElement("div");
+  kopfzeile.className = "konto-zeile";
+  const kontoName = document.createElement("span");
   kontoName.className = "konto-name";
   kontoName.textContent = zustand.konto.name;
-  bereich.appendChild(kontoName);
+  const bearbeiten = document.createElement("button");
+  bearbeiten.className = "zahnrad-knopf";
+  bearbeiten.title = "Konto bearbeiten";
+  bearbeiten.textContent = "⚙";
+  bearbeiten.addEventListener("click", () => kontoDialogOeffnen("bearbeiten"));
+  kopfzeile.append(kontoName, bearbeiten);
+  bereich.appendChild(kopfzeile);
 
   const liste = document.createElement("ul");
   liste.className = "ordner-liste";
@@ -124,11 +135,12 @@ async function naechsteSeiteLaden() {
       limit: SEITENGROESSE,
     });
     if (mails.length < SEITENGROESSE) zustand.alleGeladen = true;
-    zustand.offset += mails.length;
 
     const behaelter = el("mail-eintraege");
+    if (zustand.offset === 0) behaelter.innerHTML = "";
+    zustand.offset += mails.length;
+
     if (zustand.offset === 0 && mails.length === 0) {
-      behaelter.innerHTML = "";
       const leer = document.createElement("div");
       leer.className = "platzhalter";
       leer.textContent = "Dieser Ordner ist leer.";
@@ -170,7 +182,6 @@ function mailEintrag(mail) {
 }
 
 async function listeNeuLaden() {
-  // Liste von vorn neu aufbauen (z. B. nach Sync-Ereignis)
   const anzahl = Math.max(zustand.offset, SEITENGROESSE);
   zustand.offset = 0;
   zustand.alleGeladen = false;
@@ -201,13 +212,13 @@ async function mailOeffnen(mailId) {
     zeige("lese-platzhalter", false);
     el("mail-titel").textContent = ansicht.kopf.betreff || "(kein Betreff)";
 
-    const meta = el("mail-meta");
+    const meta = el("mail-meta-text");
     meta.innerHTML = "";
     const von = document.createElement("span");
     von.textContent = `Von: ${ansicht.kopf.von || "(unbekannt)"}`;
     const datum = document.createElement("span");
     datum.textContent = ansicht.kopf.datum
-      ? datumFormat.format(new Date(ansicht.kopf.datum * 1000))
+      ? " — " + datumFormat.format(new Date(ansicht.kopf.datum * 1000))
       : "";
     meta.append(von, datum);
     zeige("mail-meta", true);
@@ -223,7 +234,6 @@ async function mailOeffnen(mailId) {
       zeige("mail-text", true);
     }
 
-    // Gelesen-Status in Liste und Ordner-Zählern nachziehen
     const eintrag = document.querySelector(`.mail-eintrag[data-mail-id="${mailId}"]`);
     if (eintrag) eintrag.classList.remove("ungelesen");
     ordnerNeuLaden();
@@ -236,8 +246,6 @@ async function mailOeffnen(mailId) {
 function htmlAnzeigen(html) {
   zeige("mail-text", false);
   const rahmen = el("mail-html");
-  // Basis-Stil in den Sandbox-Rahmen einbetten; das HTML selbst ist
-  // bereits vom Backend bereinigt.
   rahmen.srcdoc =
     "<style>body{font-family:system-ui,sans-serif;font-size:14px;margin:12px;" +
     "overflow-wrap:break-word}</style>" + html;
@@ -275,8 +283,6 @@ async function synchronisieren() {
   if (!zustand.konto) return;
   try {
     await invoke("sync_starten", { kontoId: zustand.konto.id });
-    // Sicherheitsnetz zusätzlich zu den Sync-Ereignissen: nach Abschluss
-    // Ordner und Liste auf jeden Fall aktualisieren.
     await ordnerNeuLaden();
     if (!zustand.aktiverOrdnerId && zustand.ordner.length > 0) {
       ordnerOeffnen(zustand.ordner[0].id);
@@ -309,7 +315,6 @@ listen("ordner:aktualisiert", async () => {
   }
 });
 
-// Nachladen beim Scrollen ans Listenende
 el("mail-eintraege").addEventListener("scroll", (ereignis) => {
   const ziel = ereignis.target;
   if (ziel.scrollTop + ziel.clientHeight >= ziel.scrollHeight - 200) {
@@ -319,33 +324,181 @@ el("mail-eintraege").addEventListener("scroll", (ereignis) => {
 
 // ------------------------------------------------------ Konto-Dialog --
 
+function kontoDialogOeffnen(modus) {
+  zustand.kontoDialogModus = modus;
+  const formular = el("konto-formular");
+  const passwortFeld = formular.elements.passwort;
+
+  if (modus === "bearbeiten" && zustand.konto) {
+    el("konto-dialog-titel").textContent = "Konto bearbeiten";
+    el("konto-speichern-knopf").textContent = "Verbindung prüfen & speichern";
+    formular.elements.name.value = zustand.konto.name;
+    formular.elements.email.value = zustand.konto.email;
+    formular.elements.benutzer.value = zustand.konto.benutzer;
+    formular.elements.imap_host.value = zustand.konto.imap_host;
+    formular.elements.imap_port.value = zustand.konto.imap_port;
+    formular.elements.smtp_host.value = zustand.konto.smtp_host || "mail.infomaniak.com";
+    formular.elements.smtp_port.value = zustand.konto.smtp_port || 465;
+    passwortFeld.value = "";
+    passwortFeld.placeholder = "leer lassen = Passwort unverändert";
+    passwortFeld.required = false;
+    zeige("konto-abbrechen-knopf", true);
+  } else {
+    el("konto-dialog-titel").textContent = "Mail-Konto einrichten";
+    passwortFeld.placeholder = "";
+    passwortFeld.required = true;
+    zeige("konto-abbrechen-knopf", false);
+  }
+  zeige("dialog-fehler", false);
+  el("konto-dialog").showModal();
+}
+
+el("konto-abbrechen-knopf").addEventListener("click", () => el("konto-dialog").close());
+
 el("konto-formular").addEventListener("submit", async (ereignis) => {
   ereignis.preventDefault();
-  const formular = new FormData(ereignis.target);
+  const daten = new FormData(ereignis.target);
   const knopf = el("konto-speichern-knopf");
-  const fehlerfeld = el("dialog-fehler");
   knopf.disabled = true;
   knopf.textContent = "Prüfe Verbindung …";
   zeige("dialog-fehler", false);
+  // Feldnamen entsprechen dem Rust-Struct KontoFormular (snake_case).
+  const formular = {
+    name: daten.get("name"),
+    email: daten.get("email"),
+    benutzer: daten.get("benutzer"),
+    passwort: daten.get("passwort"),
+    imap_host: daten.get("imap_host"),
+    imap_port: Number(daten.get("imap_port")),
+    smtp_host: daten.get("smtp_host"),
+    smtp_port: Number(daten.get("smtp_port")),
+  };
   try {
-    const konto = await invoke("konto_anlegen", {
-      name: formular.get("name"),
-      email: formular.get("email"),
-      benutzer: formular.get("benutzer"),
-      passwort: formular.get("passwort"),
-      imapHost: formular.get("imapHost"),
-      imapPort: Number(formular.get("imapPort")),
-    });
+    const konto =
+      zustand.kontoDialogModus === "bearbeiten"
+        ? await invoke("konto_bearbeiten", { kontoId: zustand.konto.id, formular })
+        : await invoke("konto_anlegen", { formular });
     el("konto-dialog").close();
     zustand.konto = konto;
     await kontoAnzeigen();
     synchronisieren();
   } catch (fehler) {
+    const fehlerfeld = el("dialog-fehler");
     fehlerfeld.textContent = String(fehler);
     zeige("dialog-fehler", true);
   } finally {
     knopf.disabled = false;
     knopf.textContent = "Verbindung prüfen & speichern";
+  }
+});
+
+// -------------------------------------------------- Verfassen-Dialog --
+
+function verfassenOeffnen(vorlage, antwortAuf, weiterleiten) {
+  const formular = el("verfassen-formular");
+  formular.elements.an.value = vorlage?.an || "";
+  formular.elements.cc.value = "";
+  formular.elements.betreff.value = vorlage?.betreff || "";
+  formular.elements.text.value = vorlage?.text || "";
+  zustand.verfassen = { anhaenge: [], antwortAuf: antwortAuf ?? null, weiterleiten: !!weiterleiten };
+  el("verfassen-titel").textContent = weiterleiten
+    ? "Weiterleiten"
+    : antwortAuf
+      ? "Antworten"
+      : "Neue Mail";
+  anhangListeZeichnen();
+  zeige("verfassen-fehler", false);
+  el("verfassen-dialog").showModal();
+  formular.elements[antwortAuf && !weiterleiten ? "text" : "an"].focus();
+  if (antwortAuf && !weiterleiten) formular.elements.text.setSelectionRange(0, 0);
+}
+
+el("verfassen-knopf").addEventListener("click", () => verfassenOeffnen(null, null, false));
+
+async function antwortStarten(weiterleiten) {
+  if (!zustand.aktiveMailId) return;
+  status(weiterleiten ? "Bereite Weiterleitung vor …" : "Bereite Antwort vor …");
+  try {
+    const vorlage = await invoke("antwort_vorbereiten", {
+      mailId: zustand.aktiveMailId,
+      weiterleiten,
+    });
+    status("Bereit.");
+    verfassenOeffnen(vorlage, zustand.aktiveMailId, weiterleiten);
+  } catch (fehler) {
+    status(`✗ ${fehler}`, "fehler");
+  }
+}
+
+el("antworten-knopf").addEventListener("click", () => antwortStarten(false));
+el("weiterleiten-knopf").addEventListener("click", () => antwortStarten(true));
+
+function anhangListeZeichnen() {
+  const liste = el("anhang-liste");
+  liste.innerHTML = "";
+  zustand.verfassen.anhaenge.forEach((pfad, index) => {
+    const eintrag = document.createElement("li");
+    const name = document.createElement("span");
+    name.textContent = pfad.split("/").pop();
+    const entfernen = document.createElement("button");
+    entfernen.type = "button";
+    entfernen.className = "anhang-entfernen";
+    entfernen.textContent = "✕";
+    entfernen.title = "Anhang entfernen";
+    entfernen.addEventListener("click", () => {
+      zustand.verfassen.anhaenge.splice(index, 1);
+      anhangListeZeichnen();
+    });
+    eintrag.append(name, entfernen);
+    liste.appendChild(eintrag);
+  });
+}
+
+el("anhang-knopf").addEventListener("click", async () => {
+  try {
+    const auswahl = await dateiDialog({ multiple: true, title: "Dateien anhängen" });
+    if (!auswahl) return;
+    const pfade = Array.isArray(auswahl) ? auswahl : [auswahl];
+    zustand.verfassen.anhaenge.push(...pfade);
+    anhangListeZeichnen();
+  } catch (fehler) {
+    status(`✗ ${fehler}`, "fehler");
+  }
+});
+
+el("verfassen-abbrechen-knopf").addEventListener("click", () => el("verfassen-dialog").close());
+
+el("verfassen-formular").addEventListener("submit", async (ereignis) => {
+  ereignis.preventDefault();
+  const daten = new FormData(ereignis.target);
+  const knopf = el("senden-knopf");
+  knopf.disabled = true;
+  knopf.textContent = "Sende …";
+  zeige("verfassen-fehler", false);
+  try {
+    // Feldnamen entsprechen dem Rust-Struct SendeFormular (snake_case).
+    const meldung = await invoke("mail_senden", {
+      kontoId: zustand.konto.id,
+      formular: {
+        an: daten.get("an"),
+        cc: daten.get("cc"),
+        betreff: daten.get("betreff"),
+        text: daten.get("text"),
+        anhaenge: zustand.verfassen.anhaenge,
+        antwort_auf: zustand.verfassen.antwortAuf,
+        weiterleiten: zustand.verfassen.weiterleiten,
+      },
+    });
+    el("verfassen-dialog").close();
+    status(`✓ ${meldung}`, "ok");
+    ordnerNeuLaden();
+  } catch (fehler) {
+    const fehlerfeld = el("verfassen-fehler");
+    fehlerfeld.textContent = String(fehler);
+    zeige("verfassen-fehler", true);
+  } finally {
+    knopf.disabled = false;
+    knopf.textContent = "Senden";
   }
 });
 

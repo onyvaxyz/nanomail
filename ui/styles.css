@@ -59,11 +59,28 @@ body {
   color: var(--farbe-akzent);
 }
 
+.konto-zeile {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
 .konto-name {
   font-weight: 600;
   font-size: 0.9rem;
-  margin-bottom: 6px;
 }
+
+.zahnrad-knopf {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: var(--farbe-text-gedimmt);
+  padding: 2px 4px;
+}
+
+.zahnrad-knopf:hover { color: var(--farbe-akzent); }
 
 .ordner-liste {
   list-style: none;
@@ -166,12 +183,24 @@ body {
 .mail-meta {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  padding: 8px 12px;
+  padding: 6px 12px;
   font-size: 0.85rem;
   color: var(--farbe-text-gedimmt);
   border-bottom: 1px solid var(--farbe-rahmen);
   background: #fff;
+}
+
+.mail-aktionen {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mail-aktionen .knopf-sekundaer {
+  padding: 4px 10px;
+  font-size: 0.82rem;
 }
 
 .hinweis-leiste {
@@ -247,9 +276,10 @@ body {
 .knopf-sekundaer { background: #fff; }
 .knopf-sekundaer:hover { background: var(--farbe-akzent-hell); }
 
-/* ------------------------------------------------------ Konto-Dialog -- */
+/* ---------------------------------------------------------- Dialoge -- */
 
-#konto-dialog {
+#konto-dialog,
+#verfassen-dialog {
   margin: auto;
   border: 1px solid var(--farbe-rahmen);
   border-radius: 10px;
@@ -258,9 +288,13 @@ body {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
 }
 
-#konto-dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+#verfassen-dialog { width: min(620px, 92vw); }
 
-#konto-dialog h2 { font-size: 1.05rem; margin-bottom: 4px; }
+#konto-dialog::backdrop,
+#verfassen-dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+
+#konto-dialog h2,
+#verfassen-dialog h2 { font-size: 1.05rem; margin-bottom: 4px; }
 
 .dialog-untertitel {
   font-size: 0.82rem;
@@ -269,14 +303,17 @@ body {
   line-height: 1.4;
 }
 
-#konto-formular label {
+#konto-formular label,
+#verfassen-formular label {
   display: block;
   font-size: 0.82rem;
   color: var(--farbe-text-gedimmt);
   margin-bottom: 10px;
 }
 
-#konto-formular input {
+#konto-formular input,
+#verfassen-formular input,
+#verfassen-formular textarea {
   display: block;
   width: 100%;
   font: inherit;
@@ -286,10 +323,49 @@ body {
   border-radius: 6px;
 }
 
-#konto-formular input:focus {
+#verfassen-formular textarea { resize: vertical; }
+
+#konto-formular input:focus,
+#verfassen-formular input:focus,
+#verfassen-formular textarea:focus {
   outline: 2px solid var(--farbe-akzent);
   outline-offset: -1px;
 }
+
+.label-hinweis {
+  font-weight: normal;
+  font-size: 0.75rem;
+}
+
+#anhang-bereich { margin-bottom: 10px; }
+
+#anhang-liste {
+  list-style: none;
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#anhang-liste li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--farbe-akzent-hell);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.82rem;
+}
+
+.anhang-entfernen {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--farbe-text-gedimmt);
+  font-size: 0.8rem;
+}
+
+.anhang-entfernen:hover { color: var(--farbe-fehler); }
 
 .feld-reihe { display: flex; gap: 10px; }
 .feld-breit { flex: 1; }
@@ -305,5 +381,6 @@ body {
 .dialog-knoepfe {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   margin-top: 6px;
 }

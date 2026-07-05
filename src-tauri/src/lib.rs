@@ -58,6 +58,7 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let pfad = pfade::db_pfad().ok_or("Datenverzeichnis nicht bestimmbar")?;
             let conn = db::oeffnen(&pfad).map_err(|fehler| format!("{fehler:#}"))?;
@@ -70,12 +71,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ping,
             commands::konto_anlegen,
+            commands::konto_bearbeiten,
             commands::konten_liste,
             commands::ordner_liste,
             commands::sync_starten,
             commands::mails_liste,
             commands::mail_lesen,
             commands::mail_bilder_laden,
+            commands::antwort_vorbereiten,
+            commands::mail_senden,
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Starten der Tauri-Anwendung");

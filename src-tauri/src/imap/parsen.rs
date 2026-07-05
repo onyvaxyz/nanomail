@@ -46,6 +46,68 @@ pub fn parse_kopf(header: &[u8]) -> GeparsterKopf {
     }
 }
 
+/// Alles, was für Antworten/Weiterleiten aus dem Original gebraucht wird.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct AntwortDaten {
+    /// Adresse, an die geantwortet wird (Reply-To vor From).
+    pub antwort_an: String,
+    pub betreff: String,
+    pub datum: Option<i64>,
+    /// Anzeigetext des Absenders („Name <adresse>“ oder nur Adresse).
+    pub von_anzeige: String,
+    /// An-Zeile des Originals (für den Weiterleitungs-Kopf).
+    pub an_anzeige: String,
+    pub text: String,
+    /// Message-ID mit spitzen Klammern, z. B. `<abc@example.org>`.
+    pub message_id: Option<String>,
+    /// Rohe References-Kette des Originals.
+    pub references: Option<String>,
+}
+
+pub fn parse_fuer_antwort(roh: &[u8]) -> AntwortDaten {
+    let Some(nachricht) = MessageParser::default().parse(roh) else {
+        return AntwortDaten::default();
+    };
+
+    let adress_anzeige = |adresse: Option<&mail_parser::Address>| -> (String, String) {
+        // (nur Adresse, Anzeigetext) der ersten Adresse
+        let Some(erste) = adresse.and_then(|a| a.first()) else {
+            return (String::new(), String::new());
+        };
+        let mail = erste.address().unwrap_or_default().to_string();
+        let anzeige = match erste.name().map(str::trim).filter(|n| !n.is_empty()) {
+            Some(name) => format!("{name} <{mail}>"),
+            None => mail.clone(),
+        };
+        (mail, anzeige)
+    };
+
+    let (von_adresse, von_anzeige) = adress_anzeige(nachricht.from());
+    let (antwort_adresse, _) = adress_anzeige(nachricht.reply_to());
+    let (_, an_anzeige) = adress_anzeige(nachricht.to());
+
+    AntwortDaten {
+        antwort_an: if antwort_adresse.is_empty() {
+            von_adresse
+        } else {
+            antwort_adresse
+        },
+        betreff: nachricht.subject().unwrap_or_default().trim().to_string(),
+        datum: nachricht.date().map(mail_parser::DateTime::to_timestamp),
+        von_anzeige,
+        an_anzeige,
+        text: nachricht
+            .body_text(0)
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
+        message_id: nachricht.message_id().map(|id| format!("<{id}>")),
+        references: nachricht
+            .header_raw("References")
+            .map(|wert| wert.split_whitespace().collect::<Vec<_>>().join(" ")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,5 +142,37 @@ mod tests {
         assert_eq!(kopf.betreff, "");
         assert_eq!(kopf.von, "");
         assert_eq!(kopf.datum, None);
+    }
+
+    #[test]
+    fn antwortdaten_bevorzugen_reply_to_und_liefern_threading() {
+        let daten = parse_fuer_antwort(
+            b"From: Anna Beispiel <anna@example.org>\r\n\
+              Reply-To: <antworten@example.org>\r\n\
+              To: Philipp <philipp@example.org>\r\n\
+              Subject: Frage\r\n\
+              Message-ID: <m123@example.org>\r\n\
+              References: <wurzel@example.org>\r\n\
+              Date: Fri, 03 Jul 2026 10:00:00 +0200\r\n\r\n\
+              Wie sieht es aus?",
+        );
+        assert_eq!(daten.antwort_an, "antworten@example.org");
+        assert_eq!(daten.von_anzeige, "Anna Beispiel <anna@example.org>");
+        assert_eq!(daten.an_anzeige, "Philipp <philipp@example.org>");
+        assert_eq!(daten.betreff, "Frage");
+        assert_eq!(daten.message_id, Some("<m123@example.org>".into()));
+        assert_eq!(daten.references, Some("<wurzel@example.org>".into()));
+        assert_eq!(daten.text, "Wie sieht es aus?");
+    }
+
+    #[test]
+    fn antwortdaten_ohne_reply_to_nehmen_from() {
+        let daten = parse_fuer_antwort(
+            b"From: anna@example.org\r\n\
+              Subject: Hallo\r\n\r\nText",
+        );
+        assert_eq!(daten.antwort_an, "anna@example.org");
+        assert_eq!(daten.message_id, None);
+        assert_eq!(daten.references, None);
     }
 }

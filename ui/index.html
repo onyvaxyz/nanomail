@@ -10,6 +10,9 @@
   <div id="app">
     <aside id="sidebar">
       <h1 class="logo">Nanomail</h1>
+      <button id="verfassen-knopf" class="knopf-primaer versteckt" type="button">
+        ✉ Verfassen
+      </button>
       <div id="konto-bereich">
         <p class="platzhalter">Noch kein Konto eingerichtet.</p>
       </div>
@@ -27,7 +30,13 @@
 
     <section id="lesebereich">
       <header class="spalten-kopf" id="mail-titel">Vorschau</header>
-      <div id="mail-meta" class="mail-meta versteckt"></div>
+      <div id="mail-meta" class="mail-meta versteckt">
+        <div id="mail-meta-text"></div>
+        <div class="mail-aktionen">
+          <button id="antworten-knopf" class="knopf-sekundaer" type="button">↩ Antworten</button>
+          <button id="weiterleiten-knopf" class="knopf-sekundaer" type="button">↪ Weiterleiten</button>
+        </div>
+      </div>
       <div id="bilder-leiste" class="hinweis-leiste versteckt">
         <span>Externe Bilder wurden blockiert.</span>
         <button id="bilder-laden-knopf" class="knopf-sekundaer" type="button">Bilder laden</button>
@@ -46,10 +55,12 @@
 
   <dialog id="konto-dialog">
     <form id="konto-formular" method="dialog">
-      <h2>Mail-Konto einrichten</h2>
+      <h2 id="konto-dialog-titel">Mail-Konto einrichten</h2>
       <p class="dialog-untertitel">
-        Für Infomaniak sind Server und Port bereits ausgefüllt.
-        Empfohlen: ein App-Passwort verwenden (im Infomaniak-Konto erstellbar).
+        Für Infomaniak sind die Server bereits ausgefüllt.
+        Benutzername ist meist die <b>vollständige E-Mail-Adresse</b>.
+        Bei aktivierter Zwei-Faktor-Anmeldung ist ein <b>App-Passwort</b>
+        zwingend (im Anbieter-Konto unter „Sicherheit“ erstellbar).
       </p>
 
       <label>Kontoname (frei wählbar)
@@ -61,24 +72,64 @@
       <label>Benutzername (meist die E-Mail-Adresse)
         <input name="benutzer" required placeholder="name@example.com" />
       </label>
-      <label>Passwort / App-Passwort
-        <input name="passwort" type="password" required />
+      <label id="passwort-label">Passwort / App-Passwort
+        <input name="passwort" type="password" />
       </label>
       <div class="feld-reihe">
-        <label class="feld-breit">IMAP-Server
-          <input name="imapHost" required value="mail.infomaniak.com" />
+        <label class="feld-breit">Posteingangs-Server (IMAP)
+          <input name="imap_host" required value="mail.infomaniak.com" />
         </label>
         <label class="feld-schmal">Port
-          <input name="imapPort" type="number" required value="993" min="1" max="65535" />
+          <input name="imap_port" type="number" required value="993" min="1" max="65535" />
+        </label>
+      </div>
+      <div class="feld-reihe">
+        <label class="feld-breit">Versand-Server (SMTP)
+          <input name="smtp_host" required value="mail.infomaniak.com" />
+        </label>
+        <label class="feld-schmal">Port
+          <input name="smtp_port" type="number" required value="465" min="1" max="65535" />
         </label>
       </div>
 
       <p id="dialog-fehler" class="fehler-text versteckt"></p>
 
       <div class="dialog-knoepfe">
+        <button id="konto-abbrechen-knopf" class="knopf-sekundaer versteckt" type="button">Abbrechen</button>
         <button id="konto-speichern-knopf" class="knopf-primaer" type="submit">
           Verbindung prüfen &amp; speichern
         </button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="verfassen-dialog">
+    <form id="verfassen-formular" method="dialog">
+      <h2 id="verfassen-titel">Neue Mail</h2>
+
+      <label>An <span class="label-hinweis">(mehrere durch Komma trennen)</span>
+        <input name="an" required placeholder="empfaenger@example.com" />
+      </label>
+      <label>CC <span class="label-hinweis">(optional)</span>
+        <input name="cc" />
+      </label>
+      <label>Betreff
+        <input name="betreff" />
+      </label>
+      <label>Nachricht
+        <textarea name="text" rows="12"></textarea>
+      </label>
+
+      <div id="anhang-bereich">
+        <button id="anhang-knopf" class="knopf-sekundaer" type="button">📎 Datei anhängen</button>
+        <ul id="anhang-liste"></ul>
+      </div>
+
+      <p id="verfassen-fehler" class="fehler-text versteckt"></p>
+
+      <div class="dialog-knoepfe">
+        <button id="verfassen-abbrechen-knopf" class="knopf-sekundaer" type="button">Abbrechen</button>
+        <button id="senden-knopf" class="knopf-primaer" type="submit">Senden</button>
       </div>
     </form>
   </dialog>
