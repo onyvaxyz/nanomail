@@ -81,12 +81,16 @@ function avatarFarbe(text) {
 }
 
 /// Baut ein Avatar-Element: sofort Initialen, dann ggf. echtes Bild nachladen.
+/// Nutzt ein <img>-Kind statt background-image, damit ein Bild nie gekachelt
+/// dargestellt werden kann (siehe M3.2: alte Kurzschreibweise `style.background =`
+/// setzte background-repeat/-size implizit zurück und überstimmte die CSS-Regeln).
 function avatarElement(name, email, extraKlasse = "") {
   const kreis = document.createElement("div");
   kreis.className = `avatar ${extraKlasse}`.trim();
-  const kuerzel = initialen(name, email);
-  kreis.textContent = kuerzel;
   kreis.style.background = avatarFarbe(email || name);
+  const kuerzel = document.createElement("span");
+  kuerzel.textContent = initialen(name, email);
+  kreis.appendChild(kuerzel);
 
   if (email) avatarLaden(email, kreis);
   return kreis;
@@ -109,9 +113,10 @@ async function avatarLaden(email, kreis) {
 
 function bildSetzen(kreis, uri) {
   if (!uri) return; // Initialen behalten
-  kreis.textContent = "";
-  kreis.style.backgroundImage = `url("${uri}")`;
-  kreis.classList.add("avatar-bild");
+  const bild = document.createElement("img");
+  bild.src = uri;
+  bild.alt = "";
+  kreis.replaceChildren(bild);
 }
 
 // ------------------------------------------------------------- Start --
@@ -169,54 +174,71 @@ async function kontenAnzeigen() {
       status(`✗ ${konto.name}: ${fehler}`, "fehler");
     }
   }
+  kontenLeisteAnzeigen();
+  ordnerPillenAnzeigen();
+}
 
+/// Icon-Leiste (Spalte 1): ein rundes Konto-Icon je Konto, mit
+/// Ungelesen-Abzeichen (Summe über alle Ordner) und Aktiv-Markierung.
+function kontenLeisteAnzeigen() {
   const bereich = el("konten-bereich");
   bereich.innerHTML = "";
   for (const konto of zustand.konten) {
-    const block = document.createElement("div");
-    block.className = "konto-block";
+    const knopf = document.createElement("button");
+    knopf.className = "konto-icon";
+    knopf.type = "button";
+    if (konto.id === zustand.aktivesKontoId) knopf.classList.add("aktiv");
+    knopf.title = `${konto.name} · ${konto.email}`;
+    knopf.appendChild(avatarElement(konto.name, konto.email, "avatar-konto"));
 
-    const kopfzeile = document.createElement("div");
-    kopfzeile.className = "konto-zeile";
-    const kontoName = document.createElement("span");
-    kontoName.className = "konto-name";
-    kontoName.textContent = konto.name;
-    const bearbeiten = document.createElement("button");
-    bearbeiten.className = "icon-knopf klein";
-    bearbeiten.title = "Konto bearbeiten";
-    bearbeiten.appendChild(icon("gear-six"));
-    bearbeiten.addEventListener("click", () => kontoDialogOeffnen("bearbeiten", konto.id));
-    kopfzeile.append(kontoName, bearbeiten);
-    block.appendChild(kopfzeile);
-
-    const liste = document.createElement("ul");
-    liste.className = "ordner-liste";
-    for (const ordner of zustand.ordnerJeKonto.get(konto.id) || []) {
-      const eintrag = document.createElement("li");
-      eintrag.className = "ordner-eintrag";
-      if (ordner.id === zustand.aktiverOrdnerId) eintrag.classList.add("aktiv");
-
-      const links = document.createElement("span");
-      links.className = "ordner-links";
-      links.appendChild(icon(ordnerIconName(ordner)));
-      const name = document.createElement("span");
-      name.className = "ordner-name";
-      name.textContent = ordner.anzeige_name;
-      links.appendChild(name);
-      eintrag.appendChild(links);
-
-      if (ordner.ungelesen > 0) {
-        const zaehler = document.createElement("span");
-        zaehler.className = "ungelesen-zaehler";
-        zaehler.textContent = ordner.ungelesen;
-        eintrag.appendChild(zaehler);
-      }
-      eintrag.addEventListener("click", () => ordnerOeffnen(konto.id, ordner.id));
-      liste.appendChild(eintrag);
+    const ungelesenGesamt = (zustand.ordnerJeKonto.get(konto.id) || []).reduce(
+      (summe, ordner) => summe + (ordner.ungelesen || 0),
+      0,
+    );
+    if (ungelesenGesamt > 0) {
+      const abzeichen = document.createElement("span");
+      abzeichen.className = "konto-icon-abzeichen";
+      abzeichen.textContent = ungelesenGesamt > 99 ? "99+" : String(ungelesenGesamt);
+      knopf.appendChild(abzeichen);
     }
-    block.appendChild(liste);
-    bereich.appendChild(block);
+
+    knopf.addEventListener("click", () => kontoAuswaehlen(konto.id));
+    bereich.appendChild(knopf);
   }
+}
+
+/// Ordner-Reiter + Konto-Kontext-Zeile (Kopf der Mail-Liste), nur für das
+/// gerade ausgewählte Konto.
+function ordnerPillenAnzeigen() {
+  const konto = zustand.konten.find((k) => k.id === zustand.aktivesKontoId);
+  const ordnerListe = zustand.aktivesKontoId
+    ? zustand.ordnerJeKonto.get(zustand.aktivesKontoId) || []
+    : [];
+
+  const pillen = el("ordner-pillen");
+  pillen.innerHTML = "";
+  for (const ordner of ordnerListe) {
+    const pille = document.createElement("li");
+    pille.className = "ordner-pille";
+    if (ordner.id === zustand.aktiverOrdnerId) pille.classList.add("aktiv");
+    pille.appendChild(icon(ordnerIconName(ordner)));
+    const name = document.createElement("span");
+    name.textContent = ordner.anzeige_name;
+    pille.appendChild(name);
+    pille.addEventListener("click", () => ordnerOeffnen(zustand.aktivesKontoId, ordner.id));
+    pillen.appendChild(pille);
+  }
+
+  el("mailliste-konto-adresse").textContent = konto ? konto.email : "";
+  const aktiverOrdner = ordnerListe.find((o) => o.id === zustand.aktiverOrdnerId);
+  el("ordner-anzahl").textContent = aktiverOrdner && aktiverOrdner.gesamt ? `${aktiverOrdner.gesamt}` : "";
+}
+
+/// Wechselt das ausgewählte Konto und öffnet dessen ersten Ordner.
+function kontoAuswaehlen(kontoId) {
+  if (kontoId === zustand.aktivesKontoId) return;
+  const ordner = zustand.ordnerJeKonto.get(kontoId) || [];
+  if (ordner.length > 0) ordnerOeffnen(kontoId, ordner[0].id);
 }
 
 function ordnerOeffnen(kontoId, ordnerId) {
@@ -224,11 +246,8 @@ function ordnerOeffnen(kontoId, ordnerId) {
   zustand.aktiverOrdnerId = ordnerId;
   zustand.offset = 0;
   zustand.alleGeladen = false;
-  const ordner = (zustand.ordnerJeKonto.get(kontoId) || []).find((o) => o.id === ordnerId);
-  el("ordner-titel").textContent = ordner ? ordner.anzeige_name : "";
-  el("ordner-anzahl").textContent = ordner && ordner.gesamt ? `${ordner.gesamt}` : "";
   el("mail-eintraege").innerHTML = "";
-  kontenAnzeigen(); // aktiv-Markierung
+  kontenAnzeigen(); // aktiv-Markierung (Icon-Leiste + Ordner-Reiter)
   naechsteSeiteLaden();
 }
 
@@ -278,7 +297,15 @@ function mailEintrag(mail) {
   if (mail.id === zustand.aktiveMailId) eintrag.classList.add("aktiv");
   eintrag.dataset.mailId = mail.id;
 
-  eintrag.appendChild(avatarElement(mail.von, mail.von_email));
+  const avatarWrap = document.createElement("div");
+  avatarWrap.className = "mail-avatar-wrap";
+  avatarWrap.appendChild(avatarElement(mail.von, mail.von_email));
+  if (!mail.gelesen) {
+    const punkt = document.createElement("span");
+    punkt.className = "ungelesen-punkt";
+    avatarWrap.appendChild(punkt);
+  }
+  eintrag.appendChild(avatarWrap);
 
   const text = document.createElement("div");
   text.className = "mail-text-block";
@@ -300,11 +327,6 @@ function mailEintrag(mail) {
   betreff.textContent = mail.betreff || "(kein Betreff)";
   zeile2.appendChild(betreff);
   if (mail.hat_anhang) zeile2.appendChild(icon("paperclip"));
-  if (!mail.gelesen) {
-    const punkt = document.createElement("span");
-    punkt.className = "ungelesen-punkt";
-    zeile2.appendChild(punkt);
-  }
 
   text.append(zeile1, zeile2);
   eintrag.appendChild(text);
@@ -543,6 +565,9 @@ function kontoDialogOeffnen(modus, kontoId) {
 }
 
 el("konto-hinzufuegen-knopf").addEventListener("click", () => kontoDialogOeffnen("anlegen", null));
+el("konto-bearbeiten-knopf").addEventListener("click", () => {
+  if (zustand.aktivesKontoId) kontoDialogOeffnen("bearbeiten", zustand.aktivesKontoId);
+});
 el("konto-abbrechen-knopf").addEventListener("click", () => el("konto-dialog").close());
 
 el("konto-entfernen-knopf").addEventListener("click", async () => {

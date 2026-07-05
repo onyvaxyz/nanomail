@@ -3,6 +3,8 @@
 Eigener Mail- (IMAP/SMTP) & Kalender-Client (CalDAV) für Ubuntu.
 Rust-Backend + Tauri 2 + Vanilla-HTML/CSS/JS-Frontend, Auslieferung als `.deb`.
 
+Dokumentation kann bei Context / (MCP verbunden) immer nach Bedarf abgerufen werden.
+
 **Der Projektinhaber ist kein Entwickler und kann Code nicht selbst prüfen.**
 Daraus folgen die wichtigsten Regeln dieses Projekts:
 
@@ -70,11 +72,13 @@ Kommunikation ausschließlich über Tauri-Commands/Events
 - **HTML-Mails:** Vor Anzeige mit `ammonia` sanitizen. Externe Bilder
   standardmäßig blockieren („Bilder laden“-Button). Kein Skript aus
   Mail-Inhalten darf je ausgeführt werden.
-- **Absender-Avatare (Ausnahme, ab M3.1):** `src/avatar.rs` lädt bewusst
-  externe Bilder (Gravatar → Favicon → sonst Initialen im Frontend) —
-  einzige erlaubte externe Ladequelle, vom Projektinhaber ausdrücklich
-  gewünscht. Ergebnisse in `absender_avatar` cachen. Gilt nur für Avatare;
-  Mail-Inhalte bleiben streng geschützt.
+- **Absender- und Konto-Avatare (Ausnahme, ab M3.1/M3.2):** `src/avatar.rs`
+  lädt bewusst externe Bilder (Gravatar → Favicon → sonst Initialen im
+  Frontend) — einzige erlaubte externe Ladequelle, vom Projektinhaber
+  ausdrücklich gewünscht. Gilt für Absender-Avatare (Mail-Liste, Lesebereich)
+  ebenso wie für Konto-Icons in der Icon-Leiste (ab M3.2), jeweils über
+  denselben Cache (`absender_avatar`-Tabelle, per E-Mail-Adresse). Gilt nur
+  für Avatare; Mail-Inhalte bleiben streng geschützt.
 - **Mehrfach-Fenster:** Verfassen/Antworten/Weiterleiten laufen in einem
   eigenen Tauri-Fenster (`ui/verfassen.html` + `verfassen.js`, geöffnet via
   `WebviewWindow`). Fenster-Labels `verfassen-*` in

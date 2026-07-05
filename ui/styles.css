@@ -1,30 +1,55 @@
-/* Nanomail — Oberfläche (M3.1).
-   Dunkles Design in Anlehnung an den Zed-Editor („One Dark“).
+/* Nanomail — Oberfläche (M3.2).
+   Dunkles Design in Anlehnung an den Zed-Editor („One Dark“, Violett-Akzent).
    Farben und Maße sind Variablen — hier gefahrlos anpassbar,
    danach genügt ein Neustart der App. */
 
-:root {
-  --flaeche-fenster: #3b414d; /* Titel-/Statusleisten */
-  --flaeche-panel: #2f343e; /* Seitenleiste, Köpfe, Dialoge */
-  --flaeche-inhalt: #282c33; /* Listen, Lesebereich */
-  --flaeche-erhoben: #333842; /* Karten, Eingaben */
-  --farbe-rahmen: #3d4350;
-  --farbe-rahmen-stark: #464b57;
-  --farbe-text: #dce0e5;
-  --farbe-text-gedimmt: #868c99;
-  --farbe-text-leise: #6b717d;
-  --farbe-akzent: #74ade8;
-  --farbe-akzent-schwach: rgba(116, 173, 232, 0.16);
-  --flaeche-hover: #333842;
-  --flaeche-auswahl: #2b3a51; /* aktiver Eintrag, bläulich */
-  --farbe-fehler: #d07277;
-  --farbe-warnung: #dec184;
-  --farbe-ok: #a1c181;
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+}
 
-  --breite-seitenleiste: 240px;
-  --breite-mailliste: 360px;
-  --radius: 7px;
-  --radius-klein: 5px;
+:root {
+  --flaeche-fenster: #21252b; /* Statusleiste, erhöhte Flächen */
+  --flaeche-panel: #282c34; /* Icon-Leiste, Dialoge */
+  --flaeche-inhalt: #282c34; /* Listen, Lesebereich */
+  --flaeche-erhoben: #21252b; /* Karten, Eingaben, Chips */
+  --farbe-rahmen: #ffffff1a;
+  --farbe-rahmen-stark: #ffffff26;
+  --farbe-text: #ffffff;
+  --farbe-text-gedimmt: #b4bac4;
+  --farbe-text-leise: #8a929e;
+  --farbe-akzent: #c678dd;
+  --farbe-akzent-schwach: color-mix(in oklab, var(--farbe-akzent) 12%, transparent);
+  --flaeche-hover: #2c313a;
+  --flaeche-auswahl: color-mix(in oklab, var(--farbe-akzent) 6%, transparent);
+  --farbe-fehler: #e06c75;
+  --farbe-warnung: #e5c07b;
+  --farbe-ok: #98c379;
+
+  --schrift-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  --schrift-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --breite-seitenleiste: 56px;
+  --breite-mailliste: 320px;
+  --radius: 10px;
+  --radius-klein: 4px;
 }
 
 * {
@@ -36,11 +61,12 @@
 html,
 body {
   height: 100%;
-  font-family: system-ui, "Segoe UI", sans-serif;
-  font-size: 14px;
+  font-family: var(--schrift-mono);
+  font-size: 13px;
   color: var(--farbe-text);
   background: var(--flaeche-inhalt);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 body {
@@ -70,7 +96,7 @@ body {
   height: 9px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #414855;
+  background: #ffffff1f;
   border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
@@ -85,122 +111,94 @@ body {
   line-height: 1;
 }
 
-/* ------------------------------------------------------ Seitenleiste -- */
+/* ------------------------------------------------------- Icon-Leiste -- */
 
 #sidebar {
   background: var(--flaeche-panel);
   border-right: 1px solid var(--farbe-rahmen);
-  padding: 12px 10px;
+  padding: 12px 0;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 12px;
   min-height: 0;
 }
 
-.sidebar-kopf {
-  padding: 4px 6px 0;
-}
-
-.logo {
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--farbe-text);
-}
-
-.verfassen-gross {
-  width: 100%;
-  padding: 9px 12px;
-  font-size: 0.92rem;
-}
-
 #konten-bereich {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  min-height: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.konto-icon {
+  position: relative;
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  background: none;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px transparent;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+.konto-icon:hover {
+  box-shadow: inset 0 0 0 1px var(--farbe-rahmen-stark);
+}
+.konto-icon.aktiv {
+  box-shadow: inset 0 0 0 1px var(--farbe-akzent);
+}
+.konto-icon.aktiv::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 20px;
+  background: var(--farbe-akzent);
+  border-radius: 0 2px 2px 0;
+}
+
+.konto-icon-abzeichen {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--farbe-akzent);
+  color: #10151d;
+  font: 600 9px/15px var(--schrift-mono);
+  text-align: center;
 }
 
 .sidebar-fuss {
+  margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-
-.konto-zeile {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0 8px 4px;
+  gap: 10px;
 }
 
-.konto-name {
-  font-size: 0.72rem;
-  font-weight: 700;
+.konto-hinzufuegen {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px dashed var(--farbe-rahmen-stark);
+  background: transparent;
   color: var(--farbe-text-leise);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ordner-liste {
-  list-style: none;
-}
-
-.ordner-eintrag {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 8px;
-  margin: 1px 0;
-  border-radius: var(--radius-klein);
   cursor: pointer;
-  color: var(--farbe-text-gedimmt);
-  border-left: 2px solid transparent;
+  display: grid;
+  place-items: center;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
 }
-
-.ordner-eintrag:hover {
-  background: var(--flaeche-hover);
+.konto-hinzufuegen:hover {
   color: var(--farbe-text);
-}
-
-.ordner-eintrag.aktiv {
-  background: var(--farbe-akzent-schwach);
-  border-left-color: var(--farbe-akzent);
-  color: var(--farbe-text);
-}
-
-.ordner-links {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  overflow: hidden;
-}
-.ordner-links .ph-thin {
-  color: var(--farbe-text-leise);
-  flex-shrink: 0;
-}
-.ordner-eintrag.aktiv .ordner-links .ph-thin {
-  color: var(--farbe-akzent);
-}
-.ordner-name {
-  font-size: 0.9rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ungelesen-zaehler {
-  background: var(--farbe-akzent);
-  color: #10151d;
-  border-radius: 10px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 1px 7px;
-  flex-shrink: 0;
+  border-color: var(--farbe-text-leise);
 }
 
 /* -------------------------------------------------------- Mail-Liste -- */
@@ -213,21 +211,95 @@ body {
   background: var(--flaeche-inhalt);
 }
 
-.listen-kopf {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 12px 16px;
+.mailliste-kopf {
   border-bottom: 1px solid var(--farbe-rahmen);
 }
 
-#ordner-titel {
-  font-size: 0.98rem;
-  font-weight: 600;
+.mailliste-suchzeile {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
 }
+.mailliste-suchzeile .ph-thin {
+  color: var(--farbe-text-leise);
+  flex-shrink: 0;
+}
+
+.mailliste-suche {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font: inherit;
+  font-family: var(--schrift-mono);
+  font-size: 0.85rem;
+  color: var(--farbe-text);
+}
+.mailliste-suche::placeholder {
+  color: var(--farbe-text-leise);
+}
+
+.ordner-pillen {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px 10px;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.ordner-pille {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: var(--radius-klein);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--farbe-text-leise);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.ordner-pille:hover {
+  background: var(--flaeche-hover);
+  color: var(--farbe-text);
+}
+.ordner-pille.aktiv {
+  background: var(--farbe-akzent-schwach);
+  color: var(--farbe-akzent);
+}
+
+.mailliste-konto-zeile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--farbe-rahmen);
+}
+
+.mailliste-konto-adresse {
+  flex: 1;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--farbe-text-leise);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ordner-anzahl {
   font-size: 0.78rem;
   color: var(--farbe-text-leise);
+  flex-shrink: 0;
 }
 
 #mail-eintraege {
@@ -250,6 +322,11 @@ body {
 .mail-eintrag.aktiv {
   background: var(--flaeche-auswahl);
   border-left-color: var(--farbe-akzent);
+}
+
+.mail-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
 }
 
 .mail-text-block {
@@ -300,11 +377,14 @@ body {
 }
 
 .ungelesen-punkt {
-  width: 8px;
-  height: 8px;
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--farbe-akzent);
-  flex-shrink: 0;
 }
 
 .mail-eintrag.ungelesen .mail-von {
@@ -321,27 +401,35 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 50%;
+  border: 1px solid var(--farbe-rahmen);
+  overflow: hidden;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
+  font-family: var(--schrift-mono);
   font-size: 0.85rem;
   font-weight: 600;
   color: #fff;
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
   user-select: none;
 }
 
-.avatar-bild {
-  background-color: transparent !important;
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .avatar-gross {
   width: 48px;
   height: 48px;
   font-size: 1rem;
+}
+
+.avatar-konto {
+  width: 32px;
+  height: 32px;
+  font-size: 0.72rem;
 }
 
 /* ------------------------------------------------------ Lesebereich -- */
@@ -367,8 +455,9 @@ body {
 }
 
 #mail-titel {
+  font-family: var(--schrift-sans);
+  font-weight: 500;
   font-size: 1.15rem;
-  font-weight: 600;
   line-height: 1.3;
   margin-bottom: 5px;
   word-wrap: break-word;
@@ -408,11 +497,7 @@ body {
   padding: 8px 16px;
   font-size: 0.85rem;
   color: var(--farbe-warnung);
-  background: color-mix(
-    in srgb,
-    var(--farbe-warnung) 10%,
-    var(--flaeche-inhalt)
-  );
+  background: color-mix(in srgb, var(--farbe-warnung) 10%, var(--flaeche-inhalt));
   border-bottom: 1px solid var(--farbe-rahmen);
 }
 .hinweis-leiste span {
@@ -429,9 +514,12 @@ body {
 
 #mail-text {
   flex: 1;
-  padding: 20px;
+  max-width: 68ch;
+  margin: 0 auto;
+  padding: 32px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
+  font-family: var(--schrift-sans);
   font-size: 0.92rem;
   line-height: 1.6;
   color: var(--farbe-text);
@@ -542,6 +630,13 @@ body {
   cursor: wait;
 }
 
+.verfassen-kompakt {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .icon-knopf {
   border: none;
   background: transparent;
@@ -570,7 +665,7 @@ body {
 #konto-dialog {
   margin: auto;
   border: 1px solid var(--farbe-rahmen-stark);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 24px;
   width: min(460px, 92vw);
   background: var(--flaeche-panel);
@@ -606,7 +701,7 @@ body {
   font: inherit;
   font-size: 0.9rem;
   color: var(--farbe-text);
-  background: var(--flaeche-inhalt);
+  background: var(--flaeche-erhoben);
   padding: 8px 10px;
   margin-top: 4px;
   border: 1px solid var(--farbe-rahmen-stark);
@@ -687,7 +782,7 @@ body.fenster-verfassen {
   font: inherit;
   font-size: 0.9rem;
   color: var(--farbe-text);
-  background: var(--flaeche-inhalt);
+  background: var(--flaeche-erhoben);
   padding: 8px 10px;
   border: 1px solid var(--farbe-rahmen-stark);
   border-radius: var(--radius-klein);
@@ -703,7 +798,7 @@ body.fenster-verfassen {
   flex: 1;
   margin: 0;
   padding: 16px;
-  font: inherit;
+  font-family: var(--schrift-sans);
   font-size: 0.94rem;
   line-height: 1.6;
   color: var(--farbe-text);

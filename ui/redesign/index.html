@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Inbox — Nadja Bergmann</title>
+  <meta name="description" content="A quiet, keyboard-first dark inbox: accounts, messages, preview. Zed-inspired restraint." />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <!-- Inline SVG icon defs (Phosphor Thin, extracted) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-plus" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="M40 128h176M128 40v176"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" d="M128 88a40 40 0 1 0 40 40 40 40 0 0 0-40-40Zm97.9 60.9-24.1-13.9a74 74 0 0 0 0-14l24.1-13.9a8 8 0 0 0 3.7-9.3l-16.6-40a8 8 0 0 0-9-4.6l-27.4 4.9a75 75 0 0 0-12.1-7l-9.4-25.9a8 8 0 0 0-7.5-5.2h-40a8 8 0 0 0-7.5 5.2l-9.4 25.9a75 75 0 0 0-12.1 7l-27.4-4.9a8 8 0 0 0-9 4.6L26.5 97.8a8 8 0 0 0 3.7 9.3l24.1 13.9a74 74 0 0 0 0 14L30.2 148.9a8 8 0 0 0-3.7 9.3l16.6 40a8 8 0 0 0 9 4.6l27.4-4.9a75 75 0 0 0 12.1 7l9.4 25.9a8 8 0 0 0 7.5 5.2h40a8 8 0 0 0 7.5-5.2l9.4-25.9a75 75 0 0 0 12.1-7l27.4 4.9a8 8 0 0 0 9-4.6l16.6-40a8 8 0 0 0-3.6-9.3Z"/></symbol>
+      <symbol id="i-question" viewBox="0 0 256 256"><circle cx="128" cy="128" r="96" fill="none" stroke="currentColor" stroke-width="8"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="M100 96a28 28 0 0 1 56 0c0 20-28 28-28 44"/><circle cx="128" cy="180" r="6" fill="currentColor"/></symbol>
+      <symbol id="i-search" viewBox="0 0 256 256"><circle cx="112" cy="112" r="80" fill="none" stroke="currentColor" stroke-width="8"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="m168.6 168.6 46.4 46.4"/></symbol>
+      <symbol id="i-pencil" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="M96 216H40v-56L176 24l56 56Zm40-176 56 56m-84-28 56 56"/></symbol>
+      <symbol id="i-paperclip" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="m209.66 122.34-96 96a56 56 0 0 1-79.2-79.2l104-104a40 40 0 0 1 56.56 56.56l-104 104a24 24 0 0 1-33.94-33.94L152 90"/></symbol>
+      <symbol id="i-reply" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="M80 176 32 128l48-48m152 128v-40a48 48 0 0 0-48-48H32"/></symbol>
+      <symbol id="i-archive" viewBox="0 0 256 256"><rect x="32" y="72" width="192" height="40" fill="none" stroke="currentColor" stroke-width="8"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="M48 112v88a8 8 0 0 0 8 8h144a8 8 0 0 0 8-8v-88M104 144h48"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="M216 56H40m176 0-11.7 148.9a8 8 0 0 1-8 7.1H59.7a8 8 0 0 1-8-7.1L40 56m48 0V40a16 16 0 0 1 16-16h48a16 16 0 0 1 16 16v16"/></symbol>
+      <symbol id="i-star" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="m135 34.4 28.4 55.8 62.4 8.9-45.2 43.4 10.7 61-55.3-29-55.3 29 10.7-61-45.2-43.4 62.4-8.9L121 34.4a8 8 0 0 1 14 0Z"/></symbol>
+      <symbol id="i-dots" viewBox="0 0 256 256"><circle cx="128" cy="128" r="8" fill="currentColor"/><circle cx="64" cy="128" r="8" fill="currentColor"/><circle cx="192" cy="128" r="8" fill="currentColor"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <!-- Column 1: Accounts rail -->
+    <nav class="rail" aria-label="Accounts">
+      <button class="rail__account is-active" title="Nadja Bergmann · nadja@bergmann.studio">
+        <span class="avatar" style="width:32px;height:32px;background:linear-gradient(135deg,#c678dd,#61afef)">NB</span>
+        <span class="rail__badge">4</span>
+      </button>
+      <button class="rail__account" title="Work · Kontora">
+        <span class="avatar" style="width:32px;height:32px;background:linear-gradient(135deg,#98c379,#61afef)">KO</span>
+        <span class="rail__badge">2</span>
+      </button>
+      <button class="rail__account" title="Alias · Newsletter">
+        <span class="avatar" style="width:32px;height:32px;background:linear-gradient(135deg,#e5c07b,#e06c75)">AN</span>
+      </button>
+      <button class="rail__add" title="Add account">
+        <svg width="14" height="14"><use href="#i-plus"/></svg>
+      </button>
+      <div class="rail__foot">
+        <button title="Help"><svg width="18" height="18"><use href="#i-question"/></svg></button>
+        <button title="Settings"><svg width="18" height="18"><use href="#i-gear"/></svg></button>
+      </div>
+    </nav>
+
+    <!-- Column 2: Message list -->
+    <aside class="list">
+      <div class="list__header">
+        <div class="list__search">
+          <svg width="14" height="14" style="color:var(--muted);flex-shrink:0"><use href="#i-search"/></svg>
+          <input placeholder="Search mail…" />
+          <button class="list__compose" title="Compose (c)">
+            <svg width="16" height="16"><use href="#i-pencil"/></svg>
+          </button>
+        </div>
+        <div class="list__folders no-scrollbar">
+          <button class="folder is-active">Inbox</button>
+          <button class="folder">Sent</button>
+          <button class="folder">Drafts</button>
+          <button class="folder">Archive</button>
+          <button class="folder">Spam</button>
+          <button class="folder">Trash</button>
+        </div>
+      </div>
+
+      <div class="list__account">
+        <span class="list__account-label">nadja@bergmann.studio</span>
+        <span class="list__count">10</span>
+      </div>
+
+      <div class="list__items">
+        <!-- Active + unread -->
+        <button class="item is-active is-unread">
+          <div class="item__row">
+            <div class="item__avatar-wrap">
+              <span class="avatar" style="width:28px;height:28px;background:#4a90e2">JD</span>
+              <span class="item__unread"></span>
+            </div>
+            <div class="item__body">
+              <div class="item__head">
+                <span class="item__from">Jane Domm</span>
+                <span class="item__time">14:20</span>
+              </div>
+              <div class="item__subject">Project Phoenix — architecture review</div>
+              <div class="item__snippet-row">
+                <p class="item__snippet">I've attached the initial schema for the new editor architecture. Following the Zed-like restraint…</p>
+                <svg class="item__attach" width="12" height="12"><use href="#i-paperclip"/></svg>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button class="item is-unread">
+          <div class="item__row">
+            <div class="item__avatar-wrap">
+              <span class="avatar" style="width:28px;height:28px;background:#000">V</span>
+              <span class="item__unread"></span>
+            </div>
+            <div class="item__body">
+              <div class="item__head">
+                <span class="item__from">Vercel</span>
+                <span class="item__time">11:05</span>
+              </div>
+              <div class="item__subject">Deployment ready — bergmann-studio</div>
+              <div class="item__snippet-row">
+                <p class="item__snippet">Your deployment for bergmann-studio is ready. Preview URL and build logs inside.</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button class="item is-unread">
+          <div class="item__row">
+            <div class="item__avatar-wrap">
+              <span class="avatar" style="width:28px;height:28px;background:#24292e">GH</span>
+              <span class="item__unread"></span>
+            </div>
+            <div class="item__body">
+              <div class="item__head">
+                <span class="item__from">GitHub</span>
+                <span class="item__time">09:48</span>
+              </div>
+              <div class="item__subject">[zed-industries/zed] PR #18420 approved</div>
+              <div class="item__snippet-row">
+                <p class="item__snippet">sirenlab approved your pull request. Ready to merge into main.</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button class="item">
+          <div class="item__row">
+            <div class="item__avatar-wrap">
+              <span class="avatar" style="width:28px;height:28px;background:#8b5a3c">SR</span>
+            </div>
+            <div class="item__body">
+              <div class="item__head">
+                <span class="item__from">Steve Reich</span>
+                <span class="item__time">Yesterday</span>
+              </div>
+              <div class="item__subject">Phase patterns — rehearsal notes</div>
+              <div class="item__snippet-row">
+                <p class="item__snippet">For Wednesday: bars 44–68, the second piano runs a full quarter ahead of the first…</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button class="item">
+          <div class="item__row">
+            <div class="item__avatar-wrap">
+              <span class="avatar" style="width:28px;height:28px;background:#635bff">S</span>
+            </div>
+            <div class="item__body">
+              <div class="item__head">
+                <span class="item__from">Stripe</span>
+                <span class="item__time">Yesterday</span>
+              </div>
+              <div class="item__subject">Payout of €1,240.00 initiated</div>
+              <div class="item__snippet-row">
+                <p class="item__snippet">A payout of €1,240.00 is on its way to your bank account ending in 2216.</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button class="item">
+          <div class="item__row">
+            <div class="item__avatar-wrap">
+              <span class="avatar" style="width:28px;height:28px;background:#c27a4d">AM</span>
+            </div>
+            <div class="item__body">
+              <div class="item__head">
+                <span class="item__from">Anna Müller</span>
+                <span class="item__time">Oct 12</span>
+              </div>
+              <div class="item__subject">Katalog-Update Q4</div>
+              <div class="item__snippet-row">
+                <p class="item__snippet">Anbei die überarbeitete Katalogseite mit den neuen Farbfeldern. Freigabe bis Freitag?</p>
+                <svg class="item__attach" width="12" height="12"><use href="#i-paperclip"/></svg>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button class="item">
+          <div class="item__row">
+            <div class="item__avatar-wrap">
+              <span class="avatar" style="width:28px;height:28px;background:#0acf83">F</span>
+            </div>
+            <div class="item__body">
+              <div class="item__head">
+                <span class="item__from">Figma</span>
+                <span class="item__time">Oct 11</span>
+              </div>
+              <div class="item__subject">3 comments on Inbox Concept v4</div>
+              <div class="item__snippet-row">
+                <p class="item__snippet">arjan, kiki and one other left comments on frames you own.</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button class="item">
+          <div class="item__row">
+            <div class="item__avatar-wrap">
+              <span class="avatar" style="width:28px;height:28px;background:#ec0016">DB</span>
+            </div>
+            <div class="item__body">
+              <div class="item__head">
+                <span class="item__from">Deutsche Bahn</span>
+                <span class="item__time">Oct 10</span>
+              </div>
+              <div class="item__subject">Ihre Buchung: Berlin → München</div>
+              <div class="item__snippet-row">
+                <p class="item__snippet">ICE 705, Wagen 24, Platz 62 · Abfahrt 08:34</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button class="item">
+          <div class="item__row">
+            <div class="item__avatar-wrap">
+              <span class="avatar" style="width:28px;height:28px;background:#5c6370">HN</span>
+            </div>
+            <div class="item__body">
+              <div class="item__head">
+                <span class="item__from">Hacker News Digest</span>
+                <span class="item__time">Oct 8</span>
+              </div>
+              <div class="item__subject">Top 10 · Zed opens source · new render pipeline</div>
+              <div class="item__snippet-row">
+                <p class="item__snippet">This week: Zed goes open source, GPUI internals, a rope for the 21st century.</p>
+              </div>
+            </div>
+          </div>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Column 3: Preview -->
+    <main class="preview">
+      <header class="preview__bar">
+        <div class="preview__actions">
+          <button class="iconbtn" title="Reply (r)"><svg width="16" height="16"><use href="#i-reply"/></svg></button>
+          <button class="iconbtn" title="Archive (e)"><svg width="16" height="16"><use href="#i-archive"/></svg></button>
+          <button class="iconbtn" title="Delete (⌫)"><svg width="16" height="16"><use href="#i-trash"/></svg></button>
+          <button class="iconbtn" title="Star (s)"><svg width="16" height="16"><use href="#i-star"/></svg></button>
+          <button class="iconbtn" title="More"><svg width="16" height="16"><use href="#i-dots"/></svg></button>
+        </div>
+        <div class="keys">
+          <span class="key">R</span>
+          <span class="key">E</span>
+          <span class="key">⌫</span>
+        </div>
+      </header>
+
+      <div class="preview__scroll">
+        <div class="preview__container">
+          <div class="preview__head">
+            <span class="avatar" style="width:44px;height:44px;font-size:14px;background:#4a90e2">JD</span>
+            <div class="preview__meta">
+              <h1 class="preview__subject">Project Phoenix — architecture review</h1>
+              <div class="preview__from-row">
+                <div>
+                  <span class="preview__from-name">Jane Domm</span>
+                  <span class="preview__from-mail">&lt;jane@linear.app&gt;</span>
+                </div>
+                <span class="preview__time">14:20</span>
+              </div>
+            </div>
+          </div>
+
+          <article class="preview__body">
+            <p>Hi Nadja,</p>
+            <p>I've attached the initial schema for the new editor architecture. Following the Zed-like restraint we discussed, we're stripping back the overhead on buffer synchronization.</p>
+            <p>The key is minimizing paint cycles during rapid text entry. The rope structure stays, but we're moving the diff engine into a worker so the main thread only owns layout and paint.</p>
+            <p>Let's review the low-level rendering loop tomorrow at 10:00. I'll bring the profiler traces.</p>
+            <p>Best,<br/>Jane</p>
+          </article>
+
+          <div class="attach">
+            <svg width="14" height="14"><use href="#i-paperclip"/></svg>
+            <span class="attach__name">schema-v4.pdf</span>
+            <span class="attach__size">· 284 KB</span>
+          </div>
+
+          <div class="reply">
+            <div class="reply__box">
+              <span class="reply__placeholder">Reply to Jane…</span>
+              <div class="keys">
+                <span class="key">⌘</span>
+                <span class="key">↵</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="hint" role="note">
+    <span class="hint__label">Command Menu</span>
+    <div class="hint__keys">
+      <span>⌘</span>
+      <span>K</span>
+    </div>
+  </div>
+</body>
+</html>

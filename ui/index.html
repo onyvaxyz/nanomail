@@ -9,30 +9,37 @@
 </head>
 <body>
   <div id="app">
-    <!-- Spalte 1: Konten & Ordner -->
+    <!-- Spalte 1: Konten-Icon-Leiste -->
     <aside id="sidebar">
-      <div class="sidebar-kopf">
-        <span class="logo">Nanomail</span>
-      </div>
-      <button id="verfassen-knopf" class="knopf-primaer verfassen-gross versteckt" type="button">
-        <i class="ph-thin ph-pencil-simple-line"></i> Neue Mail
-      </button>
       <nav id="konten-bereich" class="scrollbereich"></nav>
       <div class="sidebar-fuss">
-        <button id="konto-hinzufuegen-knopf" class="knopf-flach versteckt" type="button">
-          <i class="ph-thin ph-plus"></i> Konto hinzufügen
+        <button id="konto-hinzufuegen-knopf" class="konto-hinzufuegen versteckt" type="button" title="Konto hinzufügen">
+          <i class="ph-thin ph-plus"></i>
         </button>
-        <button id="aktualisieren-knopf" class="knopf-flach versteckt" type="button">
-          <i class="ph-thin ph-arrows-clockwise"></i> Aktualisieren
+        <button id="aktualisieren-knopf" class="icon-knopf versteckt" type="button" title="Aktualisieren">
+          <i class="ph-thin ph-arrows-clockwise"></i>
         </button>
       </div>
     </aside>
 
     <!-- Spalte 2: Mail-Liste -->
     <section id="mailliste">
-      <header class="listen-kopf">
-        <span id="ordner-titel">Posteingang</span>
-        <span id="ordner-anzahl" class="ordner-anzahl"></span>
+      <header class="mailliste-kopf">
+        <div class="mailliste-suchzeile">
+          <i class="ph-thin ph-magnifying-glass"></i>
+          <input type="search" class="mailliste-suche" placeholder="Suchen" />
+          <button id="verfassen-knopf" class="knopf-primaer verfassen-kompakt versteckt" type="button">
+            <i class="ph-thin ph-pencil-simple-line"></i> Neue Mail
+          </button>
+        </div>
+        <ul id="ordner-pillen" class="ordner-pillen"></ul>
+        <div class="mailliste-konto-zeile">
+          <span id="mailliste-konto-adresse" class="mailliste-konto-adresse"></span>
+          <span id="ordner-anzahl" class="ordner-anzahl"></span>
+          <button id="konto-bearbeiten-knopf" class="icon-knopf klein" type="button" title="Konto bearbeiten">
+            <i class="ph-thin ph-gear-six"></i>
+          </button>
+        </div>
       </header>
       <div id="mail-eintraege" class="scrollbereich">
         <div class="leerzustand">
@@ -56,6 +63,18 @@
           </button>
           <button id="weiterleiten-knopf" class="icon-knopf" type="button" title="Weiterleiten">
             <i class="ph-thin ph-arrow-bend-up-right"></i>
+          </button>
+          <button id="archivieren-knopf" class="icon-knopf" type="button" title="Archivieren">
+            <i class="ph-thin ph-archive"></i>
+          </button>
+          <button id="loeschen-knopf" class="icon-knopf" type="button" title="Löschen">
+            <i class="ph-thin ph-trash"></i>
+          </button>
+          <button id="markieren-knopf" class="icon-knopf" type="button" title="Markieren">
+            <i class="ph-thin ph-star"></i>
+          </button>
+          <button id="mehr-knopf" class="icon-knopf" type="button" title="Mehr">
+            <i class="ph-thin ph-dots-three"></i>
           </button>
         </div>
       </div>
