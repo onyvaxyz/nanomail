@@ -12,8 +12,8 @@ Stand: 2026-07-04
 |---|---|---|---|
 | M0 | Projektgerüst | Tauri-App-Skelett, Grundlayout, Logging, CI, `.deb`-Build, Doku/Skills | 🟢 Freigegeben |
 | M1 | Erstes Konto lesend | IMAP: Ordner & Mails anzeigen (HTML bereinigt, Bilder blockiert), SQLite-Cache, Passwort im Keyring | 🟢 Freigegeben |
-| M2 | Senden | Verfassen, Antworten, Weiterleiten, Anhänge, Ablage im „Gesendet“-Ordner | 🟡 Wartet auf Freigabe |
-| M3 | Multi-Account | Die beiden OpenXchange-Konten (generische Kontoverwaltung) | ⚪ Offen |
+| M2 | Senden | Verfassen, Antworten, Weiterleiten, Anhänge, Ablage im „Gesendet“-Ordner | 🟢 Freigegeben |
+| M3 | Multi-Account + Live-Update + Zed-Look | Mehrere Konten gleichzeitig, automatisches Live-Update (IMAP IDLE), Oberfläche im Zed-Stil mit Phosphor-Icons | 🟡 Wartet auf Freigabe |
 | M4 | Kalender lesend | 3× Nextcloud-CalDAV, Wiederholungstermine, Zeitzonen, Offline-Cache | ⚪ Offen |
 | M5 | Kalender schreibend *(optional)* | Termine erstellen/bearbeiten/löschen, Konfliktbehandlung | ⚪ Offen |
 | M6 | Microsoft (zuletzt) | Erst Mini-Auth-Test (klärt Kontotyp & Tenant-Regeln), dann Device-Code-Flow, Token-Refresh, IMAP-Anbindung | ⚪ Offen |
@@ -44,38 +44,41 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 | 2026-07-05 | M2: Nur-Text-Mails verfassen (HTML-Verfassen, Entwürfe, Signaturen bewusst später) |
 | 2026-07-05 | M2: Weiterleiten übernimmt die Original-Anhänge automatisch |
 | 2026-07-05 | M2: „Gesendet“-Ordner wird über die Server-Kennzeichnung erkannt (Fallback: gängige Namen) |
+| 2026-07-05 | Infomaniak-Abbruch („close_notify“) = Server trennt vor Anmeldung, typisch nach mehreren Fehlversuchen → eigene Fehlermeldung, kein Code-Fehler |
+| 2026-07-05 | M3: Live-Update über IMAP IDLE (Posteingang sofort), plus 5-Minuten-Vollsync als Sicherheitsnetz für alle Ordner |
+| 2026-07-05 | M3: Oberfläche im Zed-Look (Farbschema „One Dark“), Symbole Phosphor Thin — lokal mitgeliefert, kein Nachladen aus dem Netz |
 
-## So testest du den aktuellen Stand (M2)
+## So testest du den aktuellen Stand (M3)
 
 1. Bauen und installieren wie gehabt:
    `cd src-tauri && cargo tauri build`, dann
    `sudo dpkg -i src-tauri/target/release/bundle/deb/Nanomail_0.1.0_amd64.deb`
-2. **Dein bestehendes Konto bleibt erhalten** (die Datenbank wird beim
-   ersten Start automatisch erweitert). Neu: Klick auf das ⚙-Zahnrad
-   neben dem Kontonamen öffnet „Konto bearbeiten“ — dort einmalig den
-   **Versand-Server (SMTP)** eintragen (bei OpenXchange/Infomaniak meist
-   derselbe Servername, Port 465). Passwortfeld leer lassen = Passwort
-   bleibt unverändert.
-3. **Senden testen** (am einfachsten an dich selbst):
-   - „✉ Verfassen“ → Mail an deine eigene Adresse → Senden.
-     Erwartung: Status „✓ Mail gesendet.“, die Mail kommt an und liegt
-     zusätzlich im „Gesendet“-Ordner.
-   - Eine empfangene Mail öffnen → „↩ Antworten“: Empfänger und
-     „Re:“-Betreff sind vorausgefüllt, darunter das Zitat.
-   - Eine Mail mit Anhang öffnen → „↪ Weiterleiten“: Der Anhang wird
-     automatisch mitgeschickt.
-   - „📎 Datei anhängen“ im Verfassen-Fenster hängt eigene Dateien an.
-4. **Infomaniak nochmal probieren:** Die Fehlermeldung zeigt jetzt die
-   konkrete Serverantwort. Benutzername = vollständige E-Mail-Adresse;
-   bei aktivierter Zwei-Faktor-Anmeldung im Infomaniak-Manager unter
-   Sicherheit → Anwendungspasswörter ein App-Passwort erstellen.
-5. Bei Problemen: Log-Datei unter `~/.local/share/nanomail/logs/` mitschicken.
+2. **Neue Optik:** Die Oberfläche ist jetzt dunkel im Stil des
+   Zed-Editors, die Symbole sind dünne Phosphor-Icons. Dein bestehendes
+   Konto bleibt erhalten.
+3. **Zweites Konto:** Links unten „＋ Konto hinzufügen“ → dein zweites
+   OpenXchange-Konto eintragen. Danach stehen beide Konten untereinander
+   in der Seitenleiste, jedes mit eigenen Ordnern und Ungelesen-Zählern.
+4. **Live-Update testen:** App geöffnet lassen und dir (oder von einem
+   anderen Gerät) eine Mail an eines der Konten schicken. Erwartung: Sie
+   erscheint nach wenigen Sekunden **von selbst** im Posteingang — ohne
+   „Aktualisieren“ zu drücken.
+5. **Senden mit Absenderwahl:** Bei „Verfassen“ gibt es jetzt ein
+   „Von“-Feld — damit wählst du, über welches Konto gesendet wird.
+6. **Konto entfernen:** Über das ⚙-Zahnrad → „Konto entfernen“
+   (mit Rückfrage). Löscht nur lokal; auf dem Server ändert sich nichts.
+7. **Infomaniak-Hinweis:** Deine Fehlermeldung („close_notify“) bedeutet,
+   dass der Server die Verbindung *vor* der Anmeldung trennt — das ist
+   meist eine **vorübergehende Sperre nach mehreren Fehlversuchen**.
+   30–60 Minuten warten, im Infomaniak-Manager unter Sicherheit nach
+   blockierten Geräten schauen, dann mit App-Passwort + vollständiger
+   Adresse erneut versuchen. Die App zeigt dafür jetzt eine eigene,
+   verständliche Meldung.
 
-Wenn das passt: M2 freigeben → M3 (die beiden OpenXchange-Konten
-gleichzeitig, automatisches Live-Update) beginnt.
+Wenn das passt: M3 freigeben → M4 (Kalender lesend, Nextcloud) beginnt.
 
-## Was in M2 bewusst noch fehlt
+## Was in M3 bewusst noch fehlt
 
-Mehrere Konten gleichzeitig + Live-Update neuer Mails (M3), HTML-Mails
-verfassen, Entwürfe, Signaturen, Mail-Suche, Löschen/Verschieben,
-Anhänge aus Mails öffnen/speichern. Kalender ab M4.
+Microsoft (M6, zuletzt), Kalender (ab M4), HTML-Mails verfassen,
+Entwürfe, Signaturen, Mail-Suche, Löschen/Verschieben von Mails,
+Anhänge aus Mails öffnen/speichern.

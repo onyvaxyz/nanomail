@@ -38,3 +38,12 @@ pub fn passwort_holen(konto_id: i64) -> Result<String> {
         .get_password()
         .context("Passwort aus dem Schlüsselbund lesen")
 }
+
+/// Räumt den Eintrag auf (Konto-Löschung). Ein bereits fehlender
+/// Eintrag ist kein Fehler.
+pub fn passwort_loeschen(konto_id: i64) -> Result<()> {
+    match eintrag(konto_id)?.delete_credential() {
+        Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+        Err(fehler) => Err(fehler).context("Passwort aus dem Schlüsselbund löschen"),
+    }
+}

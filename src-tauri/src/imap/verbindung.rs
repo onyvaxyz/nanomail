@@ -220,6 +220,22 @@ impl ImapVerbindung {
         Ok(())
     }
 
+    /// Wartet per IMAP IDLE auf Neuigkeiten im gewählten Ordner.
+    /// Liefert die Verbindung zurück plus `true`, wenn der Server etwas
+    /// gemeldet hat (`false` = Zeit abgelaufen, einfach weiterlauschen).
+    pub async fn warte_auf_neuigkeiten(self, dauer: std::time::Duration) -> Result<(Self, bool)> {
+        use async_imap::extensions::idle::IdleResponse;
+        let mut idle = self.session.idle();
+        idle.init().await.context("IDLE starten")?;
+        let (warten, _abbruch) = idle.wait_with_timeout(dauer);
+        let antwort = warten.await.context("IDLE warten")?;
+        let session = idle.done().await.context("IDLE beenden")?;
+        Ok((
+            Self { session },
+            matches!(antwort, IdleResponse::NewData(_)),
+        ))
+    }
+
     pub async fn abmelden(mut self) {
         // Fehler beim Abmelden sind unkritisch — Verbindung fällt ohnehin zu.
         if let Err(fehler) = self.session.logout().await {

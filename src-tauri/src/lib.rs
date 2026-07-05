@@ -62,16 +62,25 @@ pub fn run() {
         .setup(|app| {
             let pfad = pfade::db_pfad().ok_or("Datenverzeichnis nicht bestimmbar")?;
             let conn = db::oeffnen(&pfad).map_err(|fehler| format!("{fehler:#}"))?;
+            let konten = db::konten_liste(&conn).map_err(|fehler| format!("{fehler:#}"))?;
             app.manage(AppZustand {
                 db: Mutex::new(conn),
                 sync_laeuft: Mutex::new(HashSet::new()),
+                idle_tasks: Mutex::new(std::collections::HashMap::new()),
             });
+            // Live-Update je Konto + periodischer Voll-Sync als Sicherheitsnetz.
+            let handle = app.handle();
+            for konto in konten {
+                commands::idle_starten(handle, konto.id);
+            }
+            tauri::async_runtime::spawn(commands::periodischer_sync(handle.clone()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             ping,
             commands::konto_anlegen,
             commands::konto_bearbeiten,
+            commands::konto_loeschen,
             commands::konten_liste,
             commands::ordner_liste,
             commands::sync_starten,

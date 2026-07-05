@@ -7,11 +7,19 @@ description: Konventionen für das Nanomail-Frontend (ui/) und die Tauri-Command
 
 ## Grundsatz
 
-Vanilla HTML/CSS/JS in `ui/`, **kein Build-Schritt, keine npm-Abhängigkeiten**.
-Philipp passt Optik selbst über `ui/styles.css` an — deshalb:
+Vanilla HTML/CSS/JS in `ui/`, **kein Build-Schritt, keine npm-Abhängigkeiten
+zur Laufzeit**. Philipp passt Optik selbst über `ui/styles.css` an — deshalb:
 - Alle Farben/Maße als CSS-Variablen in `:root` am Dateianfang
 - Klassennamen und Kommentare auf Deutsch, selbsterklärend
 - Keine Inline-Styles im HTML, kein CSS in JS
+
+## Optik (ab M3)
+
+- Farbschema „Zed One Dark“ (dunkel), Werte als CSS-Variablen.
+- Symbole: **Phosphor Icons Thin**, lokal unter `ui/phosphor/`
+  (`<i class="ph-thin ph-<name>"></i>`). Nichts wird aus dem Netz geladen
+  (CSP bleibt dicht) — neue Icons nur aus der lokalen Schrift verwenden.
+- Mail-HTML-Anzeige bleibt bewusst hell (Mails sind für Weiß gestaltet).
 
 ## Rollenverteilung
 

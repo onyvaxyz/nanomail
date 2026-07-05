@@ -11,11 +11,11 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::{self, Konto, MailKopf, NeuerMailKopf, Ordner};
 use crate::imap::verbindung::ImapVerbindung;
-use crate::imap::{parsen, sync};
+use crate::imap::{idle, parsen, sync};
 use crate::smtp::{nachricht, versand};
 use crate::{anzeige, schluesselbund};
 
@@ -30,6 +30,8 @@ pub struct AppZustand {
     pub db: Mutex<rusqlite::Connection>,
     /// Konten, für die gerade ein Sync läuft (verhindert Doppel-Syncs).
     pub sync_laeuft: Mutex<HashSet<i64>>,
+    /// Live-Update-Hintergrundtasks (IMAP IDLE), einer je Konto.
+    pub idle_tasks: Mutex<HashMap<i64, tauri::async_runtime::JoinHandle<()>>>,
 }
 
 // ---------------------------------------------------------------- Hilfen --
@@ -59,6 +61,17 @@ fn als_meldung(fehler: &anyhow::Error) -> String {
     tracing::error!("{kette}");
     if let Some(pos) = kette.find("NUTZERFEHLER:") {
         return kette[pos + "NUTZERFEHLER:".len()..].trim().to_string();
+    }
+    if kette.contains("close_notify")
+        || kette.contains("unexpected EOF")
+        || kette.contains("peer closed")
+        || kette.contains("Connection reset")
+    {
+        return "Der Server hat die Verbindung unerwartet getrennt. Das passiert oft bei \
+                einer vorübergehenden Sperre nach mehreren fehlgeschlagenen \
+                Anmeldeversuchen — bitte 30–60 Minuten warten und dann erneut versuchen. \
+                Prüfe auch Sicherheitswarnungen im Konto deines Anbieters."
+            .into();
     }
     if let Some(pos) = kette.find("Anmeldung abgelehnt:") {
         // Die konkrete Serverantwort hilft bei der Diagnose (enthält nie
@@ -206,12 +219,15 @@ async fn zugangsdaten_pruefen(formular: &KontoFormular, passwort: &str) -> Resul
 
 #[tauri::command]
 pub async fn konto_anlegen(
+    app: AppHandle,
     zustand: State<'_, AppZustand>,
     formular: KontoFormular,
 ) -> Result<Konto, String> {
-    konto_anlegen_intern(&zustand, formular)
+    let konto = konto_anlegen_intern(&zustand, formular)
         .await
-        .map_err(|f| als_meldung(&f))
+        .map_err(|f| als_meldung(&f))?;
+    idle_starten(&app, konto.id);
+    Ok(konto)
 }
 
 async fn konto_anlegen_intern(zustand: &AppZustand, formular: KontoFormular) -> Result<Konto> {
@@ -240,13 +256,35 @@ async fn konto_anlegen_intern(zustand: &AppZustand, formular: KontoFormular) -> 
 
 #[tauri::command]
 pub async fn konto_bearbeiten(
+    app: AppHandle,
     zustand: State<'_, AppZustand>,
     konto_id: i64,
     formular: KontoFormular,
 ) -> Result<Konto, String> {
-    konto_bearbeiten_intern(&zustand, konto_id, formular)
+    let konto = konto_bearbeiten_intern(&zustand, konto_id, formular)
         .await
-        .map_err(|f| als_meldung(&f))
+        .map_err(|f| als_meldung(&f))?;
+    // Zugangsdaten/Server können sich geändert haben → Live-Update neu aufsetzen.
+    idle_starten(&app, konto_id);
+    Ok(konto)
+}
+
+#[tauri::command]
+pub async fn konto_loeschen(zustand: State<'_, AppZustand>, konto_id: i64) -> Result<(), String> {
+    idle_stoppen(&zustand, konto_id);
+    mit_db(&zustand, |conn| {
+        conn.execute("DELETE FROM konten WHERE id = ?1", [konto_id])
+            .context("Konto löschen")?;
+        Ok(())
+    })
+    .map_err(|f| als_meldung(&f))?;
+    // Keyring-Eintrag entfernen (blockiert intern → eigener Thread).
+    tauri::async_runtime::spawn_blocking(move || schluesselbund::passwort_loeschen(konto_id))
+        .await
+        .map_err(|_| "Interner Fehler beim Aufräumen des Schlüsselbunds".to_string())?
+        .map_err(|f| als_meldung(&f))?;
+    tracing::info!(konto_id, "Konto entfernt");
+    Ok(())
 }
 
 async fn konto_bearbeiten_intern(
@@ -290,11 +328,14 @@ pub fn ordner_liste(zustand: State<'_, AppZustand>, konto_id: i64) -> Result<Vec
 // ------------------------------------------------------------------ Sync --
 
 #[tauri::command]
-pub async fn sync_starten(
-    app: AppHandle,
-    zustand: State<'_, AppZustand>,
-    konto_id: i64,
-) -> Result<(), String> {
+pub async fn sync_starten(app: AppHandle, konto_id: i64) -> Result<(), String> {
+    sync_ausfuehren(&app, konto_id).await
+}
+
+/// Kompletter Konto-Sync mit Doppelstart-Schutz und Status-Events.
+/// Wird vom Command, vom periodischen Sync und vom Live-Update genutzt.
+async fn sync_ausfuehren(app: &AppHandle, konto_id: i64) -> Result<(), String> {
+    let zustand = app.state::<AppZustand>();
     // Doppel-Sync fürs selbe Konto verhindern.
     {
         let mut laufend = zustand
@@ -305,23 +346,103 @@ pub async fn sync_starten(
             return Ok(()); // läuft bereits — kein Fehler
         }
     }
-    melde_sync(&app, konto_id, "laeuft", None);
+    melde_sync(app, konto_id, "laeuft", None);
 
-    let ergebnis = konto_synchronisieren(&app, &zustand, konto_id).await;
+    let ergebnis = konto_synchronisieren(app, &zustand, konto_id).await;
 
     if let Ok(mut laufend) = zustand.sync_laeuft.lock() {
         laufend.remove(&konto_id);
     }
     match ergebnis {
         Ok(()) => {
-            melde_sync(&app, konto_id, "fertig", None);
+            melde_sync(app, konto_id, "fertig", None);
             Ok(())
         }
         Err(fehler) => {
             let meldung = als_meldung(&fehler);
-            melde_sync(&app, konto_id, "fehler", Some(meldung.clone()));
+            melde_sync(app, konto_id, "fehler", Some(meldung.clone()));
             Err(meldung)
         }
+    }
+}
+
+/// Sicherheitsnetz: alle Konten regelmäßig voll abgleichen (das
+/// Live-Update lauscht nur auf dem Posteingang).
+pub async fn periodischer_sync(app: AppHandle) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+        let konten = {
+            let zustand = app.state::<AppZustand>();
+            mit_db(&zustand, db::konten_liste).unwrap_or_default()
+        };
+        for konto in konten {
+            let _ = sync_ausfuehren(&app, konto.id).await;
+        }
+    }
+}
+
+// ------------------------------------------------------- Live-Update --
+
+/// Startet (bzw. ersetzt) den Live-Update-Task eines Kontos.
+pub fn idle_starten(app: &AppHandle, konto_id: i64) {
+    let app_im_task = app.clone();
+    let task = tauri::async_runtime::spawn(async move {
+        let mut backoff = idle::BACKOFF_START;
+        loop {
+            let begonnen = std::time::Instant::now();
+            if let Err(fehler) = idle_runde(&app_im_task, konto_id).await {
+                let existiert = {
+                    let zustand = app_im_task.state::<AppZustand>();
+                    mit_db(&zustand, |conn| db::konto_holen(conn, konto_id))
+                        .ok()
+                        .flatten()
+                        .is_some()
+                };
+                if !existiert {
+                    tracing::info!(konto_id, "Live-Update beendet (Konto entfernt)");
+                    return;
+                }
+                tracing::warn!(konto_id, "Live-Update unterbrochen: {fehler:#}");
+            }
+            // Lief die Runde eine Weile stabil, fängt der Backoff von vorn an.
+            if begonnen.elapsed() > std::time::Duration::from_secs(120) {
+                backoff = idle::BACKOFF_START;
+            }
+            tokio::time::sleep(backoff).await;
+            backoff = idle::naechster_backoff(backoff);
+        }
+    });
+    let zustand = app.state::<AppZustand>();
+    if let Ok(mut tasks) = zustand.idle_tasks.lock() {
+        if let Some(alter_task) = tasks.insert(konto_id, task) {
+            alter_task.abort();
+        }
+    };
+}
+
+fn idle_stoppen(zustand: &AppZustand, konto_id: i64) {
+    if let Ok(mut tasks) = zustand.idle_tasks.lock() {
+        if let Some(task) = tasks.remove(&konto_id) {
+            task.abort();
+        }
+    }
+}
+
+/// Eine IDLE-Runde: Posteingang abgleichen, dann auf Server-Meldungen
+/// lauschen; wiederholt sich, bis die Verbindung abreißt (→ `Err`).
+async fn idle_runde(app: &AppHandle, konto_id: i64) -> Result<()> {
+    let zustand = app.state::<AppZustand>();
+    let konto = konto_laden(&zustand, konto_id)?;
+    let mut verbindung = verbindung_zum_konto(&konto).await?;
+    tracing::info!(konto_id, "Live-Update verbunden");
+    loop {
+        let inbox = mit_db(&zustand, |conn| db::ordner_liste(conn, konto_id))?
+            .into_iter()
+            .find(|ordner| ordner.name.eq_ignore_ascii_case("INBOX"))
+            .ok_or_else(|| anyhow!("Posteingang noch nicht bekannt — warte auf ersten Sync"))?;
+        ordner_synchronisieren(app, &zustand, &mut verbindung, &inbox).await?;
+        let (naechste, _neuigkeiten) = verbindung.warte_auf_neuigkeiten(idle::IDLE_RUNDE).await?;
+        verbindung = naechste;
     }
 }
 

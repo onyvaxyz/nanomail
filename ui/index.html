@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Nanomail</title>
+  <link rel="stylesheet" href="phosphor/style.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -11,14 +12,19 @@
     <aside id="sidebar">
       <h1 class="logo">Nanomail</h1>
       <button id="verfassen-knopf" class="knopf-primaer versteckt" type="button">
-        ✉ Verfassen
+        <i class="ph-thin ph-pencil-simple-line"></i> Verfassen
       </button>
-      <div id="konto-bereich">
+      <div id="konten-bereich" class="scrollbereich">
         <p class="platzhalter">Noch kein Konto eingerichtet.</p>
       </div>
-      <button id="aktualisieren-knopf" class="knopf-sekundaer versteckt" type="button">
-        ⟳ Aktualisieren
-      </button>
+      <div class="sidebar-fuss">
+        <button id="konto-hinzufuegen-knopf" class="knopf-sekundaer versteckt" type="button">
+          <i class="ph-thin ph-plus"></i> Konto hinzufügen
+        </button>
+        <button id="aktualisieren-knopf" class="knopf-sekundaer versteckt" type="button">
+          <i class="ph-thin ph-arrows-clockwise"></i> Aktualisieren
+        </button>
+      </div>
     </aside>
 
     <section id="mailliste">
@@ -33,8 +39,12 @@
       <div id="mail-meta" class="mail-meta versteckt">
         <div id="mail-meta-text"></div>
         <div class="mail-aktionen">
-          <button id="antworten-knopf" class="knopf-sekundaer" type="button">↩ Antworten</button>
-          <button id="weiterleiten-knopf" class="knopf-sekundaer" type="button">↪ Weiterleiten</button>
+          <button id="antworten-knopf" class="knopf-sekundaer" type="button">
+            <i class="ph-thin ph-arrow-bend-up-left"></i> Antworten
+          </button>
+          <button id="weiterleiten-knopf" class="knopf-sekundaer" type="button">
+            <i class="ph-thin ph-arrow-bend-up-right"></i> Weiterleiten
+          </button>
         </div>
       </div>
       <div id="bilder-leiste" class="hinweis-leiste versteckt">
@@ -95,6 +105,10 @@
       <p id="dialog-fehler" class="fehler-text versteckt"></p>
 
       <div class="dialog-knoepfe">
+        <button id="konto-entfernen-knopf" class="knopf-gefahr versteckt" type="button">
+          Konto entfernen
+        </button>
+        <span class="dialog-knoepfe-fueller"></span>
         <button id="konto-abbrechen-knopf" class="knopf-sekundaer versteckt" type="button">Abbrechen</button>
         <button id="konto-speichern-knopf" class="knopf-primaer" type="submit">
           Verbindung prüfen &amp; speichern
@@ -107,6 +121,9 @@
     <form id="verfassen-formular" method="dialog">
       <h2 id="verfassen-titel">Neue Mail</h2>
 
+      <label id="von-label" class="versteckt">Von
+        <select name="von" id="von-auswahl"></select>
+      </label>
       <label>An <span class="label-hinweis">(mehrere durch Komma trennen)</span>
         <input name="an" required placeholder="empfaenger@example.com" />
       </label>
@@ -121,7 +138,9 @@
       </label>
 
       <div id="anhang-bereich">
-        <button id="anhang-knopf" class="knopf-sekundaer" type="button">📎 Datei anhängen</button>
+        <button id="anhang-knopf" class="knopf-sekundaer" type="button">
+          <i class="ph-thin ph-paperclip"></i> Datei anhängen
+        </button>
         <ul id="anhang-liste"></ul>
       </div>
 

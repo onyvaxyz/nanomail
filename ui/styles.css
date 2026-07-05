@@ -1,20 +1,26 @@
-/* Nanomail — Oberfläche (M1).
-   Farben und Maße sind als Variablen definiert und können hier
-   gefahrlos angepasst werden — danach reicht ein Neustart der App. */
+/* Nanomail — Oberfläche im Zed-Look (M3).
+   Farbwerte stammen aus dem „One Dark“-Theme des Zed-Editors.
+   Alles ist als Variable definiert und kann hier gefahrlos angepasst
+   werden — danach reicht ein Neustart der App. */
 
 :root {
-  --farbe-akzent: #3f51b5;
-  --farbe-akzent-hell: #e8eaf6;
-  --farbe-hintergrund: #fafafa;
-  --farbe-seitenleiste: #eceff4;
-  --farbe-rahmen: #d5d9e0;
-  --farbe-text: #24292f;
-  --farbe-text-gedimmt: #6e7781;
-  --farbe-ok: #1a7f37;
-  --farbe-fehler: #cf222e;
-  --farbe-hinweis-hintergrund: #fff8e5;
-  --breite-seitenleiste: 220px;
+  /* Zed One Dark */
+  --flaeche-fenster: #3b414d;      /* Titel-/Statusleisten */
+  --flaeche-panel: #2f343e;        /* Seitenleiste, Spaltenköpfe, Dialoge */
+  --flaeche-inhalt: #282c33;       /* Listen- und Lesebereich */
+  --farbe-rahmen: #464b57;
+  --farbe-text: #dce0e5;
+  --farbe-text-gedimmt: #a9afbc;
+  --farbe-akzent: #74ade8;
+  --flaeche-hover: #363c46;
+  --flaeche-auswahl: #454a56;
+  --farbe-fehler: #d07277;
+  --farbe-warnung: #dec184;
+  --farbe-ok: #a1c181;
+
+  --breite-seitenleiste: 230px;
   --breite-mailliste: 340px;
+  --radius: 6px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22,8 +28,9 @@
 html, body {
   height: 100%;
   font-family: system-ui, sans-serif;
+  font-size: 14px;
   color: var(--farbe-text);
-  background: var(--farbe-hintergrund);
+  background: var(--flaeche-inhalt);
 }
 
 body {
@@ -39,76 +46,106 @@ body {
 }
 
 .versteckt { display: none !important; }
-
 .scrollbereich { overflow-y: auto; }
+
+/* Zed-artige schmale Scrollleisten */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--flaeche-auswahl); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Icons (Phosphor Thin) */
+.ph-thin { font-size: 1.1em; vertical-align: -0.15em; }
 
 /* ------------------------------------------------------ Seitenleiste -- */
 
 #sidebar {
-  background: var(--farbe-seitenleiste);
+  background: var(--flaeche-panel);
   border-right: 1px solid var(--farbe-rahmen);
-  padding: 12px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
+  gap: 10px;
+  min-height: 0;
 }
 
 .logo {
-  font-size: 1.1rem;
-  color: var(--farbe-akzent);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--farbe-text-gedimmt);
+  padding: 2px 4px;
+}
+
+#konten-bereich {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sidebar-fuss {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .konto-zeile {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
+  padding: 0 4px;
 }
 
 .konto-name {
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  color: var(--farbe-text-gedimmt);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .zahnrad-knopf {
   border: none;
   background: none;
   cursor: pointer;
-  font-size: 0.95rem;
+  font-size: 1rem;
   color: var(--farbe-text-gedimmt);
   padding: 2px 4px;
+  border-radius: 4px;
 }
 
-.zahnrad-knopf:hover { color: var(--farbe-akzent); }
+.zahnrad-knopf:hover { color: var(--farbe-akzent); background: var(--flaeche-hover); }
 
-.ordner-liste {
-  list-style: none;
-}
+.ordner-liste { list-style: none; }
 
 .ordner-eintrag {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: 5px 8px;
+  border-radius: var(--radius);
   cursor: pointer;
   font-size: 0.9rem;
+  color: var(--farbe-text);
 }
 
-.ordner-eintrag:hover { background: rgba(0, 0, 0, 0.05); }
+.ordner-eintrag:hover { background: var(--flaeche-hover); }
 
 .ordner-eintrag.aktiv {
-  background: var(--farbe-akzent-hell);
+  background: var(--flaeche-auswahl);
   color: var(--farbe-akzent);
-  font-weight: 600;
 }
 
 .ungelesen-zaehler {
   background: var(--farbe-akzent);
-  color: #fff;
+  color: var(--flaeche-inhalt);
   border-radius: 10px;
   font-size: 0.72rem;
+  font-weight: 600;
   padding: 1px 7px;
 }
 
@@ -119,13 +156,15 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  background: var(--flaeche-inhalt);
 }
 
 .spalten-kopf {
-  padding: 10px 12px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
   font-weight: 600;
   border-bottom: 1px solid var(--farbe-rahmen);
-  background: #fff;
+  background: var(--flaeche-panel);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -139,14 +178,14 @@ body {
   cursor: pointer;
 }
 
-.mail-eintrag:hover { background: rgba(0, 0, 0, 0.03); }
-.mail-eintrag.aktiv { background: var(--farbe-akzent-hell); }
+.mail-eintrag:hover { background: var(--flaeche-hover); }
+.mail-eintrag.aktiv { background: var(--flaeche-auswahl); }
 
 .mail-zeile-oben {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--farbe-text-gedimmt);
 }
 
@@ -164,6 +203,14 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mail-betreff span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mail-eintrag.ungelesen .mail-betreff,
@@ -178,6 +225,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  background: var(--flaeche-inhalt);
 }
 
 .mail-meta {
@@ -189,7 +237,7 @@ body {
   font-size: 0.85rem;
   color: var(--farbe-text-gedimmt);
   border-bottom: 1px solid var(--farbe-rahmen);
-  background: #fff;
+  background: var(--flaeche-panel);
 }
 
 .mail-aktionen {
@@ -199,7 +247,7 @@ body {
 }
 
 .mail-aktionen .knopf-sekundaer {
-  padding: 4px 10px;
+  padding: 3px 10px;
   font-size: 0.82rem;
 }
 
@@ -208,16 +256,18 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 8px 12px;
+  padding: 7px 12px;
   font-size: 0.85rem;
-  background: var(--farbe-hinweis-hintergrund);
+  color: var(--farbe-warnung);
+  background: color-mix(in srgb, var(--farbe-warnung) 12%, var(--flaeche-inhalt));
   border-bottom: 1px solid var(--farbe-rahmen);
 }
 
+/* Mails sind für helle Hintergründe gestaltet — Anzeige bleibt hell. */
 #mail-html {
   flex: 1;
   border: none;
-  background: #fff;
+  background: #ffffff;
 }
 
 #mail-text {
@@ -226,8 +276,7 @@ body {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   font-size: 0.9rem;
-  line-height: 1.5;
-  background: #fff;
+  line-height: 1.55;
 }
 
 .platzhalter {
@@ -240,11 +289,11 @@ body {
 /* ------------------------------------------------------ Statusleiste -- */
 
 #statusleiste {
-  padding: 6px 12px;
+  padding: 5px 12px;
   font-size: 0.8rem;
   color: var(--farbe-text-gedimmt);
   border-top: 1px solid var(--farbe-rahmen);
-  background: #fff;
+  background: var(--flaeche-fenster);
 }
 
 #statusleiste .ok { color: var(--farbe-ok); }
@@ -253,28 +302,52 @@ body {
 /* ------------------------------------------------------------ Knöpfe -- */
 
 .knopf-primaer,
-.knopf-sekundaer {
+.knopf-sekundaer,
+.knopf-gefahr {
   font: inherit;
-  padding: 7px 14px;
-  border-radius: 6px;
+  font-size: 0.88rem;
+  padding: 6px 12px;
+  border-radius: var(--radius);
   cursor: pointer;
   border: 1px solid var(--farbe-rahmen);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .knopf-primaer {
   background: var(--farbe-akzent);
-  color: #fff;
+  color: var(--flaeche-inhalt);
   border-color: var(--farbe-akzent);
+  font-weight: 600;
+}
+
+.knopf-primaer:hover { filter: brightness(1.08); }
+
+.knopf-sekundaer {
+  background: var(--flaeche-hover);
+  color: var(--farbe-text);
+}
+
+.knopf-sekundaer:hover { background: var(--flaeche-auswahl); }
+
+.knopf-gefahr {
+  background: transparent;
+  color: var(--farbe-fehler);
+  border-color: var(--farbe-fehler);
+}
+
+.knopf-gefahr:hover {
+  background: color-mix(in srgb, var(--farbe-fehler) 15%, transparent);
 }
 
 .knopf-primaer:disabled,
-.knopf-sekundaer:disabled {
-  opacity: 0.6;
+.knopf-sekundaer:disabled,
+.knopf-gefahr:disabled {
+  opacity: 0.55;
   cursor: wait;
 }
-
-.knopf-sekundaer { background: #fff; }
-.knopf-sekundaer:hover { background: var(--farbe-akzent-hell); }
 
 /* ---------------------------------------------------------- Dialoge -- */
 
@@ -283,50 +356,57 @@ body {
   margin: auto;
   border: 1px solid var(--farbe-rahmen);
   border-radius: 10px;
-  padding: 24px;
-  width: min(440px, 90vw);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+  padding: 22px;
+  width: min(460px, 90vw);
+  background: var(--flaeche-panel);
+  color: var(--farbe-text);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
 }
 
-#verfassen-dialog { width: min(620px, 92vw); }
+#verfassen-dialog { width: min(640px, 92vw); }
 
 #konto-dialog::backdrop,
-#verfassen-dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+#verfassen-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
 
 #konto-dialog h2,
-#verfassen-dialog h2 { font-size: 1.05rem; margin-bottom: 4px; }
+#verfassen-dialog h2 { font-size: 1rem; margin-bottom: 4px; }
 
 .dialog-untertitel {
   font-size: 0.82rem;
   color: var(--farbe-text-gedimmt);
   margin-bottom: 14px;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 #konto-formular label,
 #verfassen-formular label {
   display: block;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--farbe-text-gedimmt);
   margin-bottom: 10px;
 }
 
 #konto-formular input,
 #verfassen-formular input,
+#verfassen-formular select,
 #verfassen-formular textarea {
   display: block;
   width: 100%;
   font: inherit;
+  font-size: 0.9rem;
+  color: var(--farbe-text);
+  background: var(--flaeche-inhalt);
   padding: 7px 9px;
   margin-top: 3px;
   border: 1px solid var(--farbe-rahmen);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 #verfassen-formular textarea { resize: vertical; }
 
 #konto-formular input:focus,
 #verfassen-formular input:focus,
+#verfassen-formular select:focus,
 #verfassen-formular textarea:focus {
   outline: 2px solid var(--farbe-akzent);
   outline-offset: -1px;
@@ -334,7 +414,7 @@ body {
 
 .label-hinweis {
   font-weight: normal;
-  font-size: 0.75rem;
+  font-size: 0.74rem;
 }
 
 #anhang-bereich { margin-bottom: 10px; }
@@ -351,8 +431,8 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: var(--farbe-akzent-hell);
-  border-radius: 6px;
+  background: var(--flaeche-auswahl);
+  border-radius: var(--radius);
   padding: 3px 8px;
   font-size: 0.82rem;
 }
@@ -362,14 +442,11 @@ body {
   background: none;
   cursor: pointer;
   color: var(--farbe-text-gedimmt);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
+  display: inline-flex;
 }
 
 .anhang-entfernen:hover { color: var(--farbe-fehler); }
-
-.feld-reihe { display: flex; gap: 10px; }
-.feld-breit { flex: 1; }
-.feld-schmal { width: 90px; }
 
 .fehler-text {
   color: var(--farbe-fehler);
@@ -378,9 +455,16 @@ body {
   line-height: 1.4;
 }
 
+.feld-reihe { display: flex; gap: 10px; }
+.feld-breit { flex: 1; }
+.feld-schmal { width: 90px; }
+
 .dialog-knoepfe {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
   margin-top: 6px;
 }
+
+.dialog-knoepfe-fueller { flex: 1; }

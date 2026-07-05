@@ -6,6 +6,7 @@
 //!
 //! Konventionen: siehe `.claude/skills/imap/SKILL.md`.
 
+pub mod idle;
 pub mod parsen;
 pub mod sync;
 pub mod verbindung;

@@ -25,8 +25,10 @@ keine provider-spezifischen Codepfade außer bei der Authentifizierung.
   Flag-Änderungen und Löschungen per UID-Vergleich erkennen.
 - Erstsync großer Postfächer: neueste Mails zuerst, in Batches, Header vor
   Bodies — die UI muss früh etwas anzeigen können.
-- Neue Mails: IMAP IDLE pro Konto; Fallback Polling, Intervall
-  konfigurierbar.
+- Neue Mails: IMAP IDLE pro Konto (ab M3, `imap/idle.rs` +
+  Task-Verwaltung in `commands.rs`), Auto-Reconnect mit Backoff,
+  IDLE-Neustart alle 25 Min; zusätzlich 5-Minuten-Vollsync als
+  Sicherheitsnetz.
 - Bodies lazy laden (erst beim Öffnen), danach cachen.
 
 ## Technik

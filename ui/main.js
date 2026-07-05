@@ -1,4 +1,4 @@
-// Nanomail — Frontend-Logik (M2).
+// Nanomail — Frontend-Logik (M3).
 // Reine Darstellung: alle Daten kommen fertig aufbereitet aus dem
 // Rust-Backend (Tauri-Commands/-Events). Kein Parsing, keine
 // Sync-Entscheidungen, keine Zugangsdaten in dieser Datei.
@@ -11,14 +11,15 @@ const SEITENGROESSE = 50;
 
 // Zentraler UI-Zustand
 const zustand = {
-  konto: null,
-  ordner: [],
+  konten: [],
+  ordnerJeKonto: new Map(), // kontoId -> Ordner[]
   aktiverOrdnerId: null,
+  aktivesKontoId: null,
   aktiveMailId: null,
   offset: 0,
   alleGeladen: false,
   laedtNach: false,
-  kontoDialogModus: "anlegen", // "anlegen" | "bearbeiten"
+  kontoDialog: { modus: "anlegen", kontoId: null },
   verfassen: { anhaenge: [], antwortAuf: null, weiterleiten: false },
 };
 
@@ -42,84 +43,108 @@ function zeige(id, sichtbar) {
   el(id).classList.toggle("versteckt", !sichtbar);
 }
 
+function icon(name) {
+  const i = document.createElement("i");
+  i.className = `ph-thin ph-${name}`;
+  return i;
+}
+
 // ------------------------------------------------------------- Start --
 
 async function start() {
   try {
-    const konten = await invoke("konten_liste");
-    if (konten.length === 0) {
-      kontoDialogOeffnen("anlegen");
+    zustand.konten = await invoke("konten_liste");
+    if (zustand.konten.length === 0) {
+      kontoDialogOeffnen("anlegen", null);
       status("Bitte zuerst ein Mail-Konto einrichten.");
       return;
     }
-    zustand.konto = konten[0]; // M2: genau ein Konto
-    await kontoAnzeigen();
+    zeige("verfassen-knopf", true);
+    zeige("aktualisieren-knopf", true);
+    zeige("konto-hinzufuegen-knopf", true);
+    await kontenAnzeigen();
+    erstenOrdnerOeffnen();
     synchronisieren();
   } catch (fehler) {
     status(`✗ ${fehler}`, "fehler");
   }
 }
 
-async function kontoAnzeigen() {
-  zeige("aktualisieren-knopf", true);
-  zeige("verfassen-knopf", true);
-  await ordnerNeuLaden();
-  if (!zustand.aktiverOrdnerId && zustand.ordner.length > 0) {
-    ordnerOeffnen(zustand.ordner[0].id);
-  }
-}
-
-// ------------------------------------------------------------ Ordner --
-
-async function ordnerNeuLaden() {
-  zustand.ordner = await invoke("ordner_liste", { kontoId: zustand.konto.id });
-  const bereich = el("konto-bereich");
-  bereich.innerHTML = "";
-
-  const kopfzeile = document.createElement("div");
-  kopfzeile.className = "konto-zeile";
-  const kontoName = document.createElement("span");
-  kontoName.className = "konto-name";
-  kontoName.textContent = zustand.konto.name;
-  const bearbeiten = document.createElement("button");
-  bearbeiten.className = "zahnrad-knopf";
-  bearbeiten.title = "Konto bearbeiten";
-  bearbeiten.textContent = "⚙";
-  bearbeiten.addEventListener("click", () => kontoDialogOeffnen("bearbeiten"));
-  kopfzeile.append(kontoName, bearbeiten);
-  bereich.appendChild(kopfzeile);
-
-  const liste = document.createElement("ul");
-  liste.className = "ordner-liste";
-  for (const ordner of zustand.ordner) {
-    const eintrag = document.createElement("li");
-    eintrag.className = "ordner-eintrag";
-    if (ordner.id === zustand.aktiverOrdnerId) eintrag.classList.add("aktiv");
-
-    const name = document.createElement("span");
-    name.textContent = ordner.anzeige_name;
-    eintrag.appendChild(name);
-
-    if (ordner.ungelesen > 0) {
-      const zaehler = document.createElement("span");
-      zaehler.className = "ungelesen-zaehler";
-      zaehler.textContent = ordner.ungelesen;
-      eintrag.appendChild(zaehler);
+function erstenOrdnerOeffnen() {
+  if (zustand.aktiverOrdnerId) return;
+  for (const konto of zustand.konten) {
+    const ordner = zustand.ordnerJeKonto.get(konto.id) || [];
+    if (ordner.length > 0) {
+      ordnerOeffnen(konto.id, ordner[0].id);
+      return;
     }
-    eintrag.addEventListener("click", () => ordnerOeffnen(ordner.id));
-    liste.appendChild(eintrag);
   }
-  bereich.appendChild(liste);
 }
 
-function ordnerOeffnen(ordnerId) {
+// ------------------------------------------------------------ Konten --
+
+async function kontenAnzeigen() {
+  for (const konto of zustand.konten) {
+    try {
+      zustand.ordnerJeKonto.set(konto.id, await invoke("ordner_liste", { kontoId: konto.id }));
+    } catch (fehler) {
+      status(`✗ ${konto.name}: ${fehler}`, "fehler");
+    }
+  }
+
+  const bereich = el("konten-bereich");
+  bereich.innerHTML = "";
+  for (const konto of zustand.konten) {
+    const block = document.createElement("div");
+    block.className = "konto-block";
+
+    const kopfzeile = document.createElement("div");
+    kopfzeile.className = "konto-zeile";
+    const kontoName = document.createElement("span");
+    kontoName.className = "konto-name";
+    kontoName.textContent = konto.name;
+    const bearbeiten = document.createElement("button");
+    bearbeiten.className = "zahnrad-knopf";
+    bearbeiten.title = "Konto bearbeiten";
+    bearbeiten.appendChild(icon("gear-six"));
+    bearbeiten.addEventListener("click", () => kontoDialogOeffnen("bearbeiten", konto.id));
+    kopfzeile.append(kontoName, bearbeiten);
+    block.appendChild(kopfzeile);
+
+    const liste = document.createElement("ul");
+    liste.className = "ordner-liste";
+    for (const ordner of zustand.ordnerJeKonto.get(konto.id) || []) {
+      const eintrag = document.createElement("li");
+      eintrag.className = "ordner-eintrag";
+      if (ordner.id === zustand.aktiverOrdnerId) eintrag.classList.add("aktiv");
+
+      const name = document.createElement("span");
+      name.textContent = ordner.anzeige_name;
+      eintrag.appendChild(name);
+
+      if (ordner.ungelesen > 0) {
+        const zaehler = document.createElement("span");
+        zaehler.className = "ungelesen-zaehler";
+        zaehler.textContent = ordner.ungelesen;
+        eintrag.appendChild(zaehler);
+      }
+      eintrag.addEventListener("click", () => ordnerOeffnen(konto.id, ordner.id));
+      liste.appendChild(eintrag);
+    }
+    block.appendChild(liste);
+    bereich.appendChild(block);
+  }
+}
+
+function ordnerOeffnen(kontoId, ordnerId) {
+  zustand.aktivesKontoId = kontoId;
   zustand.aktiverOrdnerId = ordnerId;
   zustand.offset = 0;
   zustand.alleGeladen = false;
-  const ordner = zustand.ordner.find((o) => o.id === ordnerId);
+  const ordner = (zustand.ordnerJeKonto.get(kontoId) || []).find((o) => o.id === ordnerId);
   el("ordner-titel").textContent = ordner ? ordner.anzeige_name : "";
   el("mail-eintraege").innerHTML = "";
-  ordnerNeuLaden(); // aktiv-Markierung aktualisieren
+  kontenAnzeigen(); // aktiv-Markierung aktualisieren
   naechsteSeiteLaden();
 }
 
@@ -173,8 +198,10 @@ function mailEintrag(mail) {
 
   const zeile2 = document.createElement("div");
   zeile2.className = "mail-betreff";
-  zeile2.textContent = mail.betreff || "(kein Betreff)";
-  if (mail.hat_anhang) zeile2.textContent = "📎 " + zeile2.textContent;
+  if (mail.hat_anhang) zeile2.appendChild(icon("paperclip"));
+  const betreff = document.createElement("span");
+  betreff.textContent = mail.betreff || "(kein Betreff)";
+  zeile2.appendChild(betreff);
 
   eintrag.append(zeile1, zeile2);
   eintrag.addEventListener("click", () => mailOeffnen(mail.id));
@@ -182,6 +209,7 @@ function mailEintrag(mail) {
 }
 
 async function listeNeuLaden() {
+  if (!zustand.aktiverOrdnerId) return;
   const anzahl = Math.max(zustand.offset, SEITENGROESSE);
   zustand.offset = 0;
   zustand.alleGeladen = false;
@@ -236,7 +264,7 @@ async function mailOeffnen(mailId) {
 
     const eintrag = document.querySelector(`.mail-eintrag[data-mail-id="${mailId}"]`);
     if (eintrag) eintrag.classList.remove("ungelesen");
-    ordnerNeuLaden();
+    kontenAnzeigen();
     status("Bereit.");
   } catch (fehler) {
     status(`✗ ${fehler}`, "fehler");
@@ -248,7 +276,7 @@ function htmlAnzeigen(html) {
   const rahmen = el("mail-html");
   rahmen.srcdoc =
     "<style>body{font-family:system-ui,sans-serif;font-size:14px;margin:12px;" +
-    "overflow-wrap:break-word}</style>" + html;
+    "overflow-wrap:break-word;background:#ffffff;color:#24292f}</style>" + html;
   zeige("mail-html", true);
 }
 
@@ -280,39 +308,37 @@ el("bilder-laden-knopf").addEventListener("click", async () => {
 // -------------------------------------------------------------- Sync --
 
 async function synchronisieren() {
-  if (!zustand.konto) return;
-  try {
-    await invoke("sync_starten", { kontoId: zustand.konto.id });
-    await ordnerNeuLaden();
-    if (!zustand.aktiverOrdnerId && zustand.ordner.length > 0) {
-      ordnerOeffnen(zustand.ordner[0].id);
-    } else if (zustand.aktiverOrdnerId) {
-      listeNeuLaden();
-    }
-  } catch (fehler) {
-    status(`✗ ${fehler}`, "fehler");
-  }
+  // Alle Konten parallel abgleichen — Fehler eines Kontos stören die
+  // anderen nicht (Meldungen kommen über sync:status-Events).
+  await Promise.allSettled(
+    zustand.konten.map((konto) => invoke("sync_starten", { kontoId: konto.id })),
+  );
+  await kontenAnzeigen();
+  erstenOrdnerOeffnen();
+  if (zustand.aktiverOrdnerId) listeNeuLaden();
 }
 
 el("aktualisieren-knopf").addEventListener("click", synchronisieren);
 
+function kontoName(kontoId) {
+  return zustand.konten.find((k) => k.id === kontoId)?.name || `Konto ${kontoId}`;
+}
+
 listen("sync:status", (ereignis) => {
-  const { status: s, meldung } = ereignis.payload;
-  if (s === "laeuft") status("Postfach wird abgeglichen …");
+  const { status: s, meldung, konto_id } = ereignis.payload;
+  if (s === "laeuft") status(`${kontoName(konto_id)} wird abgeglichen …`);
   else if (s === "fertig") status("✓ Postfach ist aktuell.", "ok");
-  else if (s === "fehler") status(`✗ ${meldung}`, "fehler");
+  else if (s === "fehler") status(`✗ ${kontoName(konto_id)}: ${meldung}`, "fehler");
 });
 
 listen("mails:neu", (ereignis) => {
   if (ereignis.payload.ordner_id === zustand.aktiverOrdnerId) listeNeuLaden();
-  ordnerNeuLaden();
+  kontenAnzeigen();
 });
 
 listen("ordner:aktualisiert", async () => {
-  await ordnerNeuLaden();
-  if (!zustand.aktiverOrdnerId && zustand.ordner.length > 0) {
-    ordnerOeffnen(zustand.ordner[0].id);
-  }
+  await kontenAnzeigen();
+  erstenOrdnerOeffnen();
 });
 
 el("mail-eintraege").addEventListener("scroll", (ereignis) => {
@@ -324,36 +350,70 @@ el("mail-eintraege").addEventListener("scroll", (ereignis) => {
 
 // ------------------------------------------------------ Konto-Dialog --
 
-function kontoDialogOeffnen(modus) {
-  zustand.kontoDialogModus = modus;
+function kontoDialogOeffnen(modus, kontoId) {
+  zustand.kontoDialog = { modus, kontoId };
   const formular = el("konto-formular");
   const passwortFeld = formular.elements.passwort;
+  const konto = zustand.konten.find((k) => k.id === kontoId);
 
-  if (modus === "bearbeiten" && zustand.konto) {
+  if (modus === "bearbeiten" && konto) {
     el("konto-dialog-titel").textContent = "Konto bearbeiten";
-    el("konto-speichern-knopf").textContent = "Verbindung prüfen & speichern";
-    formular.elements.name.value = zustand.konto.name;
-    formular.elements.email.value = zustand.konto.email;
-    formular.elements.benutzer.value = zustand.konto.benutzer;
-    formular.elements.imap_host.value = zustand.konto.imap_host;
-    formular.elements.imap_port.value = zustand.konto.imap_port;
-    formular.elements.smtp_host.value = zustand.konto.smtp_host || "mail.infomaniak.com";
-    formular.elements.smtp_port.value = zustand.konto.smtp_port || 465;
+    formular.elements.name.value = konto.name;
+    formular.elements.email.value = konto.email;
+    formular.elements.benutzer.value = konto.benutzer;
+    formular.elements.imap_host.value = konto.imap_host;
+    formular.elements.imap_port.value = konto.imap_port;
+    formular.elements.smtp_host.value = konto.smtp_host || "mail.infomaniak.com";
+    formular.elements.smtp_port.value = konto.smtp_port || 465;
     passwortFeld.value = "";
     passwortFeld.placeholder = "leer lassen = Passwort unverändert";
     passwortFeld.required = false;
+    zeige("konto-entfernen-knopf", true);
     zeige("konto-abbrechen-knopf", true);
   } else {
     el("konto-dialog-titel").textContent = "Mail-Konto einrichten";
+    formular.reset();
+    formular.elements.imap_host.value = "mail.infomaniak.com";
+    formular.elements.imap_port.value = 993;
+    formular.elements.smtp_host.value = "mail.infomaniak.com";
+    formular.elements.smtp_port.value = 465;
     passwortFeld.placeholder = "";
     passwortFeld.required = true;
-    zeige("konto-abbrechen-knopf", false);
+    zeige("konto-entfernen-knopf", false);
+    // Abbrechen nur zeigen, wenn schon mindestens ein Konto existiert
+    zeige("konto-abbrechen-knopf", zustand.konten.length > 0);
   }
   zeige("dialog-fehler", false);
   el("konto-dialog").showModal();
 }
 
+el("konto-hinzufuegen-knopf").addEventListener("click", () => kontoDialogOeffnen("anlegen", null));
 el("konto-abbrechen-knopf").addEventListener("click", () => el("konto-dialog").close());
+
+el("konto-entfernen-knopf").addEventListener("click", async () => {
+  const konto = zustand.konten.find((k) => k.id === zustand.kontoDialog.kontoId);
+  if (!konto) return;
+  const sicher = confirm(
+    `Konto „${konto.name}“ wirklich entfernen?\n\n` +
+      "Der lokale Cache und das gespeicherte Passwort werden gelöscht. " +
+      "Auf dem Mail-Server ändert sich nichts.",
+  );
+  if (!sicher) return;
+  try {
+    await invoke("konto_loeschen", { kontoId: konto.id });
+    el("konto-dialog").close();
+    zustand.aktiverOrdnerId = null;
+    zustand.aktivesKontoId = null;
+    zustand.aktiveMailId = null;
+    el("mail-eintraege").innerHTML = "";
+    status(`Konto „${konto.name}“ entfernt.`);
+    await start();
+  } catch (fehler) {
+    const fehlerfeld = el("dialog-fehler");
+    fehlerfeld.textContent = String(fehler);
+    zeige("dialog-fehler", true);
+  }
+});
 
 el("konto-formular").addEventListener("submit", async (ereignis) => {
   ereignis.preventDefault();
@@ -374,14 +434,13 @@ el("konto-formular").addEventListener("submit", async (ereignis) => {
     smtp_port: Number(daten.get("smtp_port")),
   };
   try {
-    const konto =
-      zustand.kontoDialogModus === "bearbeiten"
-        ? await invoke("konto_bearbeiten", { kontoId: zustand.konto.id, formular })
-        : await invoke("konto_anlegen", { formular });
+    if (zustand.kontoDialog.modus === "bearbeiten") {
+      await invoke("konto_bearbeiten", { kontoId: zustand.kontoDialog.kontoId, formular });
+    } else {
+      await invoke("konto_anlegen", { formular });
+    }
     el("konto-dialog").close();
-    zustand.konto = konto;
-    await kontoAnzeigen();
-    synchronisieren();
+    await start();
   } catch (fehler) {
     const fehlerfeld = el("dialog-fehler");
     fehlerfeld.textContent = String(fehler);
@@ -401,6 +460,20 @@ function verfassenOeffnen(vorlage, antwortAuf, weiterleiten) {
   formular.elements.betreff.value = vorlage?.betreff || "";
   formular.elements.text.value = vorlage?.text || "";
   zustand.verfassen = { anhaenge: [], antwortAuf: antwortAuf ?? null, weiterleiten: !!weiterleiten };
+
+  // Von-Auswahl: nur bei mehreren Konten sichtbar; vorbelegt mit dem
+  // Konto des aktiven Ordners.
+  const auswahl = el("von-auswahl");
+  auswahl.innerHTML = "";
+  for (const konto of zustand.konten) {
+    const option = document.createElement("option");
+    option.value = konto.id;
+    option.textContent = `${konto.name} <${konto.email}>`;
+    if (konto.id === zustand.aktivesKontoId) option.selected = true;
+    auswahl.appendChild(option);
+  }
+  zeige("von-label", zustand.konten.length > 1);
+
   el("verfassen-titel").textContent = weiterleiten
     ? "Weiterleiten"
     : antwortAuf
@@ -443,8 +516,8 @@ function anhangListeZeichnen() {
     const entfernen = document.createElement("button");
     entfernen.type = "button";
     entfernen.className = "anhang-entfernen";
-    entfernen.textContent = "✕";
     entfernen.title = "Anhang entfernen";
+    entfernen.appendChild(icon("x"));
     entfernen.addEventListener("click", () => {
       zustand.verfassen.anhaenge.splice(index, 1);
       anhangListeZeichnen();
@@ -475,10 +548,14 @@ el("verfassen-formular").addEventListener("submit", async (ereignis) => {
   knopf.disabled = true;
   knopf.textContent = "Sende …";
   zeige("verfassen-fehler", false);
+  const kontoId =
+    zustand.konten.length > 1
+      ? Number(daten.get("von"))
+      : zustand.konten[0]?.id;
   try {
     // Feldnamen entsprechen dem Rust-Struct SendeFormular (snake_case).
     const meldung = await invoke("mail_senden", {
-      kontoId: zustand.konto.id,
+      kontoId,
       formular: {
         an: daten.get("an"),
         cc: daten.get("cc"),
@@ -491,7 +568,7 @@ el("verfassen-formular").addEventListener("submit", async (ereignis) => {
     });
     el("verfassen-dialog").close();
     status(`✓ ${meldung}`, "ok");
-    ordnerNeuLaden();
+    kontenAnzeigen();
   } catch (fehler) {
     const fehlerfeld = el("verfassen-fehler");
     fehlerfeld.textContent = String(fehler);
