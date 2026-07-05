@@ -20,6 +20,13 @@ zur Laufzeit**. Philipp passt Optik selbst über `ui/styles.css` an — deshalb:
   (`<i class="ph-thin ph-<name>"></i>`). Nichts wird aus dem Netz geladen
   (CSP bleibt dicht) — neue Icons nur aus der lokalen Schrift verwenden.
 - Mail-HTML-Anzeige bleibt bewusst hell (Mails sind für Weiß gestaltet).
+- **Absender-Avatare:** rund, Initialen sofort (Farbe deterministisch aus
+  der Adresse), echtes Bild via Command `absender_avatar` asynchron
+  nachladen (Gravatar/Favicon). Absenderadresse steht in `mail.von_email`.
+- **Verfassen im eigenen Fenster:** `verfassen.html`/`verfassen.js`, geöffnet
+  per `new WebviewWindow('verfassen-<zeit>', { url, … })`. Kontext über
+  Query-Parameter (`kontoId`, `antwortAuf`, `weiterleiten`). Nach dem Senden
+  Event `mail:gesendet` → Hauptfenster frischt auf. Kein In-Page-Dialog mehr.
 
 ## Rollenverteilung
 

@@ -47,7 +47,10 @@ pub struct MailKopf {
     pub ordner_id: i64,
     pub uid: u32,
     pub betreff: String,
+    /// Anzeigename des Absenders (Name, sonst Adresse).
     pub von: String,
+    /// Reine Absenderadresse (für Avatare); kann leer sein.
+    pub von_email: String,
     /// Unix-Sekunden (UTC); `None`, wenn die Mail kein lesbares Datum hat.
     pub datum: Option<i64>,
     pub gelesen: bool,
@@ -60,6 +63,7 @@ pub struct NeuerMailKopf {
     pub uid: u32,
     pub betreff: String,
     pub von: String,
+    pub von_email: String,
     pub datum: Option<i64>,
     pub gelesen: bool,
     pub hat_anhang: bool,
@@ -168,6 +172,21 @@ fn migrieren(conn: &Connection) -> Result<()> {
             "#,
         )
         .context("Migration 2 ausführen")?;
+    }
+    if version < 3 {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE absender_avatar (
+                email     TEXT PRIMARY KEY,
+                data_uri  TEXT,          -- NULL = kein Bild, Frontend zeigt Initialen
+                geholt_am INTEGER NOT NULL
+            );
+            -- Absenderadresse getrennt vom Anzeigenamen (für Avatare).
+            ALTER TABLE mails ADD COLUMN von_email TEXT NOT NULL DEFAULT '';
+            INSERT INTO schema_version (version) VALUES (3);
+            "#,
+        )
+        .context("Migration 3 ausführen")?;
     }
     Ok(())
 }
@@ -413,8 +432,8 @@ pub fn ordner_setze_uidvalidity(conn: &Connection, ordner_id: i64, uidvalidity: 
 pub fn mails_einfuegen(conn: &Connection, ordner_id: i64, koepfe: &[NeuerMailKopf]) -> Result<()> {
     let mut stmt = conn
         .prepare(
-            "INSERT INTO mails (ordner_id, uid, betreff, von, datum, gelesen, hat_anhang)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO mails (ordner_id, uid, betreff, von, von_email, datum, gelesen, hat_anhang)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(ordner_id, uid) DO UPDATE SET gelesen = excluded.gelesen",
         )
         .context("Mail-Insert vorbereiten")?;
@@ -424,6 +443,7 @@ pub fn mails_einfuegen(conn: &Connection, ordner_id: i64, koepfe: &[NeuerMailKop
             kopf.uid,
             kopf.betreff,
             kopf.von,
+            kopf.von_email,
             kopf.datum,
             kopf.gelesen,
             kopf.hat_anhang
@@ -480,7 +500,7 @@ pub fn mails_liste(
 ) -> Result<Vec<MailKopf>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, ordner_id, uid, betreff, von, datum, gelesen, hat_anhang
+            "SELECT id, ordner_id, uid, betreff, von, von_email, datum, gelesen, hat_anhang
              FROM mails WHERE ordner_id = ?1
              ORDER BY datum IS NULL, datum DESC, uid DESC
              LIMIT ?2 OFFSET ?3",
@@ -494,7 +514,7 @@ pub fn mails_liste(
 
 pub fn mail_holen(conn: &Connection, mail_id: i64) -> Result<Option<MailKopf>> {
     conn.query_row(
-        "SELECT id, ordner_id, uid, betreff, von, datum, gelesen, hat_anhang
+        "SELECT id, ordner_id, uid, betreff, von, von_email, datum, gelesen, hat_anhang
          FROM mails WHERE id = ?1",
         params![mail_id],
         zeile_zu_mailkopf,
@@ -510,9 +530,10 @@ fn zeile_zu_mailkopf(zeile: &rusqlite::Row<'_>) -> rusqlite::Result<MailKopf> {
         uid: zeile.get::<_, i64>(2)? as u32,
         betreff: zeile.get(3)?,
         von: zeile.get(4)?,
-        datum: zeile.get(5)?,
-        gelesen: zeile.get(6)?,
-        hat_anhang: zeile.get(7)?,
+        von_email: zeile.get(5)?,
+        datum: zeile.get(6)?,
+        gelesen: zeile.get(7)?,
+        hat_anhang: zeile.get(8)?,
     })
 }
 
@@ -573,6 +594,46 @@ pub fn inhalt_speichern(conn: &Connection, mail_id: i64, inhalt: &MailInhalt) ->
     Ok(())
 }
 
+// ---------------------------------------------------------- Avatare --
+
+/// Ein Cache-Treffer: `Some(None)` = „bekannt, kein Bild“ (Initialen),
+/// `Some(Some(uri))` = Bild vorhanden, `None` = noch nicht abgefragt.
+pub fn avatar_aus_cache(
+    conn: &Connection,
+    email: &str,
+    hoechstalter_sekunden: i64,
+) -> Result<Option<Option<String>>> {
+    let jetzt = jetzt_sekunden();
+    conn.query_row(
+        "SELECT data_uri, geholt_am FROM absender_avatar WHERE email = ?1",
+        params![email.to_lowercase()],
+        |z| Ok((z.get::<_, Option<String>>(0)?, z.get::<_, i64>(1)?)),
+    )
+    .optional()
+    .context("Avatar-Cache lesen")
+    .map(|treffer| match treffer {
+        Some((uri, geholt_am)) if jetzt - geholt_am <= hoechstalter_sekunden => Some(uri),
+        _ => None, // nicht vorhanden oder zu alt → neu holen
+    })
+}
+
+pub fn avatar_speichern(conn: &Connection, email: &str, data_uri: Option<&str>) -> Result<()> {
+    conn.execute(
+        "INSERT INTO absender_avatar (email, data_uri, geholt_am) VALUES (?1, ?2, ?3)
+         ON CONFLICT(email) DO UPDATE SET data_uri = excluded.data_uri, geholt_am = excluded.geholt_am",
+        params![email.to_lowercase(), data_uri, jetzt_sekunden()],
+    )
+    .context("Avatar im Cache speichern")?;
+    Ok(())
+}
+
+fn jetzt_sekunden() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,7 +661,25 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
+    }
+
+    #[test]
+    fn avatar_cache_speichert_und_verfaellt() {
+        let conn = oeffnen_im_speicher().unwrap();
+        // Noch nichts abgefragt.
+        assert_eq!(avatar_aus_cache(&conn, "a@b.de", 3600).unwrap(), None);
+        // Bild merken → Treffer.
+        avatar_speichern(&conn, "A@B.de", Some("data:image/png;base64,xx")).unwrap();
+        assert_eq!(
+            avatar_aus_cache(&conn, "a@b.de", 3600).unwrap(),
+            Some(Some("data:image/png;base64,xx".to_string()))
+        );
+        // „kein Bild“ merken (Initialen) → Treffer mit None.
+        avatar_speichern(&conn, "c@d.de", None).unwrap();
+        assert_eq!(avatar_aus_cache(&conn, "c@d.de", 3600).unwrap(), Some(None));
+        // Zu altes Alter (0 s Toleranz) → gilt als abgelaufen.
+        assert_eq!(avatar_aus_cache(&conn, "c@d.de", -1).unwrap(), None);
     }
 
     #[test]
@@ -737,6 +816,7 @@ mod tests {
                 uid: 1,
                 betreff: "Hallo".into(),
                 von: "a@b.c".into(),
+                von_email: String::new(),
                 datum: Some(1_000),
                 gelesen: false,
                 hat_anhang: false,
@@ -759,6 +839,7 @@ mod tests {
                 uid: i,
                 betreff: format!("Mail {i}"),
                 von: "a@b.c".into(),
+                von_email: "a@b.c".into(),
                 datum: Some(i64::from(i) * 100),
                 gelesen: i % 2 == 0,
                 hat_anhang: false,
@@ -790,6 +871,7 @@ mod tests {
                     uid: 1,
                     betreff: "eins".into(),
                     von: String::new(),
+                    von_email: String::new(),
                     datum: None,
                     gelesen: false,
                     hat_anhang: false,
@@ -798,6 +880,7 @@ mod tests {
                     uid: 2,
                     betreff: "zwei".into(),
                     von: String::new(),
+                    von_email: String::new(),
                     datum: None,
                     gelesen: false,
                     hat_anhang: false,
@@ -823,6 +906,7 @@ mod tests {
                 uid: 1,
                 betreff: "eins".into(),
                 von: String::new(),
+                von_email: String::new(),
                 datum: None,
                 gelesen: false,
                 hat_anhang: false,

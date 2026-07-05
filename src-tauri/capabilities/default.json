@@ -1,7 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Standard-Rechte des Hauptfensters: Core-APIs (u. a. Events) für die Kommunikation mit dem Backend.",
-  "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "description": "Rechte für Haupt- und Verfassen-Fenster: Core-APIs (Events), Datei-Dialog, weitere Fenster öffnen.",
+  "windows": ["main", "verfassen-*"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "dialog:allow-open"
+  ]
 }

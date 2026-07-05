@@ -1,15 +1,13 @@
-// Nanomail — Frontend-Logik (M3).
+// Nanomail — Hauptfenster (M3.1).
 // Reine Darstellung: alle Daten kommen fertig aufbereitet aus dem
-// Rust-Backend (Tauri-Commands/-Events). Kein Parsing, keine
-// Sync-Entscheidungen, keine Zugangsdaten in dieser Datei.
+// Rust-Backend. Verfassen läuft in einem eigenen Fenster (verfassen.html).
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
-const dateiDialog = window.__TAURI__.dialog.open;
+const { WebviewWindow } = window.__TAURI__.webviewWindow;
 
 const SEITENGROESSE = 50;
 
-// Zentraler UI-Zustand
 const zustand = {
   konten: [],
   ordnerJeKonto: new Map(), // kontoId -> Ordner[]
@@ -20,8 +18,10 @@ const zustand = {
   alleGeladen: false,
   laedtNach: false,
   kontoDialog: { modus: "anlegen", kontoId: null },
-  verfassen: { anhaenge: [], antwortAuf: null, weiterleiten: false },
 };
+
+// Avatar-Cache im Frontend: email -> dataUri | null (null = Initialen).
+const avatarCache = new Map();
 
 // ---------------------------------------------------------- DOM-Kürzel --
 
@@ -30,6 +30,18 @@ const datumFormat = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit", month: "2-digit", year: "2-digit",
   hour: "2-digit", minute: "2-digit",
 });
+const uhrzeitFormat = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+const tagFormat = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
+
+/// Kompakte Zeitangabe: heute = Uhrzeit, sonst Tag.Monat, älter = mit Jahr.
+function zeitKompakt(sekunden) {
+  if (!sekunden) return "";
+  const d = new Date(sekunden * 1000);
+  const jetzt = new Date();
+  if (d.toDateString() === jetzt.toDateString()) return uhrzeitFormat.format(d);
+  if (d.getFullYear() === jetzt.getFullYear()) return tagFormat.format(d);
+  return datumFormat.format(d).slice(0, 8);
+}
 
 function status(text, klasse = "") {
   el("backend-status").innerHTML = "";
@@ -47,6 +59,59 @@ function icon(name) {
   const i = document.createElement("i");
   i.className = `ph-thin ph-${name}`;
   return i;
+}
+
+// ------------------------------------------------------------- Avatare --
+
+/// Initialen aus Anzeigename/Adresse (max. 2 Buchstaben).
+function initialen(name, email) {
+  const quelle = (name || email || "?").trim();
+  const teile = quelle.split(/[\s@._-]+/).filter(Boolean);
+  if (teile.length === 0) return "?";
+  if (teile.length === 1) return teile[0].slice(0, 2).toUpperCase();
+  return (teile[0][0] + teile[1][0]).toUpperCase();
+}
+
+/// Deterministische, ruhige Farbe aus einer Zeichenkette.
+function avatarFarbe(text) {
+  let hash = 0;
+  for (const zeichen of text || "?") hash = (hash * 31 + zeichen.charCodeAt(0)) & 0xffffff;
+  const hue = hash % 360;
+  return `hsl(${hue}, 42%, 45%)`;
+}
+
+/// Baut ein Avatar-Element: sofort Initialen, dann ggf. echtes Bild nachladen.
+function avatarElement(name, email, extraKlasse = "") {
+  const kreis = document.createElement("div");
+  kreis.className = `avatar ${extraKlasse}`.trim();
+  const kuerzel = initialen(name, email);
+  kreis.textContent = kuerzel;
+  kreis.style.background = avatarFarbe(email || name);
+
+  if (email) avatarLaden(email, kreis);
+  return kreis;
+}
+
+async function avatarLaden(email, kreis) {
+  const schluessel = email.toLowerCase();
+  if (avatarCache.has(schluessel)) {
+    bildSetzen(kreis, avatarCache.get(schluessel));
+    return;
+  }
+  try {
+    const uri = await invoke("absender_avatar", { email });
+    avatarCache.set(schluessel, uri || null);
+    bildSetzen(kreis, uri || null);
+  } catch {
+    avatarCache.set(schluessel, null); // bei Fehler bleiben Initialen
+  }
+}
+
+function bildSetzen(kreis, uri) {
+  if (!uri) return; // Initialen behalten
+  kreis.textContent = "";
+  kreis.style.backgroundImage = `url("${uri}")`;
+  kreis.classList.add("avatar-bild");
 }
 
 // ------------------------------------------------------------- Start --
@@ -83,6 +148,19 @@ function erstenOrdnerOeffnen() {
 
 // ------------------------------------------------------------ Konten --
 
+/// Passendes Ordner-Icon nach Rolle bzw. Name.
+function ordnerIconName(ordner) {
+  switch (ordner.rolle) {
+    case "gesendet": return "paper-plane-tilt";
+    case "entwuerfe": return "note-pencil";
+    case "papierkorb": return "trash";
+    case "spam": return "warning-octagon";
+    case "archiv": return "archive";
+    default:
+      return ordner.name.toUpperCase() === "INBOX" ? "tray" : "folder";
+  }
+}
+
 async function kontenAnzeigen() {
   for (const konto of zustand.konten) {
     try {
@@ -104,7 +182,7 @@ async function kontenAnzeigen() {
     kontoName.className = "konto-name";
     kontoName.textContent = konto.name;
     const bearbeiten = document.createElement("button");
-    bearbeiten.className = "zahnrad-knopf";
+    bearbeiten.className = "icon-knopf klein";
     bearbeiten.title = "Konto bearbeiten";
     bearbeiten.appendChild(icon("gear-six"));
     bearbeiten.addEventListener("click", () => kontoDialogOeffnen("bearbeiten", konto.id));
@@ -118,9 +196,14 @@ async function kontenAnzeigen() {
       eintrag.className = "ordner-eintrag";
       if (ordner.id === zustand.aktiverOrdnerId) eintrag.classList.add("aktiv");
 
+      const links = document.createElement("span");
+      links.className = "ordner-links";
+      links.appendChild(icon(ordnerIconName(ordner)));
       const name = document.createElement("span");
+      name.className = "ordner-name";
       name.textContent = ordner.anzeige_name;
-      eintrag.appendChild(name);
+      links.appendChild(name);
+      eintrag.appendChild(links);
 
       if (ordner.ungelesen > 0) {
         const zaehler = document.createElement("span");
@@ -143,12 +226,24 @@ function ordnerOeffnen(kontoId, ordnerId) {
   zustand.alleGeladen = false;
   const ordner = (zustand.ordnerJeKonto.get(kontoId) || []).find((o) => o.id === ordnerId);
   el("ordner-titel").textContent = ordner ? ordner.anzeige_name : "";
+  el("ordner-anzahl").textContent = ordner && ordner.gesamt ? `${ordner.gesamt}` : "";
   el("mail-eintraege").innerHTML = "";
-  kontenAnzeigen(); // aktiv-Markierung aktualisieren
+  kontenAnzeigen(); // aktiv-Markierung
   naechsteSeiteLaden();
 }
 
 // --------------------------------------------------------- Mail-Liste --
+
+function leerzustand(behaelter, iconName, text) {
+  behaelter.innerHTML = "";
+  const box = document.createElement("div");
+  box.className = "leerzustand";
+  box.appendChild(icon(iconName));
+  const p = document.createElement("p");
+  p.textContent = text;
+  box.appendChild(p);
+  behaelter.appendChild(box);
+}
 
 async function naechsteSeiteLaden() {
   if (zustand.alleGeladen || zustand.laedtNach || !zustand.aktiverOrdnerId) return;
@@ -162,16 +257,13 @@ async function naechsteSeiteLaden() {
     if (mails.length < SEITENGROESSE) zustand.alleGeladen = true;
 
     const behaelter = el("mail-eintraege");
-    if (zustand.offset === 0) behaelter.innerHTML = "";
-    zustand.offset += mails.length;
-
     if (zustand.offset === 0 && mails.length === 0) {
-      const leer = document.createElement("div");
-      leer.className = "platzhalter";
-      leer.textContent = "Dieser Ordner ist leer.";
-      behaelter.appendChild(leer);
+      leerzustand(behaelter, "tray", "Dieser Ordner ist leer.");
+    } else {
+      if (zustand.offset === 0) behaelter.innerHTML = "";
+      for (const mail of mails) behaelter.appendChild(mailEintrag(mail));
     }
-    for (const mail of mails) behaelter.appendChild(mailEintrag(mail));
+    zustand.offset += mails.length;
   } catch (fehler) {
     status(`✗ ${fehler}`, "fehler");
   } finally {
@@ -186,24 +278,36 @@ function mailEintrag(mail) {
   if (mail.id === zustand.aktiveMailId) eintrag.classList.add("aktiv");
   eintrag.dataset.mailId = mail.id;
 
+  eintrag.appendChild(avatarElement(mail.von, mail.von_email));
+
+  const text = document.createElement("div");
+  text.className = "mail-text-block";
+
   const zeile1 = document.createElement("div");
   zeile1.className = "mail-zeile-oben";
   const von = document.createElement("span");
   von.className = "mail-von";
-  von.textContent = mail.von || "(unbekannt)";
-  const datum = document.createElement("span");
-  datum.className = "mail-datum";
-  datum.textContent = mail.datum ? datumFormat.format(new Date(mail.datum * 1000)) : "";
-  zeile1.append(von, datum);
+  von.textContent = mail.von || mail.von_email || "(unbekannt)";
+  const zeit = document.createElement("span");
+  zeit.className = "mail-zeit";
+  zeit.textContent = zeitKompakt(mail.datum);
+  zeile1.append(von, zeit);
 
   const zeile2 = document.createElement("div");
-  zeile2.className = "mail-betreff";
-  if (mail.hat_anhang) zeile2.appendChild(icon("paperclip"));
+  zeile2.className = "mail-zeile-unten";
   const betreff = document.createElement("span");
+  betreff.className = "mail-betreff";
   betreff.textContent = mail.betreff || "(kein Betreff)";
   zeile2.appendChild(betreff);
+  if (mail.hat_anhang) zeile2.appendChild(icon("paperclip"));
+  if (!mail.gelesen) {
+    const punkt = document.createElement("span");
+    punkt.className = "ungelesen-punkt";
+    zeile2.appendChild(punkt);
+  }
 
-  eintrag.append(zeile1, zeile2);
+  text.append(zeile1, zeile2);
+  eintrag.appendChild(text);
   eintrag.addEventListener("click", () => mailOeffnen(mail.id));
   return eintrag;
 }
@@ -211,7 +315,6 @@ function mailEintrag(mail) {
 async function listeNeuLaden() {
   if (!zustand.aktiverOrdnerId) return;
   const anzahl = Math.max(zustand.offset, SEITENGROESSE);
-  zustand.offset = 0;
   zustand.alleGeladen = false;
   try {
     const mails = await invoke("mails_liste", {
@@ -222,8 +325,12 @@ async function listeNeuLaden() {
     zustand.offset = mails.length;
     if (mails.length < anzahl) zustand.alleGeladen = true;
     const behaelter = el("mail-eintraege");
-    behaelter.innerHTML = "";
-    for (const mail of mails) behaelter.appendChild(mailEintrag(mail));
+    if (mails.length === 0) {
+      leerzustand(behaelter, "tray", "Dieser Ordner ist leer.");
+    } else {
+      behaelter.innerHTML = "";
+      for (const mail of mails) behaelter.appendChild(mailEintrag(mail));
+    }
   } catch (fehler) {
     status(`✗ ${fehler}`, "fehler");
   }
@@ -238,18 +345,27 @@ async function mailOeffnen(mailId) {
   try {
     const ansicht = await invoke("mail_lesen", { mailId });
     zeige("lese-platzhalter", false);
-    el("mail-titel").textContent = ansicht.kopf.betreff || "(kein Betreff)";
+    zeige("lese-kopf", true);
 
-    const meta = el("mail-meta-text");
+    const avatar = avatarElement(ansicht.kopf.von, ansicht.kopf.von_email, "avatar-gross");
+    el("lese-avatar").replaceWith(avatar);
+    avatar.id = "lese-avatar";
+
+    el("mail-titel").textContent = ansicht.kopf.betreff || "(kein Betreff)";
+    const meta = el("mail-meta");
     meta.innerHTML = "";
     const von = document.createElement("span");
-    von.textContent = `Von: ${ansicht.kopf.von || "(unbekannt)"}`;
+    von.className = "meta-von";
+    von.textContent = ansicht.kopf.von || "(unbekannt)";
+    const adresse = document.createElement("span");
+    adresse.className = "meta-adresse";
+    adresse.textContent = ansicht.kopf.von_email ? `<${ansicht.kopf.von_email}>` : "";
     const datum = document.createElement("span");
+    datum.className = "meta-datum";
     datum.textContent = ansicht.kopf.datum
-      ? " — " + datumFormat.format(new Date(ansicht.kopf.datum * 1000))
+      ? datumFormat.format(new Date(ansicht.kopf.datum * 1000))
       : "";
-    meta.append(von, datum);
-    zeige("mail-meta", true);
+    meta.append(von, adresse, datum);
 
     zeige("bilder-leiste", ansicht.hatte_externe_bilder);
 
@@ -257,13 +373,15 @@ async function mailOeffnen(mailId) {
       htmlAnzeigen(ansicht.html);
     } else {
       zeige("mail-html", false);
-      const textfeld = el("mail-text");
-      textfeld.textContent = ansicht.text;
+      el("mail-text").textContent = ansicht.text;
       zeige("mail-text", true);
     }
 
     const eintrag = document.querySelector(`.mail-eintrag[data-mail-id="${mailId}"]`);
-    if (eintrag) eintrag.classList.remove("ungelesen");
+    if (eintrag) {
+      eintrag.classList.remove("ungelesen");
+      eintrag.querySelector(".ungelesen-punkt")?.remove();
+    }
     kontenAnzeigen();
     status("Bereit.");
   } catch (fehler) {
@@ -275,8 +393,9 @@ function htmlAnzeigen(html) {
   zeige("mail-text", false);
   const rahmen = el("mail-html");
   rahmen.srcdoc =
-    "<style>body{font-family:system-ui,sans-serif;font-size:14px;margin:12px;" +
-    "overflow-wrap:break-word;background:#ffffff;color:#24292f}</style>" + html;
+    "<style>body{font-family:system-ui,sans-serif;font-size:14px;margin:16px;" +
+    "line-height:1.5;overflow-wrap:break-word;background:#ffffff;color:#1a1a1a}" +
+    "a{color:#1a56c4}</style>" + html;
   zeige("mail-html", true);
 }
 
@@ -285,8 +404,6 @@ function markiereAktivenEintrag(mailId) {
   const eintrag = document.querySelector(`.mail-eintrag[data-mail-id="${mailId}"]`);
   if (eintrag) eintrag.classList.add("aktiv");
 }
-
-// ------------------------------------------------------- Bilder laden --
 
 el("bilder-laden-knopf").addEventListener("click", async () => {
   if (!zustand.aktiveMailId) return;
@@ -308,8 +425,6 @@ el("bilder-laden-knopf").addEventListener("click", async () => {
 // -------------------------------------------------------------- Sync --
 
 async function synchronisieren() {
-  // Alle Konten parallel abgleichen — Fehler eines Kontos stören die
-  // anderen nicht (Meldungen kommen über sync:status-Events).
   await Promise.allSettled(
     zustand.konten.map((konto) => invoke("sync_starten", { kontoId: konto.id })),
   );
@@ -341,10 +456,51 @@ listen("ordner:aktualisiert", async () => {
   erstenOrdnerOeffnen();
 });
 
+// Nach dem Senden aus einem Verfassen-Fenster: Ansicht auffrischen.
+listen("mail:gesendet", () => {
+  status("✓ Mail gesendet.", "ok");
+  kontenAnzeigen();
+  if (zustand.aktiverOrdnerId) listeNeuLaden();
+});
+
 el("mail-eintraege").addEventListener("scroll", (ereignis) => {
   const ziel = ereignis.target;
   if (ziel.scrollTop + ziel.clientHeight >= ziel.scrollHeight - 200) {
     naechsteSeiteLaden();
+  }
+});
+
+// -------------------------------------------------- Verfassen-Fenster --
+
+let fensterZaehler = 0;
+
+function verfassenFensterOeffnen(query, titel) {
+  fensterZaehler += 1;
+  const label = `verfassen-${Date.now()}-${fensterZaehler}`;
+  new WebviewWindow(label, {
+    url: `verfassen.html${query}`,
+    title: titel,
+    width: 680,
+    height: 620,
+    minWidth: 480,
+    minHeight: 420,
+  });
+}
+
+el("verfassen-knopf").addEventListener("click", () => {
+  const konto = zustand.aktivesKontoId ?? zustand.konten[0]?.id;
+  verfassenFensterOeffnen(konto ? `?kontoId=${konto}` : "", "Neue Mail");
+});
+
+el("antworten-knopf").addEventListener("click", () => {
+  if (zustand.aktiveMailId) {
+    verfassenFensterOeffnen(`?antwortAuf=${zustand.aktiveMailId}&weiterleiten=0`, "Antworten");
+  }
+});
+
+el("weiterleiten-knopf").addEventListener("click", () => {
+  if (zustand.aktiveMailId) {
+    verfassenFensterOeffnen(`?antwortAuf=${zustand.aktiveMailId}&weiterleiten=1`, "Weiterleiten");
   }
 });
 
@@ -380,7 +536,6 @@ function kontoDialogOeffnen(modus, kontoId) {
     passwortFeld.placeholder = "";
     passwortFeld.required = true;
     zeige("konto-entfernen-knopf", false);
-    // Abbrechen nur zeigen, wenn schon mindestens ein Konto existiert
     zeige("konto-abbrechen-knopf", zustand.konten.length > 0);
   }
   zeige("dialog-fehler", false);
@@ -406,6 +561,10 @@ el("konto-entfernen-knopf").addEventListener("click", async () => {
     zustand.aktivesKontoId = null;
     zustand.aktiveMailId = null;
     el("mail-eintraege").innerHTML = "";
+    zeige("lese-kopf", false);
+    zeige("mail-html", false);
+    zeige("mail-text", false);
+    zeige("lese-platzhalter", true);
     status(`Konto „${konto.name}“ entfernt.`);
     await start();
   } catch (fehler) {
@@ -422,7 +581,6 @@ el("konto-formular").addEventListener("submit", async (ereignis) => {
   knopf.disabled = true;
   knopf.textContent = "Prüfe Verbindung …";
   zeige("dialog-fehler", false);
-  // Feldnamen entsprechen dem Rust-Struct KontoFormular (snake_case).
   const formular = {
     name: daten.get("name"),
     email: daten.get("email"),
@@ -448,134 +606,6 @@ el("konto-formular").addEventListener("submit", async (ereignis) => {
   } finally {
     knopf.disabled = false;
     knopf.textContent = "Verbindung prüfen & speichern";
-  }
-});
-
-// -------------------------------------------------- Verfassen-Dialog --
-
-function verfassenOeffnen(vorlage, antwortAuf, weiterleiten) {
-  const formular = el("verfassen-formular");
-  formular.elements.an.value = vorlage?.an || "";
-  formular.elements.cc.value = "";
-  formular.elements.betreff.value = vorlage?.betreff || "";
-  formular.elements.text.value = vorlage?.text || "";
-  zustand.verfassen = { anhaenge: [], antwortAuf: antwortAuf ?? null, weiterleiten: !!weiterleiten };
-
-  // Von-Auswahl: nur bei mehreren Konten sichtbar; vorbelegt mit dem
-  // Konto des aktiven Ordners.
-  const auswahl = el("von-auswahl");
-  auswahl.innerHTML = "";
-  for (const konto of zustand.konten) {
-    const option = document.createElement("option");
-    option.value = konto.id;
-    option.textContent = `${konto.name} <${konto.email}>`;
-    if (konto.id === zustand.aktivesKontoId) option.selected = true;
-    auswahl.appendChild(option);
-  }
-  zeige("von-label", zustand.konten.length > 1);
-
-  el("verfassen-titel").textContent = weiterleiten
-    ? "Weiterleiten"
-    : antwortAuf
-      ? "Antworten"
-      : "Neue Mail";
-  anhangListeZeichnen();
-  zeige("verfassen-fehler", false);
-  el("verfassen-dialog").showModal();
-  formular.elements[antwortAuf && !weiterleiten ? "text" : "an"].focus();
-  if (antwortAuf && !weiterleiten) formular.elements.text.setSelectionRange(0, 0);
-}
-
-el("verfassen-knopf").addEventListener("click", () => verfassenOeffnen(null, null, false));
-
-async function antwortStarten(weiterleiten) {
-  if (!zustand.aktiveMailId) return;
-  status(weiterleiten ? "Bereite Weiterleitung vor …" : "Bereite Antwort vor …");
-  try {
-    const vorlage = await invoke("antwort_vorbereiten", {
-      mailId: zustand.aktiveMailId,
-      weiterleiten,
-    });
-    status("Bereit.");
-    verfassenOeffnen(vorlage, zustand.aktiveMailId, weiterleiten);
-  } catch (fehler) {
-    status(`✗ ${fehler}`, "fehler");
-  }
-}
-
-el("antworten-knopf").addEventListener("click", () => antwortStarten(false));
-el("weiterleiten-knopf").addEventListener("click", () => antwortStarten(true));
-
-function anhangListeZeichnen() {
-  const liste = el("anhang-liste");
-  liste.innerHTML = "";
-  zustand.verfassen.anhaenge.forEach((pfad, index) => {
-    const eintrag = document.createElement("li");
-    const name = document.createElement("span");
-    name.textContent = pfad.split("/").pop();
-    const entfernen = document.createElement("button");
-    entfernen.type = "button";
-    entfernen.className = "anhang-entfernen";
-    entfernen.title = "Anhang entfernen";
-    entfernen.appendChild(icon("x"));
-    entfernen.addEventListener("click", () => {
-      zustand.verfassen.anhaenge.splice(index, 1);
-      anhangListeZeichnen();
-    });
-    eintrag.append(name, entfernen);
-    liste.appendChild(eintrag);
-  });
-}
-
-el("anhang-knopf").addEventListener("click", async () => {
-  try {
-    const auswahl = await dateiDialog({ multiple: true, title: "Dateien anhängen" });
-    if (!auswahl) return;
-    const pfade = Array.isArray(auswahl) ? auswahl : [auswahl];
-    zustand.verfassen.anhaenge.push(...pfade);
-    anhangListeZeichnen();
-  } catch (fehler) {
-    status(`✗ ${fehler}`, "fehler");
-  }
-});
-
-el("verfassen-abbrechen-knopf").addEventListener("click", () => el("verfassen-dialog").close());
-
-el("verfassen-formular").addEventListener("submit", async (ereignis) => {
-  ereignis.preventDefault();
-  const daten = new FormData(ereignis.target);
-  const knopf = el("senden-knopf");
-  knopf.disabled = true;
-  knopf.textContent = "Sende …";
-  zeige("verfassen-fehler", false);
-  const kontoId =
-    zustand.konten.length > 1
-      ? Number(daten.get("von"))
-      : zustand.konten[0]?.id;
-  try {
-    // Feldnamen entsprechen dem Rust-Struct SendeFormular (snake_case).
-    const meldung = await invoke("mail_senden", {
-      kontoId,
-      formular: {
-        an: daten.get("an"),
-        cc: daten.get("cc"),
-        betreff: daten.get("betreff"),
-        text: daten.get("text"),
-        anhaenge: zustand.verfassen.anhaenge,
-        antwort_auf: zustand.verfassen.antwortAuf,
-        weiterleiten: zustand.verfassen.weiterleiten,
-      },
-    });
-    el("verfassen-dialog").close();
-    status(`✓ ${meldung}`, "ok");
-    kontenAnzeigen();
-  } catch (fehler) {
-    const fehlerfeld = el("verfassen-fehler");
-    fehlerfeld.textContent = String(fehler);
-    zeige("verfassen-fehler", true);
-  } finally {
-    knopf.disabled = false;
-    knopf.textContent = "Senden";
   }
 });
 

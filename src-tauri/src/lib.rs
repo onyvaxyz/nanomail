@@ -5,6 +5,7 @@
 //! Tauri-Commands mit diesem Backend.
 
 mod anzeige;
+mod avatar;
 mod caldav;
 mod commands;
 mod db;
@@ -89,6 +90,7 @@ pub fn run() {
             commands::mail_bilder_laden,
             commands::antwort_vorbereiten,
             commands::mail_senden,
+            commands::absender_avatar,
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Starten der Tauri-Anwendung");

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verfassen — Nanomail</title>
+  <link rel="stylesheet" href="phosphor/style.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="fenster-verfassen">
+  <form id="verfassen-formular">
+    <div class="verfassen-kopf">
+      <label id="von-label" class="feld">
+        <span class="feld-titel">Von</span>
+        <select name="von" id="von-auswahl"></select>
+      </label>
+      <label class="feld">
+        <span class="feld-titel">An <span class="label-hinweis">(mehrere durch Komma trennen)</span></span>
+        <input name="an" required placeholder="empfaenger@example.com" />
+      </label>
+      <label class="feld">
+        <span class="feld-titel">Kopie (CC) <span class="label-hinweis">optional</span></span>
+        <input name="cc" />
+      </label>
+      <label class="feld">
+        <span class="feld-titel">Betreff</span>
+        <input name="betreff" />
+      </label>
+    </div>
+
+    <textarea name="text" id="verfassen-text" placeholder="Nachricht schreiben …"></textarea>
+
+    <div id="anhang-liste" class="anhang-liste"></div>
+
+    <p id="verfassen-fehler" class="fehler-text versteckt"></p>
+
+    <footer class="verfassen-fuss">
+      <button id="anhang-knopf" class="knopf-sekundaer" type="button">
+        <i class="ph-thin ph-paperclip"></i> Datei anhängen
+      </button>
+      <span class="fueller"></span>
+      <button id="abbrechen-knopf" class="knopf-sekundaer" type="button">Abbrechen</button>
+      <button id="senden-knopf" class="knopf-primaer" type="submit">
+        <i class="ph-thin ph-paper-plane-tilt"></i> Senden
+      </button>
+    </footer>
+  </form>
+
+  <script src="verfassen.js"></script>
+</body>
+</html>

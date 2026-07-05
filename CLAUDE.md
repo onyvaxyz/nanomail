@@ -70,6 +70,15 @@ Kommunikation ausschließlich über Tauri-Commands/Events
 - **HTML-Mails:** Vor Anzeige mit `ammonia` sanitizen. Externe Bilder
   standardmäßig blockieren („Bilder laden“-Button). Kein Skript aus
   Mail-Inhalten darf je ausgeführt werden.
+- **Absender-Avatare (Ausnahme, ab M3.1):** `src/avatar.rs` lädt bewusst
+  externe Bilder (Gravatar → Favicon → sonst Initialen im Frontend) —
+  einzige erlaubte externe Ladequelle, vom Projektinhaber ausdrücklich
+  gewünscht. Ergebnisse in `absender_avatar` cachen. Gilt nur für Avatare;
+  Mail-Inhalte bleiben streng geschützt.
+- **Mehrfach-Fenster:** Verfassen/Antworten/Weiterleiten laufen in einem
+  eigenen Tauri-Fenster (`ui/verfassen.html` + `verfassen.js`, geöffnet via
+  `WebviewWindow`). Fenster-Labels `verfassen-*` in
+  `capabilities/default.json` freigegeben.
 - **Logging:** Nur technische Abläufe/Fehler loggen — nie Passwörter, Tokens,
   Mail-Inhalte oder Betreffzeilen.
 - **Dateiablage:** XDG-Standard — Daten `~/.local/share/nanomail/`,

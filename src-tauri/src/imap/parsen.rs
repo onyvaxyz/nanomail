@@ -8,7 +8,10 @@ use mail_parser::MessageParser;
 #[derive(Debug, PartialEq, Eq)]
 pub struct GeparsterKopf {
     pub betreff: String,
+    /// Anzeigename (Name, sonst Adresse).
     pub von: String,
+    /// Reine Absenderadresse (für Avatare); kann leer sein.
+    pub von_email: String,
     /// Unix-Sekunden aus dem Date-Header, falls vorhanden und lesbar.
     pub datum: Option<i64>,
 }
@@ -18,22 +21,21 @@ pub fn parse_kopf(header: &[u8]) -> GeparsterKopf {
         return GeparsterKopf {
             betreff: String::new(),
             von: String::new(),
+            von_email: String::new(),
             datum: None,
         };
     };
 
     let betreff = nachricht.subject().unwrap_or_default().trim().to_string();
 
-    let von = nachricht
+    let (von, von_email) = nachricht
         .from()
         .and_then(|adressen| adressen.first())
         .map(|adresse| {
             let name = adresse.name().map(str::trim).filter(|n| !n.is_empty());
-            let mail = adresse.address().unwrap_or_default();
-            match name {
-                Some(name) => name.to_string(),
-                None => mail.to_string(),
-            }
+            let mail = adresse.address().unwrap_or_default().to_string();
+            let anzeige = name.map(str::to_string).unwrap_or_else(|| mail.clone());
+            (anzeige, mail)
         })
         .unwrap_or_default();
 
@@ -42,6 +44,7 @@ pub fn parse_kopf(header: &[u8]) -> GeparsterKopf {
     GeparsterKopf {
         betreff,
         von,
+        von_email,
         datum,
     }
 }
@@ -121,6 +124,7 @@ mod tests {
         );
         assert_eq!(kopf.betreff, "Hallo Welt");
         assert_eq!(kopf.von, "Anna Beispiel");
+        assert_eq!(kopf.von_email, "anna@example.org");
         // 2026-07-03 10:00 +0200 = 08:00 UTC
         assert_eq!(kopf.datum, Some(1_783_065_600));
     }
@@ -134,6 +138,7 @@ mod tests {
         assert_eq!(kopf.betreff, "Grüße aus Zürich");
         // Ohne Anzeigename wird die Adresse gezeigt.
         assert_eq!(kopf.von, "x@example.org");
+        assert_eq!(kopf.von_email, "x@example.org");
     }
 
     #[test]

@@ -1,42 +1,44 @@
-/* Nanomail — Oberfläche im Zed-Look (M3).
-   Farbwerte stammen aus dem „One Dark“-Theme des Zed-Editors.
-   Alles ist als Variable definiert und kann hier gefahrlos angepasst
-   werden — danach reicht ein Neustart der App. */
+/* Nanomail — Oberfläche (M3.1).
+   Dunkles Design in Anlehnung an den Zed-Editor („One Dark“).
+   Farben und Maße sind Variablen — hier gefahrlos anpassbar,
+   danach genügt ein Neustart der App. */
 
 :root {
-  /* Zed One Dark */
   --flaeche-fenster: #3b414d;      /* Titel-/Statusleisten */
-  --flaeche-panel: #2f343e;        /* Seitenleiste, Spaltenköpfe, Dialoge */
-  --flaeche-inhalt: #282c33;       /* Listen- und Lesebereich */
-  --farbe-rahmen: #464b57;
+  --flaeche-panel: #2f343e;        /* Seitenleiste, Köpfe, Dialoge */
+  --flaeche-inhalt: #282c33;       /* Listen, Lesebereich */
+  --flaeche-erhoben: #333842;      /* Karten, Eingaben */
+  --farbe-rahmen: #3d4350;
+  --farbe-rahmen-stark: #464b57;
   --farbe-text: #dce0e5;
-  --farbe-text-gedimmt: #a9afbc;
+  --farbe-text-gedimmt: #868c99;
+  --farbe-text-leise: #6b717d;
   --farbe-akzent: #74ade8;
-  --flaeche-hover: #363c46;
-  --flaeche-auswahl: #454a56;
+  --farbe-akzent-schwach: rgba(116, 173, 232, 0.16);
+  --flaeche-hover: #333842;
+  --flaeche-auswahl: #2b3a51;      /* aktiver Eintrag, bläulich */
   --farbe-fehler: #d07277;
   --farbe-warnung: #dec184;
   --farbe-ok: #a1c181;
 
-  --breite-seitenleiste: 230px;
-  --breite-mailliste: 340px;
-  --radius: 6px;
+  --breite-seitenleiste: 240px;
+  --breite-mailliste: 360px;
+  --radius: 7px;
+  --radius-klein: 5px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
   height: 100%;
-  font-family: system-ui, sans-serif;
+  font-family: system-ui, "Segoe UI", sans-serif;
   font-size: 14px;
   color: var(--farbe-text);
   background: var(--flaeche-inhalt);
+  -webkit-font-smoothing: antialiased;
 }
 
-body {
-  display: flex;
-  flex-direction: column;
-}
+body { display: flex; flex-direction: column; }
 
 #app {
   flex: 1;
@@ -47,78 +49,69 @@ body {
 
 .versteckt { display: none !important; }
 .scrollbereich { overflow-y: auto; }
+.fueller { flex: 1; }
 
-/* Zed-artige schmale Scrollleisten */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: var(--flaeche-auswahl); border-radius: 4px; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: #414855; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--farbe-rahmen-stark); }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* Icons (Phosphor Thin) */
-.ph-thin { font-size: 1.1em; vertical-align: -0.15em; }
+.ph-thin { font-size: 1.15em; line-height: 1; }
 
 /* ------------------------------------------------------ Seitenleiste -- */
 
 #sidebar {
   background: var(--flaeche-panel);
   border-right: 1px solid var(--farbe-rahmen);
-  padding: 10px;
+  padding: 12px 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-height: 0;
 }
 
+.sidebar-kopf { padding: 4px 6px 0; }
+
 .logo {
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 1rem;
+  font-weight: 700;
   letter-spacing: 0.02em;
-  color: var(--farbe-text-gedimmt);
-  padding: 2px 4px;
+  color: var(--farbe-text);
+}
+
+.verfassen-gross {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 0.92rem;
 }
 
 #konten-bereich {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
+  min-height: 0;
 }
 
-.sidebar-fuss {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+.sidebar-fuss { display: flex; flex-direction: column; gap: 2px; }
 
 .konto-zeile {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
-  padding: 0 4px;
+  padding: 0 8px 4px;
 }
 
 .konto-name {
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: var(--farbe-text-gedimmt);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--farbe-text-leise);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.zahnrad-knopf {
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 1rem;
-  color: var(--farbe-text-gedimmt);
-  padding: 2px 4px;
-  border-radius: 4px;
-}
-
-.zahnrad-knopf:hover { color: var(--farbe-akzent); background: var(--flaeche-hover); }
 
 .ordner-liste { list-style: none; }
 
@@ -126,27 +119,35 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 5px 8px;
-  border-radius: var(--radius);
+  padding: 6px 8px;
+  margin: 1px 0;
+  border-radius: var(--radius-klein);
   cursor: pointer;
-  font-size: 0.9rem;
+  color: var(--farbe-text-gedimmt);
+  border-left: 2px solid transparent;
+}
+
+.ordner-eintrag:hover { background: var(--flaeche-hover); color: var(--farbe-text); }
+
+.ordner-eintrag.aktiv {
+  background: var(--farbe-akzent-schwach);
+  border-left-color: var(--farbe-akzent);
   color: var(--farbe-text);
 }
 
-.ordner-eintrag:hover { background: var(--flaeche-hover); }
-
-.ordner-eintrag.aktiv {
-  background: var(--flaeche-auswahl);
-  color: var(--farbe-akzent);
-}
+.ordner-links { display: flex; align-items: center; gap: 9px; overflow: hidden; }
+.ordner-links .ph-thin { color: var(--farbe-text-leise); flex-shrink: 0; }
+.ordner-eintrag.aktiv .ordner-links .ph-thin { color: var(--farbe-akzent); }
+.ordner-name { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .ungelesen-zaehler {
   background: var(--farbe-akzent);
-  color: var(--flaeche-inhalt);
+  color: #10151d;
   border-radius: 10px;
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.7rem;
+  font-weight: 700;
   padding: 1px 7px;
+  flex-shrink: 0;
 }
 
 /* -------------------------------------------------------- Mail-Liste -- */
@@ -159,65 +160,104 @@ body {
   background: var(--flaeche-inhalt);
 }
 
-.spalten-kopf {
-  padding: 8px 12px;
-  font-size: 0.9rem;
-  font-weight: 600;
+.listen-kopf {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--farbe-rahmen);
-  background: var(--flaeche-panel);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
+
+#ordner-titel { font-size: 0.98rem; font-weight: 600; }
+.ordner-anzahl { font-size: 0.78rem; color: var(--farbe-text-leise); }
 
 #mail-eintraege { flex: 1; }
 
 .mail-eintrag {
-  padding: 8px 12px;
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 11px 16px;
   border-bottom: 1px solid var(--farbe-rahmen);
   cursor: pointer;
+  border-left: 2px solid transparent;
 }
 
 .mail-eintrag:hover { background: var(--flaeche-hover); }
-.mail-eintrag.aktiv { background: var(--flaeche-auswahl); }
+.mail-eintrag.aktiv { background: var(--flaeche-auswahl); border-left-color: var(--farbe-akzent); }
+
+.mail-text-block { flex: 1; min-width: 0; }
 
 .mail-zeile-oben {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  font-size: 0.8rem;
-  color: var(--farbe-text-gedimmt);
+  align-items: baseline;
 }
 
 .mail-von {
+  font-size: 0.9rem;
+  color: var(--farbe-text-gedimmt);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mail-datum { flex-shrink: 0; }
+.mail-zeit { font-size: 0.76rem; color: var(--farbe-text-leise); flex-shrink: 0; }
+
+.mail-zeile-unten {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
 
 .mail-betreff {
   font-size: 0.9rem;
-  margin-top: 2px;
+  color: var(--farbe-text-gedimmt);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+
+.mail-zeile-unten .ph-thin { color: var(--farbe-text-leise); flex-shrink: 0; }
+
+.ungelesen-punkt {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--farbe-akzent);
+  flex-shrink: 0;
+}
+
+.mail-eintrag.ungelesen .mail-von {
+  color: var(--farbe-text);
+  font-weight: 700;
+}
+.mail-eintrag.ungelesen .mail-betreff { color: var(--farbe-text); }
+
+/* ---------------------------------------------------------- Avatare -- */
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  background-size: cover;
+  background-position: center;
+  user-select: none;
 }
 
-.mail-betreff span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.avatar-bild { background-color: transparent !important; }
 
-.mail-eintrag.ungelesen .mail-betreff,
-.mail-eintrag.ungelesen .mail-von {
-  font-weight: 700;
-  color: var(--farbe-text);
-}
+.avatar-gross { width: 48px; height: 48px; font-size: 1rem; }
 
 /* ------------------------------------------------------ Lesebereich -- */
 
@@ -228,42 +268,51 @@ body {
   background: var(--flaeche-inhalt);
 }
 
+.lese-kopf {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--farbe-rahmen);
+}
+
+.lese-kopf-mitte { flex: 1; min-width: 0; }
+
+#mail-titel {
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: 5px;
+  word-wrap: break-word;
+}
+
 .mail-meta {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 12px;
-  font-size: 0.85rem;
-  color: var(--farbe-text-gedimmt);
-  border-bottom: 1px solid var(--farbe-rahmen);
-  background: var(--flaeche-panel);
-}
-
-.mail-aktionen {
-  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  flex-shrink: 0;
+  align-items: baseline;
+  font-size: 0.84rem;
 }
 
-.mail-aktionen .knopf-sekundaer {
-  padding: 3px 10px;
-  font-size: 0.82rem;
-}
+.meta-von { color: var(--farbe-text); font-weight: 600; }
+.meta-adresse { color: var(--farbe-text-leise); }
+.meta-datum { color: var(--farbe-text-gedimmt); margin-left: auto; }
+
+.lese-aktionen { display: flex; gap: 4px; flex-shrink: 0; }
 
 .hinweis-leiste {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 7px 12px;
+  padding: 8px 16px;
   font-size: 0.85rem;
   color: var(--farbe-warnung);
-  background: color-mix(in srgb, var(--farbe-warnung) 12%, var(--flaeche-inhalt));
+  background: color-mix(in srgb, var(--farbe-warnung) 10%, var(--flaeche-inhalt));
   border-bottom: 1px solid var(--farbe-rahmen);
 }
+.hinweis-leiste span { display: inline-flex; align-items: center; gap: 7px; }
 
-/* Mails sind für helle Hintergründe gestaltet — Anzeige bleibt hell. */
 #mail-html {
   flex: 1;
   border: none;
@@ -272,25 +321,36 @@ body {
 
 #mail-text {
   flex: 1;
-  padding: 16px;
+  padding: 20px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  font-size: 0.9rem;
-  line-height: 1.55;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--farbe-text);
 }
 
-.platzhalter {
-  padding: 16px 12px;
-  color: var(--farbe-text-gedimmt);
-  font-size: 0.9rem;
-  line-height: 1.5;
+/* ----------------------------------------------------- Leerzustände -- */
+
+.leerzustand {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--farbe-text-leise);
+  padding: 40px;
+  text-align: center;
 }
+
+.leerzustand .ph-thin { font-size: 2.6rem; opacity: 0.6; }
+.leerzustand p { font-size: 0.9rem; }
 
 /* ------------------------------------------------------ Statusleiste -- */
 
 #statusleiste {
-  padding: 5px 12px;
-  font-size: 0.8rem;
+  padding: 6px 14px;
+  font-size: 0.79rem;
   color: var(--farbe-text-gedimmt);
   border-top: 1px solid var(--farbe-rahmen);
   background: var(--flaeche-fenster);
@@ -303,150 +363,117 @@ body {
 
 .knopf-primaer,
 .knopf-sekundaer,
-.knopf-gefahr {
+.knopf-gefahr,
+.knopf-flach {
   font: inherit;
-  font-size: 0.88rem;
-  padding: 6px 12px;
-  border-radius: var(--radius);
+  font-size: 0.87rem;
+  padding: 7px 13px;
+  border-radius: var(--radius-klein);
   cursor: pointer;
-  border: 1px solid var(--farbe-rahmen);
+  border: 1px solid transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 7px;
+  transition: background 0.12s, filter 0.12s;
 }
 
 .knopf-primaer {
   background: var(--farbe-akzent);
-  color: var(--flaeche-inhalt);
-  border-color: var(--farbe-akzent);
+  color: #10151d;
   font-weight: 600;
 }
-
-.knopf-primaer:hover { filter: brightness(1.08); }
+.knopf-primaer:hover { filter: brightness(1.1); }
 
 .knopf-sekundaer {
-  background: var(--flaeche-hover);
+  background: var(--flaeche-erhoben);
   color: var(--farbe-text);
+  border-color: var(--farbe-rahmen-stark);
 }
+.knopf-sekundaer:hover { background: var(--farbe-rahmen-stark); }
 
-.knopf-sekundaer:hover { background: var(--flaeche-auswahl); }
+.knopf-flach {
+  background: transparent;
+  color: var(--farbe-text-gedimmt);
+  justify-content: flex-start;
+  padding: 7px 8px;
+}
+.knopf-flach:hover { background: var(--flaeche-hover); color: var(--farbe-text); }
 
 .knopf-gefahr {
   background: transparent;
   color: var(--farbe-fehler);
   border-color: var(--farbe-fehler);
 }
-
-.knopf-gefahr:hover {
-  background: color-mix(in srgb, var(--farbe-fehler) 15%, transparent);
-}
+.knopf-gefahr:hover { background: color-mix(in srgb, var(--farbe-fehler) 15%, transparent); }
 
 .knopf-primaer:disabled,
 .knopf-sekundaer:disabled,
-.knopf-gefahr:disabled {
-  opacity: 0.55;
-  cursor: wait;
+.knopf-gefahr:disabled { opacity: 0.55; cursor: wait; }
+
+.icon-knopf {
+  border: none;
+  background: transparent;
+  color: var(--farbe-text-gedimmt);
+  cursor: pointer;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-klein);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
 }
+.icon-knopf:hover { background: var(--flaeche-hover); color: var(--farbe-akzent); }
+.icon-knopf.klein { width: 26px; height: 26px; font-size: 0.95rem; }
 
 /* ---------------------------------------------------------- Dialoge -- */
 
-#konto-dialog,
-#verfassen-dialog {
+#konto-dialog {
   margin: auto;
-  border: 1px solid var(--farbe-rahmen);
-  border-radius: 10px;
-  padding: 22px;
-  width: min(460px, 90vw);
+  border: 1px solid var(--farbe-rahmen-stark);
+  border-radius: 12px;
+  padding: 24px;
+  width: min(460px, 92vw);
   background: var(--flaeche-panel);
   color: var(--farbe-text);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
 }
 
-#verfassen-dialog { width: min(640px, 92vw); }
-
-#konto-dialog::backdrop,
-#verfassen-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
-
-#konto-dialog h2,
-#verfassen-dialog h2 { font-size: 1rem; margin-bottom: 4px; }
+#konto-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+#konto-dialog h2 { font-size: 1.05rem; margin-bottom: 4px; }
 
 .dialog-untertitel {
   font-size: 0.82rem;
   color: var(--farbe-text-gedimmt);
-  margin-bottom: 14px;
-  line-height: 1.45;
+  margin-bottom: 16px;
+  line-height: 1.5;
 }
 
-#konto-formular label,
-#verfassen-formular label {
+#konto-formular label {
   display: block;
-  font-size: 0.8rem;
+  font-size: 0.79rem;
   color: var(--farbe-text-gedimmt);
-  margin-bottom: 10px;
+  margin-bottom: 11px;
 }
 
-#konto-formular input,
-#verfassen-formular input,
-#verfassen-formular select,
-#verfassen-formular textarea {
+#konto-formular input {
   display: block;
   width: 100%;
   font: inherit;
   font-size: 0.9rem;
   color: var(--farbe-text);
   background: var(--flaeche-inhalt);
-  padding: 7px 9px;
-  margin-top: 3px;
-  border: 1px solid var(--farbe-rahmen);
-  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-top: 4px;
+  border: 1px solid var(--farbe-rahmen-stark);
+  border-radius: var(--radius-klein);
 }
 
-#verfassen-formular textarea { resize: vertical; }
-
-#konto-formular input:focus,
-#verfassen-formular input:focus,
-#verfassen-formular select:focus,
-#verfassen-formular textarea:focus {
+#konto-formular input:focus {
   outline: 2px solid var(--farbe-akzent);
   outline-offset: -1px;
 }
-
-.label-hinweis {
-  font-weight: normal;
-  font-size: 0.74rem;
-}
-
-#anhang-bereich { margin-bottom: 10px; }
-
-#anhang-liste {
-  list-style: none;
-  margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-#anhang-liste li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--flaeche-auswahl);
-  border-radius: var(--radius);
-  padding: 3px 8px;
-  font-size: 0.82rem;
-}
-
-.anhang-entfernen {
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: var(--farbe-text-gedimmt);
-  font-size: 0.85rem;
-  display: inline-flex;
-}
-
-.anhang-entfernen:hover { color: var(--farbe-fehler); }
 
 .fehler-text {
   color: var(--farbe-fehler);
@@ -457,14 +484,117 @@ body {
 
 .feld-reihe { display: flex; gap: 10px; }
 .feld-breit { flex: 1; }
-.feld-schmal { width: 90px; }
+.feld-schmal { width: 92px; }
 
 .dialog-knoepfe {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
-.dialog-knoepfe-fueller { flex: 1; }
+/* ------------------------------------------- Verfassen-Fenster (M3.1) -- */
+
+body.fenster-verfassen {
+  background: var(--flaeche-panel);
+  height: 100vh;
+}
+
+#verfassen-formular {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.verfassen-kopf {
+  padding: 14px 16px 4px;
+  border-bottom: 1px solid var(--farbe-rahmen);
+}
+
+.verfassen-kopf .feld {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.feld-titel {
+  width: 74px;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--farbe-text-gedimmt);
+  text-align: right;
+}
+
+.label-hinweis { color: var(--farbe-text-leise); font-size: 0.72rem; }
+
+.verfassen-kopf input,
+.verfassen-kopf select {
+  flex: 1;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--farbe-text);
+  background: var(--flaeche-inhalt);
+  padding: 8px 10px;
+  border: 1px solid var(--farbe-rahmen-stark);
+  border-radius: var(--radius-klein);
+}
+
+.verfassen-kopf input:focus,
+.verfassen-kopf select:focus {
+  outline: 2px solid var(--farbe-akzent);
+  outline-offset: -1px;
+}
+
+#verfassen-text {
+  flex: 1;
+  margin: 0;
+  padding: 16px;
+  font: inherit;
+  font-size: 0.94rem;
+  line-height: 1.6;
+  color: var(--farbe-text);
+  background: var(--flaeche-inhalt);
+  border: none;
+  resize: none;
+}
+#verfassen-text:focus { outline: none; }
+
+.anhang-liste {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 0 16px;
+}
+.anhang-liste:not(:empty) { padding: 10px 16px; }
+
+.anhang-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--flaeche-erhoben);
+  border: 1px solid var(--farbe-rahmen-stark);
+  border-radius: var(--radius-klein);
+  padding: 4px 8px;
+  font-size: 0.82rem;
+}
+
+.anhang-entfernen {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--farbe-text-leise);
+  display: inline-flex;
+  padding: 0;
+}
+.anhang-entfernen:hover { color: var(--farbe-fehler); }
+
+.fenster-verfassen .fehler-text { padding: 0 16px; }
+
+.verfassen-fuss {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--farbe-rahmen);
+}

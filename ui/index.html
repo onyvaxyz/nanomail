@@ -9,53 +9,68 @@
 </head>
 <body>
   <div id="app">
+    <!-- Spalte 1: Konten & Ordner -->
     <aside id="sidebar">
-      <h1 class="logo">Nanomail</h1>
-      <button id="verfassen-knopf" class="knopf-primaer versteckt" type="button">
-        <i class="ph-thin ph-pencil-simple-line"></i> Verfassen
-      </button>
-      <div id="konten-bereich" class="scrollbereich">
-        <p class="platzhalter">Noch kein Konto eingerichtet.</p>
+      <div class="sidebar-kopf">
+        <span class="logo">Nanomail</span>
       </div>
+      <button id="verfassen-knopf" class="knopf-primaer verfassen-gross versteckt" type="button">
+        <i class="ph-thin ph-pencil-simple-line"></i> Neue Mail
+      </button>
+      <nav id="konten-bereich" class="scrollbereich"></nav>
       <div class="sidebar-fuss">
-        <button id="konto-hinzufuegen-knopf" class="knopf-sekundaer versteckt" type="button">
+        <button id="konto-hinzufuegen-knopf" class="knopf-flach versteckt" type="button">
           <i class="ph-thin ph-plus"></i> Konto hinzufügen
         </button>
-        <button id="aktualisieren-knopf" class="knopf-sekundaer versteckt" type="button">
+        <button id="aktualisieren-knopf" class="knopf-flach versteckt" type="button">
           <i class="ph-thin ph-arrows-clockwise"></i> Aktualisieren
         </button>
       </div>
     </aside>
 
+    <!-- Spalte 2: Mail-Liste -->
     <section id="mailliste">
-      <header class="spalten-kopf" id="ordner-titel">Posteingang</header>
+      <header class="listen-kopf">
+        <span id="ordner-titel">Posteingang</span>
+        <span id="ordner-anzahl" class="ordner-anzahl"></span>
+      </header>
       <div id="mail-eintraege" class="scrollbereich">
-        <div class="platzhalter">Hier erscheint die Mail-Liste.</div>
+        <div class="leerzustand">
+          <i class="ph-thin ph-tray"></i>
+          <p>Noch nichts geladen.</p>
+        </div>
       </div>
     </section>
 
+    <!-- Spalte 3: Lesebereich -->
     <section id="lesebereich">
-      <header class="spalten-kopf" id="mail-titel">Vorschau</header>
-      <div id="mail-meta" class="mail-meta versteckt">
-        <div id="mail-meta-text"></div>
-        <div class="mail-aktionen">
-          <button id="antworten-knopf" class="knopf-sekundaer" type="button">
-            <i class="ph-thin ph-arrow-bend-up-left"></i> Antworten
+      <div id="lese-kopf" class="lese-kopf versteckt">
+        <div id="lese-avatar" class="avatar avatar-gross"></div>
+        <div class="lese-kopf-mitte">
+          <h1 id="mail-titel">Betreff</h1>
+          <div id="mail-meta" class="mail-meta"></div>
+        </div>
+        <div class="lese-aktionen">
+          <button id="antworten-knopf" class="icon-knopf" type="button" title="Antworten">
+            <i class="ph-thin ph-arrow-bend-up-left"></i>
           </button>
-          <button id="weiterleiten-knopf" class="knopf-sekundaer" type="button">
-            <i class="ph-thin ph-arrow-bend-up-right"></i> Weiterleiten
+          <button id="weiterleiten-knopf" class="icon-knopf" type="button" title="Weiterleiten">
+            <i class="ph-thin ph-arrow-bend-up-right"></i>
           </button>
         </div>
       </div>
       <div id="bilder-leiste" class="hinweis-leiste versteckt">
-        <span>Externe Bilder wurden blockiert.</span>
+        <span><i class="ph-thin ph-image"></i> Externe Bilder wurden blockiert.</span>
         <button id="bilder-laden-knopf" class="knopf-sekundaer" type="button">Bilder laden</button>
       </div>
       <!-- Bereinigtes HTML wird ausschließlich hier angezeigt:
            sandbox ohne Rechte = keine Skripte, kein Zugriff auf die App. -->
       <iframe id="mail-html" class="versteckt" sandbox=""></iframe>
       <div id="mail-text" class="scrollbereich versteckt"></div>
-      <div id="lese-platzhalter" class="platzhalter">Wähle links eine Mail aus.</div>
+      <div id="lese-platzhalter" class="leerzustand">
+        <i class="ph-thin ph-envelope-open"></i>
+        <p>Wähle links eine Mail aus.</p>
+      </div>
     </section>
   </div>
 
@@ -108,47 +123,11 @@
         <button id="konto-entfernen-knopf" class="knopf-gefahr versteckt" type="button">
           Konto entfernen
         </button>
-        <span class="dialog-knoepfe-fueller"></span>
+        <span class="fueller"></span>
         <button id="konto-abbrechen-knopf" class="knopf-sekundaer versteckt" type="button">Abbrechen</button>
         <button id="konto-speichern-knopf" class="knopf-primaer" type="submit">
           Verbindung prüfen &amp; speichern
         </button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="verfassen-dialog">
-    <form id="verfassen-formular" method="dialog">
-      <h2 id="verfassen-titel">Neue Mail</h2>
-
-      <label id="von-label" class="versteckt">Von
-        <select name="von" id="von-auswahl"></select>
-      </label>
-      <label>An <span class="label-hinweis">(mehrere durch Komma trennen)</span>
-        <input name="an" required placeholder="empfaenger@example.com" />
-      </label>
-      <label>CC <span class="label-hinweis">(optional)</span>
-        <input name="cc" />
-      </label>
-      <label>Betreff
-        <input name="betreff" />
-      </label>
-      <label>Nachricht
-        <textarea name="text" rows="12"></textarea>
-      </label>
-
-      <div id="anhang-bereich">
-        <button id="anhang-knopf" class="knopf-sekundaer" type="button">
-          <i class="ph-thin ph-paperclip"></i> Datei anhängen
-        </button>
-        <ul id="anhang-liste"></ul>
-      </div>
-
-      <p id="verfassen-fehler" class="fehler-text versteckt"></p>
-
-      <div class="dialog-knoepfe">
-        <button id="verfassen-abbrechen-knopf" class="knopf-sekundaer" type="button">Abbrechen</button>
-        <button id="senden-knopf" class="knopf-primaer" type="submit">Senden</button>
       </div>
     </form>
   </dialog>
