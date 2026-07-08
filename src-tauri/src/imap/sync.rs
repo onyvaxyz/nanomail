@@ -11,8 +11,9 @@ pub struct Abgleich {
     pub neue: Vec<u32>,
     /// UIDs, die der Cache hat, der Server aber nicht mehr.
     pub geloeschte: Vec<u32>,
-    /// UIDs, deren Gelesen-Flag sich unterscheidet (Server gewinnt).
-    pub flag_aenderungen: Vec<(u32, bool)>,
+    /// UIDs, deren Gelesen- oder Beantwortet-Flag sich unterscheidet
+    /// (Server gewinnt) — jeweils mit dem neuen Stand beider Flags.
+    pub flag_aenderungen: Vec<(u32, bool, bool)>,
 }
 
 /// UIDVALIDITY-Regel: Ändert sich der Wert, sind alle gecachten UIDs
@@ -24,12 +25,18 @@ pub fn braucht_cache_reset(cache_uidvalidity: Option<u32>, server_uidvalidity: u
     }
 }
 
-/// Vergleicht Server-Stand (UID + Gelesen-Flag) mit dem Cache-Stand.
-/// Beide Listen dürfen unsortiert sein.
-pub fn vergleiche_ordner(server: &[(u32, bool)], cache: &[(u32, bool)]) -> Abgleich {
+/// Vergleicht Server-Stand (UID + Gelesen-/Beantwortet-Flag) mit dem
+/// Cache-Stand. Beide Listen dürfen unsortiert sein.
+pub fn vergleiche_ordner(server: &[(u32, bool, bool)], cache: &[(u32, bool, bool)]) -> Abgleich {
     use std::collections::HashMap;
-    let server_map: HashMap<u32, bool> = server.iter().copied().collect();
-    let cache_map: HashMap<u32, bool> = cache.iter().copied().collect();
+    let server_map: HashMap<u32, (bool, bool)> = server
+        .iter()
+        .map(|(uid, gelesen, beantwortet)| (*uid, (*gelesen, *beantwortet)))
+        .collect();
+    let cache_map: HashMap<u32, (bool, bool)> = cache
+        .iter()
+        .map(|(uid, gelesen, beantwortet)| (*uid, (*gelesen, *beantwortet)))
+        .collect();
 
     let mut neue: Vec<u32> = server_map
         .keys()
@@ -45,10 +52,10 @@ pub fn vergleiche_ordner(server: &[(u32, bool)], cache: &[(u32, bool)]) -> Abgle
         .collect();
     geloeschte.sort_unstable();
 
-    let mut flag_aenderungen: Vec<(u32, bool)> = server_map
+    let mut flag_aenderungen: Vec<(u32, bool, bool)> = server_map
         .iter()
-        .filter(|(uid, gelesen)| cache_map.get(uid).is_some_and(|c| c != *gelesen))
-        .map(|(uid, gelesen)| (*uid, *gelesen))
+        .filter(|(uid, flags)| cache_map.get(uid).is_some_and(|c| c != *flags))
+        .map(|(uid, (gelesen, beantwortet))| (*uid, *gelesen, *beantwortet))
         .collect();
     flag_aenderungen.sort_unstable();
 
@@ -165,17 +172,29 @@ mod tests {
     fn abgleich_erkennt_neue_geloeschte_und_flags() {
         // Server: 1 (gelesen), 3 (ungelesen), 4 (gelesen)
         // Cache:  1 (ungelesen → Flag-Änderung), 2 (→ gelöscht), 3 (gleich)
-        let server = [(1, true), (3, false), (4, true)];
-        let cache = [(1, false), (2, false), (3, false)];
+        let server = [(1, true, false), (3, false, false), (4, true, false)];
+        let cache = [(1, false, false), (2, false, false), (3, false, false)];
         let abgleich = vergleiche_ordner(&server, &cache);
         assert_eq!(abgleich.neue, vec![4]);
         assert_eq!(abgleich.geloeschte, vec![2]);
-        assert_eq!(abgleich.flag_aenderungen, vec![(1, true)]);
+        assert_eq!(abgleich.flag_aenderungen, vec![(1, true, false)]);
+    }
+
+    #[test]
+    fn abgleich_erkennt_beantwortet_aenderung() {
+        // Nur das Beantwortet-Flag weicht ab (z. B. Antwort aus einem
+        // anderen Programm) — der Server-Stand gewinnt.
+        let server = [(1, true, true), (2, false, false)];
+        let cache = [(1, true, false), (2, false, false)];
+        let abgleich = vergleiche_ordner(&server, &cache);
+        assert!(abgleich.neue.is_empty());
+        assert!(abgleich.geloeschte.is_empty());
+        assert_eq!(abgleich.flag_aenderungen, vec![(1, true, true)]);
     }
 
     #[test]
     fn abgleich_leerer_cache_liefert_alles_neueste_zuerst() {
-        let server = [(5, false), (2, true), (9, false)];
+        let server = [(5, false, false), (2, true, false), (9, false, false)];
         let abgleich = vergleiche_ordner(&server, &[]);
         assert_eq!(abgleich.neue, vec![9, 5, 2]);
         assert!(abgleich.geloeschte.is_empty());
@@ -184,7 +203,7 @@ mod tests {
 
     #[test]
     fn abgleich_leerer_server_loescht_alles() {
-        let cache = [(1, false), (2, true)];
+        let cache = [(1, false, false), (2, true, false)];
         let abgleich = vergleiche_ordner(&[], &cache);
         assert!(abgleich.neue.is_empty());
         assert_eq!(abgleich.geloeschte, vec![1, 2]);

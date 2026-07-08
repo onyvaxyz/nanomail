@@ -60,6 +60,8 @@ pub struct MailKopf {
     /// Unix-Sekunden (UTC); `None`, wenn die Mail kein lesbares Datum hat.
     pub datum: Option<i64>,
     pub gelesen: bool,
+    /// IMAP \Answered — auf die Mail wurde geantwortet.
+    pub beantwortet: bool,
     pub hat_anhang: bool,
 }
 
@@ -72,6 +74,7 @@ pub struct NeuerMailKopf {
     pub von_email: String,
     pub datum: Option<i64>,
     pub gelesen: bool,
+    pub beantwortet: bool,
     pub hat_anhang: bool,
 }
 
@@ -312,6 +315,17 @@ fn migrieren(conn: &Connection) -> Result<()> {
             "#,
         )
         .context("Migration 8 ausführen")?;
+    }
+    if version < 9 {
+        conn.execute_batch(
+            r#"
+            -- Beantwortet-Kennzeichen (IMAP \Answered) für die Markierung
+            -- in der Mail-Liste; wird beim Sync vom Server übernommen.
+            ALTER TABLE mails ADD COLUMN beantwortet INTEGER NOT NULL DEFAULT 0;
+            INSERT INTO schema_version (version) VALUES (9);
+            "#,
+        )
+        .context("Migration 9 ausführen")?;
     }
     Ok(())
 }
@@ -608,9 +622,10 @@ pub fn ordner_setze_uidvalidity(conn: &Connection, ordner_id: i64, uidvalidity: 
 pub fn mails_einfuegen(conn: &Connection, ordner_id: i64, koepfe: &[NeuerMailKopf]) -> Result<()> {
     let mut stmt = conn
         .prepare(
-            "INSERT INTO mails (ordner_id, uid, betreff, von, von_email, datum, gelesen, hat_anhang)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(ordner_id, uid) DO UPDATE SET gelesen = excluded.gelesen",
+            "INSERT INTO mails (ordner_id, uid, betreff, von, von_email, datum, gelesen, beantwortet, hat_anhang)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(ordner_id, uid) DO UPDATE
+                 SET gelesen = excluded.gelesen, beantwortet = excluded.beantwortet",
         )
         .context("Mail-Insert vorbereiten")?;
     for kopf in koepfe {
@@ -622,6 +637,7 @@ pub fn mails_einfuegen(conn: &Connection, ordner_id: i64, koepfe: &[NeuerMailKop
             kopf.von_email,
             kopf.datum,
             kopf.gelesen,
+            kopf.beantwortet,
             kopf.hat_anhang
         ])
         .context("Mail-Kopf speichern")?;
@@ -643,26 +659,29 @@ pub fn mails_loeschen(conn: &Connection, ordner_id: i64, uids: &[u32]) -> Result
 pub fn mails_flags_setzen(
     conn: &Connection,
     ordner_id: i64,
-    aenderungen: &[(u32, bool)],
+    aenderungen: &[(u32, bool, bool)],
 ) -> Result<()> {
     let mut stmt = conn
-        .prepare("UPDATE mails SET gelesen = ?3 WHERE ordner_id = ?1 AND uid = ?2")
+        .prepare(
+            "UPDATE mails SET gelesen = ?3, beantwortet = ?4 WHERE ordner_id = ?1 AND uid = ?2",
+        )
         .context("Flag-Update vorbereiten")?;
-    for (uid, gelesen) in aenderungen {
-        stmt.execute(params![ordner_id, uid, gelesen])
-            .context("Gelesen-Flag speichern")?;
+    for (uid, gelesen, beantwortet) in aenderungen {
+        stmt.execute(params![ordner_id, uid, gelesen, beantwortet])
+            .context("Flags speichern")?;
     }
     Ok(())
 }
 
-/// Alle gecachten UIDs eines Ordners mit Gelesen-Flag (für den Sync-Abgleich).
-pub fn mails_cache_stand(conn: &Connection, ordner_id: i64) -> Result<Vec<(u32, bool)>> {
+/// Alle gecachten UIDs eines Ordners mit Gelesen- und Beantwortet-Flag
+/// (für den Sync-Abgleich).
+pub fn mails_cache_stand(conn: &Connection, ordner_id: i64) -> Result<Vec<(u32, bool, bool)>> {
     let mut stmt = conn
-        .prepare("SELECT uid, gelesen FROM mails WHERE ordner_id = ?1 ORDER BY uid")
+        .prepare("SELECT uid, gelesen, beantwortet FROM mails WHERE ordner_id = ?1 ORDER BY uid")
         .context("Cache-Stand abfragen")?;
     let stand = stmt
         .query_map(params![ordner_id], |z| {
-            Ok((z.get::<_, i64>(0)? as u32, z.get(1)?))
+            Ok((z.get::<_, i64>(0)? as u32, z.get(1)?, z.get(2)?))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(stand)
@@ -677,7 +696,7 @@ pub fn mails_liste(
 ) -> Result<Vec<MailKopf>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, ordner_id, uid, betreff, von, von_email, datum, gelesen, hat_anhang
+            "SELECT id, ordner_id, uid, betreff, von, von_email, datum, gelesen, beantwortet, hat_anhang
              FROM mails WHERE ordner_id = ?1 AND (?2 = 0 OR gelesen = 0)
              ORDER BY datum IS NULL, datum DESC, uid DESC
              LIMIT ?3 OFFSET ?4",
@@ -694,7 +713,7 @@ pub fn mails_liste(
 
 pub fn mail_holen(conn: &Connection, mail_id: i64) -> Result<Option<MailKopf>> {
     conn.query_row(
-        "SELECT id, ordner_id, uid, betreff, von, von_email, datum, gelesen, hat_anhang
+        "SELECT id, ordner_id, uid, betreff, von, von_email, datum, gelesen, beantwortet, hat_anhang
          FROM mails WHERE id = ?1",
         params![mail_id],
         zeile_zu_mailkopf,
@@ -713,7 +732,8 @@ fn zeile_zu_mailkopf(zeile: &rusqlite::Row<'_>) -> rusqlite::Result<MailKopf> {
         von_email: zeile.get(5)?,
         datum: zeile.get(6)?,
         gelesen: zeile.get(7)?,
-        hat_anhang: zeile.get(8)?,
+        beantwortet: zeile.get(8)?,
+        hat_anhang: zeile.get(9)?,
     })
 }
 
@@ -732,6 +752,17 @@ pub fn mail_gelesen_setzen(conn: &Connection, mail_id: i64, gelesen: bool) -> Re
         params![mail_id, gelesen],
     )
     .context("Gelesen-Flag speichern")?;
+    Ok(())
+}
+
+/// Merkt im Cache, dass auf eine Mail geantwortet wurde (nach dem Senden
+/// einer Antwort — das Server-Flag wird separat gesetzt).
+pub fn mail_beantwortet_setzen(conn: &Connection, mail_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE mails SET beantwortet = 1 WHERE id = ?1",
+        params![mail_id],
+    )
+    .context("Beantwortet-Flag speichern")?;
     Ok(())
 }
 
@@ -879,7 +910,7 @@ pub fn mails_suchen(
     let mut stmt = conn
         .prepare(
             "SELECT m.id, m.ordner_id, m.uid, m.betreff, m.von, m.von_email, m.datum,
-                    m.gelesen, m.hat_anhang, o.anzeige_name
+                    m.gelesen, m.beantwortet, m.hat_anhang, o.anzeige_name
              FROM mails_fts
              JOIN mails m ON m.id = mails_fts.rowid
              JOIN ordner o ON o.id = m.ordner_id
@@ -892,7 +923,7 @@ pub fn mails_suchen(
         .query_map(params![abfrage, konto_id, limit], |zeile| {
             Ok(SuchTreffer {
                 kopf: zeile_zu_mailkopf(zeile)?,
-                ordner_name: zeile.get(9)?,
+                ordner_name: zeile.get(10)?,
             })
         })
         .context("Suche ausführen")?
@@ -1088,7 +1119,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
     }
 
     #[test]
@@ -1248,6 +1279,7 @@ mod tests {
                 von_email: String::new(),
                 datum: None,
                 gelesen: false,
+                beantwortet: false,
                 hat_anhang: false,
             })
             .collect();
@@ -1314,6 +1346,7 @@ mod tests {
                 von_email: String::new(),
                 datum: Some(1_000),
                 gelesen: false,
+                beantwortet: false,
                 hat_anhang: false,
             }],
         )
@@ -1337,6 +1370,7 @@ mod tests {
                 von_email: "a@b.c".into(),
                 datum: Some(i64::from(i) * 100),
                 gelesen: i % 2 == 0,
+                beantwortet: false,
                 hat_anhang: false,
             })
             .collect();
@@ -1369,6 +1403,7 @@ mod tests {
                     von_email: String::new(),
                     datum: None,
                     gelesen: false,
+                    beantwortet: false,
                     hat_anhang: false,
                 },
                 NeuerMailKopf {
@@ -1378,15 +1413,16 @@ mod tests {
                     von_email: String::new(),
                     datum: None,
                     gelesen: false,
+                    beantwortet: false,
                     hat_anhang: false,
                 },
             ],
         )
         .unwrap();
-        mails_flags_setzen(&conn, id, &[(1, true)]).unwrap();
+        mails_flags_setzen(&conn, id, &[(1, true, true)]).unwrap();
         mails_loeschen(&conn, id, &[2]).unwrap();
         let stand = mails_cache_stand(&conn, id).unwrap();
-        assert_eq!(stand, vec![(1, true)]);
+        assert_eq!(stand, vec![(1, true, true)]);
     }
 
     #[test]
@@ -1404,6 +1440,7 @@ mod tests {
                 von_email: String::new(),
                 datum: None,
                 gelesen: false,
+                beantwortet: false,
                 hat_anhang: false,
             }],
         )
@@ -1440,6 +1477,7 @@ mod tests {
                 von_email: String::new(),
                 datum: None,
                 gelesen: false,
+                beantwortet: false,
                 hat_anhang: true,
             }],
         )
@@ -1511,6 +1549,7 @@ mod tests {
                     von_email: "rechnung@example.org".into(),
                     datum: Some(1_000),
                     gelesen: true,
+                    beantwortet: false,
                     hat_anhang: false,
                 },
                 NeuerMailKopf {
@@ -1520,6 +1559,7 @@ mod tests {
                     von_email: "anna@example.org".into(),
                     datum: Some(2_000),
                     gelesen: true,
+                    beantwortet: false,
                     hat_anhang: false,
                 },
             ],
@@ -1585,6 +1625,7 @@ mod tests {
                 von_email: String::new(),
                 datum: Some(1_000),
                 gelesen: true,
+                beantwortet: false,
                 hat_anhang: false,
             }],
         )
@@ -1620,6 +1661,7 @@ mod tests {
                 von_email: String::new(),
                 datum: Some(i64::from(i)),
                 gelesen: i % 2 == 0,
+                beantwortet: false,
                 hat_anhang: false,
             })
             .collect();
@@ -1647,6 +1689,7 @@ mod tests {
                 von_email: String::new(),
                 datum: None,
                 gelesen: false,
+                beantwortet: false,
                 hat_anhang: false,
             }],
         )
@@ -1697,6 +1740,7 @@ mod tests {
                 von_email: "bert@example.org".into(),
                 datum: Some(1_000),
                 gelesen: true,
+                beantwortet: false,
                 hat_anhang: false,
             }],
         )

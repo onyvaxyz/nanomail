@@ -388,12 +388,17 @@ function mailEintrag(mail, ordnerName = null) {
     tag.textContent = ordnerName;
     zeile2.appendChild(tag);
   }
+  if (mail.beantwortet) {
+    const beantwortet = icon("arrow-bend-up-left");
+    beantwortet.title = "Beantwortet";
+    zeile2.appendChild(beantwortet);
+  }
   if (mail.hat_anhang) zeile2.appendChild(icon("paperclip"));
 
   text.append(zeile1, zeile2);
   eintrag.appendChild(text);
   eintrag.addEventListener("click", () => mailAnklicken(mail));
-  eintrag.addEventListener("contextmenu", (ereignis) => kontextmenuZeigen(ereignis, mail.id));
+  eintrag.addEventListener("contextmenu", (ereignis) => kontextmenuZeigen(ereignis, mail));
   return eintrag;
 }
 
@@ -483,8 +488,10 @@ el("ungelesen-filter-knopf").addEventListener("click", () => {
 
 // -------------------------------------------------------- Kontextmenü --
 
-/// Rechtsklick auf einen Listeneintrag: „Als (un)gelesen markieren“.
-function kontextmenuZeigen(ereignis, mailId) {
+/// Rechtsklick auf einen Listeneintrag: „Als (un)gelesen markieren“
+/// und „Löschen“ (einziger Weg, Entwürfe loszuwerden — sie öffnen sich
+/// nicht im Lesebereich).
+function kontextmenuZeigen(ereignis, mail) {
   ereignis.preventDefault();
   const eintrag = ereignis.currentTarget;
   const gelesen = eintrag.dataset.gelesen === "1";
@@ -498,7 +505,7 @@ function kontextmenuZeigen(ereignis, mailId) {
   knopf.addEventListener("click", async () => {
     kontextmenuSchliessen();
     try {
-      await invoke("mail_gelesen_setzen", { mailId, gelesen: !gelesen });
+      await invoke("mail_gelesen_setzen", { mailId: mail.id, gelesen: !gelesen });
       await listeNeuLaden();
       kontenAnzeigen(); // Ungelesen-Zähler der Konto-Icons auffrischen
     } catch (fehler) {
@@ -506,6 +513,16 @@ function kontextmenuZeigen(ereignis, mailId) {
     }
   });
   menu.appendChild(knopf);
+
+  const loeschKnopf = document.createElement("button");
+  loeschKnopf.type = "button";
+  loeschKnopf.appendChild(icon("trash"));
+  loeschKnopf.append("Löschen");
+  loeschKnopf.addEventListener("click", () => {
+    kontextmenuSchliessen();
+    mailAusListeLoeschen(mail);
+  });
+  menu.appendChild(loeschKnopf);
 
   // Am Zeiger öffnen, aber nie über den Fensterrand hinausragen.
   menu.classList.remove("versteckt");
@@ -774,6 +791,35 @@ async function aktiveMailLoeschen() {
 }
 
 el("loeschen-knopf").addEventListener("click", aktiveMailLoeschen);
+
+/// Löscht eine Mail direkt aus der Liste (Kontextmenü) — gleiche Regeln
+/// wie beim Löschen-Knopf: Papierkorb heißt endgültig, mit Rückfrage.
+async function mailAusListeLoeschen(mail) {
+  const ordnerListe = zustand.ordnerJeKonto.get(zustand.aktivesKontoId) || [];
+  const rolle = ordnerListe.find((o) => o.id === mail.ordner_id)?.rolle;
+  const endgueltig = rolle === "papierkorb";
+  if (endgueltig) {
+    const sicher = confirm(
+      "Diese Mail endgültig löschen?\n\n" +
+        "Sie liegt im Papierkorb und kann danach nicht wiederhergestellt werden.",
+    );
+    if (!sicher) return;
+  }
+
+  status("Lösche Mail …");
+  try {
+    await invoke("mail_loeschen", { mailId: mail.id });
+    if (zustand.aktiveMailId === mail.id) {
+      zustand.aktiveMailId = null;
+      lesebereichLeeren();
+    }
+    status(endgueltig ? "✓ Mail endgültig gelöscht." : "✓ Mail in den Papierkorb verschoben.", "ok");
+    await listeNeuLaden();
+    kontenAnzeigen();
+  } catch (fehler) {
+    status(`✗ ${fehler}`, "fehler");
+  }
+}
 
 // Entf-Taste löscht die geöffnete Mail — aber nie beim Tippen in Feldern
 // oder bei geöffnetem Dialog.

@@ -39,6 +39,8 @@ pub struct OrdnerStatus {
 pub struct KopfDaten {
     pub uid: u32,
     pub gelesen: bool,
+    /// IMAP \Answered — auf die Mail wurde geantwortet.
+    pub beantwortet: bool,
     /// Aus der BODYSTRUCTURE-Antwort abgeleitet (siehe `sync::struktur_hat_anhang`).
     pub hat_anhang: bool,
     pub header: Vec<u8>,
@@ -146,8 +148,9 @@ impl ImapVerbindung {
         })
     }
 
-    /// Liefert alle UIDs des gewählten Ordners samt Gelesen-Flag.
-    pub async fn uid_stand(&mut self, anzahl: u32) -> Result<Vec<(u32, bool)>> {
+    /// Liefert alle UIDs des gewählten Ordners samt Gelesen- und
+    /// Beantwortet-Flag.
+    pub async fn uid_stand(&mut self, anzahl: u32) -> Result<Vec<(u32, bool, bool)>> {
         if anzahl == 0 {
             return Ok(Vec::new());
         }
@@ -162,7 +165,7 @@ impl ImapVerbindung {
         let mut stand = Vec::with_capacity(fetches.len());
         for fetch in &fetches {
             if let Some(uid) = fetch.uid {
-                stand.push((uid, ist_gelesen(fetch)));
+                stand.push((uid, ist_gelesen(fetch), ist_beantwortet(fetch)));
             }
         }
         Ok(stand)
@@ -190,6 +193,7 @@ impl ImapVerbindung {
             koepfe.push(KopfDaten {
                 uid,
                 gelesen: ist_gelesen(fetch),
+                beantwortet: ist_beantwortet(fetch),
                 hat_anhang: fetch
                     .bodystructure()
                     .is_some_and(super::sync::struktur_hat_anhang),
@@ -241,6 +245,20 @@ impl ImapVerbindung {
             .uid_store(uid.to_string(), "-FLAGS.SILENT (\\Seen)")
             .await
             .context("Gelesen-Flag entfernen")?
+            .try_collect()
+            .await
+            .context("Antwort auf Flag-Änderung lesen")?;
+        Ok(())
+    }
+
+    /// Setzt das \Answered-Flag auf dem Server (nach dem Senden einer
+    /// Antwort auf die Mail).
+    pub async fn als_beantwortet_markieren(&mut self, uid: u32) -> Result<()> {
+        let _antworten: Vec<_> = self
+            .session
+            .uid_store(uid.to_string(), "+FLAGS.SILENT (\\Answered)")
+            .await
+            .context("Beantwortet-Flag setzen")?
             .try_collect()
             .await
             .context("Antwort auf Flag-Änderung lesen")?;
@@ -329,6 +347,12 @@ fn ist_gelesen(fetch: &async_imap::types::Fetch) -> bool {
     fetch
         .flags()
         .any(|flag| matches!(flag, async_imap::types::Flag::Seen))
+}
+
+fn ist_beantwortet(fetch: &async_imap::types::Fetch) -> bool {
+    fetch
+        .flags()
+        .any(|flag| matches!(flag, async_imap::types::Flag::Answered))
 }
 
 /// Baut die TLS-Verbindung mit Zertifikatsprüfung auf.

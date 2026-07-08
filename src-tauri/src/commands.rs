@@ -559,6 +559,7 @@ async fn ordner_synchronisieren(
                         von_email: geparst.von_email,
                         datum: geparst.datum,
                         gelesen: kopf.gelesen,
+                        beantwortet: kopf.beantwortet,
                         hat_anhang: kopf.hat_anhang,
                     }
                 })
@@ -1166,6 +1167,17 @@ async fn mail_senden_intern(
         tracing::warn!("Empfängeradressen nicht gemerkt: {fehler:#}");
     }
 
+    // Nach einer Antwort: Original als beantwortet markieren
+    // (Fehler unkritisch — der nächste Sync bringt nichts durcheinander,
+    // schlimmstenfalls fehlt die Markierung).
+    if let Some(original_id) = formular.antwort_auf {
+        if !formular.weiterleiten {
+            if let Err(fehler) = beantwortet_markieren(app, zustand, original_id) {
+                tracing::warn!("Beantwortet-Markierung fehlgeschlagen: {fehler:#}");
+            }
+        }
+    }
+
     // Ging die Mail aus einem Entwurf hervor: Entwurf entfernen
     // (Fehler unkritisch — schlimmstenfalls bleibt er liegen).
     if let Some(entwurf_id) = formular.entwurf_von {
@@ -1195,6 +1207,40 @@ async fn mail_senden_intern(
             )
         }
     }
+}
+
+/// Markiert das Original einer beantworteten Mail: Cache sofort, das
+/// \Answered-Flag auf dem Server nebenläufig — scheitert das (z. B.
+/// offline), stellt der nächste Sync den Server-Stand wieder her
+/// (Server gewinnt, wie beim Gelesen-Flag).
+fn beantwortet_markieren(app: &AppHandle, zustand: &AppZustand, mail_id: i64) -> Result<()> {
+    let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
+    mit_db(zustand, |conn| db::mail_beantwortet_setzen(conn, mail_id))?;
+    let _ = app.emit(
+        "mails:neu",
+        MailsNeu {
+            ordner_id: ordner.id,
+        },
+    );
+
+    let uid = mail.uid;
+    let ordner_name = ordner.name.clone();
+    tauri::async_runtime::spawn(async move {
+        match verbindung_zum_konto(&konto).await {
+            Ok(mut verbindung) => {
+                if verbindung.ordner_waehlen(&ordner_name).await.is_ok() {
+                    if let Err(fehler) = verbindung.als_beantwortet_markieren(uid).await {
+                        tracing::warn!("Beantwortet-Flag nicht übertragen: {fehler:#}");
+                    }
+                }
+                verbindung.abmelden().await;
+            }
+            Err(fehler) => {
+                tracing::warn!("Beantwortet-Flag nicht übertragen: {fehler:#}");
+            }
+        }
+    });
+    Ok(())
 }
 
 async fn sent_ablage(

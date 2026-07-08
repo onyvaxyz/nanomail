@@ -4,7 +4,7 @@ Lebendes Übersichtsdokument. Wird nach jedem Meilenstein aktualisiert.
 Regel: **Ein Meilenstein nach dem anderen, jeder wird von Philipp getestet
 und freigegeben, bevor der nächste beginnt.**
 
-Stand: 2026-07-07
+Stand: 2026-07-08
 
 ## Meilensteine
 
@@ -20,7 +20,8 @@ Stand: 2026-07-07
 | M3.4 | Bedienkomfort II | Rechtsklick-Menü „Als (un)gelesen markieren“, Ungelesen-Filter in der Mail-Liste, Doppelklick auf die Fensterleiste maximiert, Fenstergröße per Rand-Ziehen, Adress-Vorschläge beim Verfassen (aus bisherigen Empfängern und Absendern, kein Adressbuch) | 🟢 Freigegeben |
 | M3.5 | Suche & einheitliche Lesefläche | Volltextsuche über alle Ordner des Kontos (Suchfeld oben), Lesebereich standardmäßig im App-Stil mit „Originalansicht“-Umschalter für HTML-Mails | 🟢 Freigegeben |
 | M3.6 | Anhänge & Entwürfe | Anhang-Leiste unten im Lesebereich (jeder Anhang einzeln sichtbar, Klick speichert), zuverlässiges Anhang-Kennzeichen schon beim Abgleich, Entwürfe (speichern, weiterbearbeiten, nach Versand automatisch entfernt), Symbolleiste aufgeräumt (Archivieren/Stern/Drei-Punkte entfernt) | 🟢 Freigegeben |
-| M4 | Kalender lesend | Nextcloud-CalDAV (mehrere Konten), Monatsansicht, Farbe je Kalender, Wiederholungstermine, Zeitzonen, Offline-Cache | 🟡 Wartet auf Freigabe |
+| M4 | Kalender lesend | Nextcloud-CalDAV (mehrere Konten), Monatsansicht, Farbe je Kalender, Wiederholungstermine, Zeitzonen, Offline-Cache | 🟢 Freigegeben |
+| M4.1 | Zwischenschritt Mail-Komfort | „Beantwortet“-Markierung in der Mail-Liste (Pfeil-Symbol; wird beim Antworten gesetzt und vom Server übernommen), „Löschen“ im Rechtsklick-Menü — damit lassen sich auch Entwürfe löschen | 🟡 Wartet auf Freigabe |
 | M5 | Kalender schreibend *(optional)* | Termine erstellen/bearbeiten/löschen, Konfliktbehandlung | ⚪ Offen |
 | M6 | Microsoft (zuletzt) | Erst Mini-Auth-Test (klärt Kontotyp & Tenant-Regeln), dann Device-Code-Flow, Token-Refresh, IMAP-Anbindung | ⚪ Offen |
 
@@ -78,46 +79,31 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 | 2026-07-07 | M3.4-Nachbesserung: Das Doppelklick-Maximieren erledigt die Titelleiste (Tauri-Drag-Region) bereits von selbst — der in M3.4 zusätzlich eingebaute Doppelklick-Code schaltete dadurch doppelt um, das Fenster sprang sofort zurück. Der Zusatz-Code wurde entfernt. Außerdem lässt sich die Fenstergröße jetzt per Ziehen an allen Rändern und Ecken ändern (unsichtbare Anfasser in `ui/fenster.js` — ohne Systemrahmen bietet GNOME sonst keine Ränder an). |
 | 2026-07-07 | Neue Wünsche in zwei Schritte geteilt: M3.4 (Ungelesen-Markierung/-Filter, Doppelklick-Maximieren, Adress-Vorschläge) zuerst, danach M3.5 (Suche + einheitliche Lesefläche). |
 | 2026-07-07 | Lesefläche (M3.5): Alle Mails erscheinen künftig standardmäßig im App-Stil; ein Knopf „Originalansicht“ zeigt HTML-Mails bei Bedarf im Design des Absenders. |
+| 2026-07-08 | M4 von Philipp freigegeben („Kalender funktioniert super“). |
+| 2026-07-08 | M4.1 (eingeschoben): Die „Beantwortet“-Markierung nutzt das offizielle Mail-Kennzeichen (IMAP `\Answered`) — Antworten aus anderen Programmen (z. B. Handy) erscheinen dadurch ebenfalls markiert, und Nanomail-Antworten sind in anderen Programmen sichtbar. Die Markierung wird beim Abgleich vom Server übernommen; der Server bleibt die Quelle der Wahrheit. |
+| 2026-07-08 | M4.1: „Löschen“ im Rechtsklick-Menü folgt denselben Regeln wie der Löschen-Knopf (Papierkorb; im Papierkorb endgültig nach Rückfrage) und funktioniert für alle Mails — insbesondere Entwürfe, die sich nicht im Lesebereich öffnen lassen und bisher nicht löschbar waren. |
 | 2026-07-07 | M3.4: Adress-Vorschläge ohne Adressbuch — beim Senden werden Empfänger gemerkt, zusätzlich zählen Absender aus dem Mail-Cache. Vorschläge erscheinen beim Tippen im An-/CC-Feld. |
 | 2026-07-07 | M3.4: „Als ungelesen markieren“ ändert das Flag sofort in der App und überträgt es im Hintergrund zum Server (wie beim Lesen); klappt das nicht (offline), korrigiert es der nächste Abgleich. |
 | 2026-07-05 | **M3.2: Komplettes Redesign nach eigener Vorlage** (Zed One Dark, Violett-Akzent, Schriften JetBrains Mono/Inter). Löst den Kachel-Fehler bei Absender-Avataren (Ursache: eine CSS-Kurzschreibweise in JS überschrieb versehentlich die Bild-Darstellung). Konto-Icons in der neuen Icon-Leiste nutzen ab jetzt ebenfalls Gravatar → Favicon → Initialen — die bestehende Ausnahme vom „keine externen Ladevorgänge“-Prinzip gilt damit für Absender- **und** Konto-Avatare. Schriften/Symbole werden weiterhin nur lokal mitgeliefert, nicht aus dem Netz geladen. Löschen/Archivieren/Markieren sind als Symbole schon sichtbar, aber noch ohne Funktion (kommt später). |
 
-## So testest du den aktuellen Stand (M4)
+## So testest du den aktuellen Stand (M4.1)
 
 1. Bauen und installieren wie gehabt:
    `cd src-tauri && cargo tauri build`, dann
    `sudo dpkg -i src-tauri/target/release/bundle/deb/Nanomail_0.1.0_amd64.deb`
    Mail-Konten und Einstellungen bleiben erhalten.
-2. **Kalender öffnen:** In der linken Icon-Leiste gibt es unter den
-   Konto-Icons jetzt ein Kalender-Symbol. Ein Klick darauf zeigt die
-   Monatsansicht; ein Klick auf ein Konto-Icon führt zurück zu den Mails.
-3. **Nextcloud verbinden:** Oben rechts auf das Plus (oder den Knopf in
-   der Mitte) klicken. Eintragen: frei wählbarer Name, Server-Adresse
-   (z. B. `https://cloud.example.com`), Nextcloud-Benutzername und ein
-   **App-Passwort** (in Nextcloud: Einstellungen → Sicherheit → „Neues
-   App-Passwort erstellen“). Nach „Verbinden & Kalender suchen“
-   erscheinen die Kalender als kleine Chips oben, die Termine laden im
-   Hintergrund. Das für jedes deiner Nextcloud-Konten wiederholen —
-   alle Kalender erscheinen zusammen in einer Ansicht.
-4. **Monatsansicht:** Mit ‹ und › blätterst du durch die Monate,
-   „Heute“ springt zurück; der heutige Tag ist farbig markiert.
-   Termine erscheinen in der Farbe ihres Kalenders (ganztägige als
-   volle Balken, andere mit Uhrzeit). Ein Klick auf einen Termin zeigt
-   Details: Zeit, Ort, Beschreibung und aus welchem Kalender er stammt.
-5. **Farben:** Ein Klick auf den Farbpunkt in einem Kalender-Chip
-   öffnet den Farbwähler — die Farbe zieht sich sofort durch alle
-   Termine dieses Kalenders. Rechtsklick auf den Chip bietet „Farbe
-   aus Nextcloud verwenden“ (zurücksetzen) und „Konto entfernen“.
-   Ein Klick auf den Chip-Namen blendet den Kalender aus und wieder ein.
-6. **Wiederholungen prüfen:** Ein wöchentlicher/monatlicher Termin aus
-   Nextcloud sollte an allen richtigen Tagen stehen — auch verschobene
-   oder gelöschte Einzeltermine einer Serie sollten stimmen.
-7. **Offline-Probe:** Internet trennen und die App neu starten — die
-   Termine sind weiterhin da (aus dem lokalen Zwischenspeicher).
-   Aktualisiert wird wieder, sobald Verbindung besteht (Knopf mit den
-   Pfeilen oder automatisch alle 5 Minuten).
+2. **Beantwortet-Markierung:** Auf eine Mail antworten und die Antwort
+   absenden. In der Mail-Liste erscheint beim Original jetzt ein kleiner
+   Antwort-Pfeil neben dem Betreff (wie die Büroklammer bei Anhängen).
+   Auch Mails, die du früher aus einem anderen Programm (z. B. Handy)
+   beantwortet hast, bekommen den Pfeil — spätestens nach dem nächsten
+   Abgleich (Aktualisieren-Knopf oder automatisch).
+3. **Entwürfe löschen:** In den Entwürfe-Ordner wechseln, Rechtsklick
+   auf einen Entwurf → „Löschen“. Der Entwurf wandert in den Papierkorb.
+   „Löschen“ gibt es jetzt in jedem Ordner per Rechtsklick; im
+   Papierkorb wird nach Rückfrage endgültig gelöscht.
 
-Wenn das passt: M4 freigeben → danach entscheiden wir, ob M5
+Wenn das passt: M4.1 freigeben → danach entscheiden wir, ob M5
 (Termine erstellen/bearbeiten) folgt oder erst Microsoft (M6).
 
 ## Was bewusst noch fehlt
