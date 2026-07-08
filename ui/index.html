@@ -1,156 +1,448 @@
 <!doctype html>
 <html lang="de">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Nanomail</title>
-  <link rel="stylesheet" href="phosphor/style.css" />
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <div id="app">
-    <!-- Spalte 1: Konten-Icon-Leiste -->
-    <aside id="sidebar">
-      <nav id="konten-bereich" class="scrollbereich"></nav>
-      <div class="sidebar-fuss">
-        <button id="konto-hinzufuegen-knopf" class="konto-hinzufuegen versteckt" type="button" title="Konto hinzufügen">
-          <i class="ph-thin ph-plus"></i>
-        </button>
-        <button id="aktualisieren-knopf" class="icon-knopf versteckt" type="button" title="Aktualisieren">
-          <i class="ph-thin ph-arrows-clockwise"></i>
-        </button>
-      </div>
-    </aside>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nanomail</title>
+    <link rel="stylesheet" href="phosphor/style.css" />
+    <link rel="stylesheet" href="styles.css?v=10" />
+  </head>
+  <body>
+    <!-- Eigene Fensterleiste im App-Design (Systemrahmen ist abgeschaltet) -->
+    <header class="titelleiste" data-tauri-drag-region>
+      <span class="titelleiste-titel">Nanomail</span>
+      <span class="fueller"></span>
+      <button
+        id="fenster-minimieren"
+        class="fenster-knopf"
+        type="button"
+        title="Minimieren"
+      >
+        <i class="ph-regular ph-minus"></i>
+      </button>
+      <button
+        id="fenster-maximieren"
+        class="fenster-knopf"
+        type="button"
+        title="Maximieren"
+      >
+        <i class="ph-regular ph-square"></i>
+      </button>
+      <button
+        id="fenster-schliessen"
+        class="fenster-knopf schliessen"
+        type="button"
+        title="Schließen"
+      >
+        <i class="ph-regular ph-x"></i>
+      </button>
+    </header>
 
-    <!-- Spalte 2: Mail-Liste -->
-    <section id="mailliste">
-      <header class="mailliste-kopf">
-        <div class="mailliste-suchzeile">
-          <i class="ph-thin ph-magnifying-glass"></i>
-          <input type="search" class="mailliste-suche" placeholder="Suchen" />
-          <button id="verfassen-knopf" class="knopf-primaer verfassen-kompakt versteckt" type="button">
-            <i class="ph-thin ph-pencil-simple-line"></i> Neue Mail
+    <div id="app">
+      <!-- Spalte 1: Konten-Icon-Leiste -->
+      <aside id="sidebar">
+        <nav id="konten-bereich" class="scrollbereich"></nav>
+        <div class="sidebar-trenner"></div>
+        <!-- Umschalter zur Kalender-Ansicht (M4) -->
+        <button
+          id="kalender-knopf"
+          class="ansicht-knopf"
+          type="button"
+          title="Kalender"
+        >
+          <i class="ph-regular ph-calendar-dots"></i>
+        </button>
+        <div class="sidebar-fuss">
+          <button
+            id="konto-hinzufuegen-knopf"
+            class="konto-hinzufuegen versteckt"
+            type="button"
+            title="Konto hinzufügen"
+          >
+            <i class="ph-regular ph-plus"></i>
+          </button>
+          <button
+            id="aktualisieren-knopf"
+            class="icon-knopf versteckt"
+            type="button"
+            title="Aktualisieren"
+          >
+            <i class="ph-regular ph-arrows-clockwise"></i>
           </button>
         </div>
-        <ul id="ordner-pillen" class="ordner-pillen"></ul>
-        <div class="mailliste-konto-zeile">
-          <span id="mailliste-konto-adresse" class="mailliste-konto-adresse"></span>
-          <span id="ordner-anzahl" class="ordner-anzahl"></span>
-          <button id="konto-bearbeiten-knopf" class="icon-knopf klein" type="button" title="Konto bearbeiten">
-            <i class="ph-thin ph-gear-six"></i>
-          </button>
-        </div>
-      </header>
-      <div id="mail-eintraege" class="scrollbereich">
-        <div class="leerzustand">
-          <i class="ph-thin ph-tray"></i>
-          <p>Noch nichts geladen.</p>
-        </div>
-      </div>
-    </section>
+      </aside>
 
-    <!-- Spalte 3: Lesebereich -->
-    <section id="lesebereich">
-      <div id="lese-kopf" class="lese-kopf versteckt">
-        <div id="lese-avatar" class="avatar avatar-gross"></div>
-        <div class="lese-kopf-mitte">
-          <h1 id="mail-titel">Betreff</h1>
-          <div id="mail-meta" class="mail-meta"></div>
+      <!-- Spalte 2: Mail-Liste -->
+      <section id="mailliste">
+        <header class="mailliste-kopf">
+          <div class="mailliste-suchzeile">
+            <i class="ph-regular ph-magnifying-glass"></i>
+            <input
+              type="search"
+              id="suche-feld"
+              class="mailliste-suche"
+              placeholder="Suchen"
+            />
+            <button
+              id="verfassen-knopf"
+              class="knopf-primaer verfassen-kompakt versteckt"
+              type="button"
+            >
+              <i class="ph-regular ph-pencil-simple-line"></i> Neue Mail
+            </button>
+          </div>
+          <ul id="ordner-pillen" class="ordner-pillen"></ul>
+          <div class="mailliste-konto-zeile">
+            <span
+              id="mailliste-konto-adresse"
+              class="mailliste-konto-adresse"
+            ></span>
+            <span id="ordner-anzahl" class="ordner-anzahl"></span>
+            <button
+              id="ungelesen-filter-knopf"
+              class="filter-pille"
+              type="button"
+              title="Nur ungelesene Mails anzeigen"
+            >
+              <i class="ph-regular ph-envelope-simple"></i> Ungelesen
+            </button>
+            <button
+              id="konto-bearbeiten-knopf"
+              class="icon-knopf klein"
+              type="button"
+              title="Konto bearbeiten"
+            >
+              <i class="ph-regular ph-gear-six"></i>
+            </button>
+          </div>
+        </header>
+        <div id="mail-eintraege" class="scrollbereich">
+          <div class="leerzustand">
+            <i class="ph-regular ph-tray"></i>
+            <p>Noch nichts geladen.</p>
+          </div>
         </div>
-        <div class="lese-aktionen">
-          <button id="antworten-knopf" class="icon-knopf" type="button" title="Antworten">
-            <i class="ph-thin ph-arrow-bend-up-left"></i>
-          </button>
-          <button id="weiterleiten-knopf" class="icon-knopf" type="button" title="Weiterleiten">
-            <i class="ph-thin ph-arrow-bend-up-right"></i>
-          </button>
-          <button id="archivieren-knopf" class="icon-knopf" type="button" title="Archivieren">
-            <i class="ph-thin ph-archive"></i>
-          </button>
-          <button id="loeschen-knopf" class="icon-knopf" type="button" title="Löschen">
-            <i class="ph-thin ph-trash"></i>
-          </button>
-          <button id="markieren-knopf" class="icon-knopf" type="button" title="Markieren">
-            <i class="ph-thin ph-star"></i>
-          </button>
-          <button id="mehr-knopf" class="icon-knopf" type="button" title="Mehr">
-            <i class="ph-thin ph-dots-three"></i>
+      </section>
+
+      <!-- Spalte 3: Lesebereich -->
+      <section id="lesebereich">
+        <div id="lese-kopf" class="lese-kopf versteckt">
+          <div id="lese-avatar" class="avatar avatar-gross"></div>
+          <div class="lese-kopf-mitte">
+            <h1 id="mail-titel">Betreff</h1>
+            <div id="mail-meta" class="mail-meta"></div>
+          </div>
+          <div class="lese-aktionen">
+            <button
+              id="ansicht-knopf"
+              class="icon-knopf versteckt"
+              type="button"
+              title="Originalansicht des Absenders"
+            >
+              <i class="ph-regular ph-palette"></i>
+            </button>
+            <button
+              id="antworten-knopf"
+              class="icon-knopf"
+              type="button"
+              title="Antworten"
+            >
+              <i class="ph-regular ph-arrow-bend-up-left"></i>
+            </button>
+            <button
+              id="weiterleiten-knopf"
+              class="icon-knopf"
+              type="button"
+              title="Weiterleiten"
+            >
+              <i class="ph-regular ph-arrow-bend-up-right"></i>
+            </button>
+            <button
+              id="loeschen-knopf"
+              class="icon-knopf"
+              type="button"
+              title="Löschen"
+            >
+              <i class="ph-regular ph-trash"></i>
+            </button>
+          </div>
+        </div>
+        <div id="bilder-leiste" class="hinweis-leiste versteckt">
+          <span
+            ><i class="ph-regular ph-image"></i> Externe Bilder wurden
+            blockiert.</span
+          >
+          <button id="bilder-laden-knopf" class="knopf-sekundaer" type="button">
+            Bilder laden
           </button>
         </div>
-      </div>
-      <div id="bilder-leiste" class="hinweis-leiste versteckt">
-        <span><i class="ph-thin ph-image"></i> Externe Bilder wurden blockiert.</span>
-        <button id="bilder-laden-knopf" class="knopf-sekundaer" type="button">Bilder laden</button>
-      </div>
-      <!-- Bereinigtes HTML wird ausschließlich hier angezeigt:
+        <!-- Bereinigtes HTML wird ausschließlich hier angezeigt:
            sandbox ohne Rechte = keine Skripte, kein Zugriff auf die App. -->
-      <iframe id="mail-html" class="versteckt" sandbox=""></iframe>
-      <div id="mail-text" class="scrollbereich versteckt"></div>
-      <div id="lese-platzhalter" class="leerzustand">
-        <i class="ph-thin ph-envelope-open"></i>
-        <p>Wähle links eine Mail aus.</p>
-      </div>
-    </section>
-  </div>
+        <iframe id="mail-html" class="versteckt" sandbox=""></iframe>
+        <div id="mail-text" class="scrollbereich versteckt"></div>
+        <!-- Anhang-Leiste: ein Knopf je Anhang, Klick speichert die Datei -->
+        <div id="anhang-leiste" class="versteckt"></div>
+        <div id="lese-platzhalter" class="leerzustand">
+          <i class="ph-regular ph-envelope-open"></i>
+          <p>Wähle links eine Mail aus.</p>
+        </div>
+      </section>
 
-  <footer id="statusleiste">
-    <span id="backend-status">Starte …</span>
-  </footer>
+      <!-- Kalender-Ansicht (M4): ersetzt Mail-Liste + Lesebereich -->
+      <section id="kalenderbereich" class="versteckt">
+        <header class="kalender-kopf">
+          <button
+            id="kal-zurueck-knopf"
+            class="icon-knopf"
+            type="button"
+            title="Voriger Monat"
+          >
+            <i class="ph-regular ph-caret-left"></i>
+          </button>
+          <button
+            id="kal-heute-knopf"
+            class="knopf-sekundaer kal-heute"
+            type="button"
+          >
+            Heute
+          </button>
+          <button
+            id="kal-vor-knopf"
+            class="icon-knopf"
+            type="button"
+            title="Nächster Monat"
+          >
+            <i class="ph-regular ph-caret-right"></i>
+          </button>
+          <h1 id="kal-monat-titel" class="kal-monat-titel"></h1>
+          <span class="fueller"></span>
+          <!-- Ein Chip je Kalender: Klick blendet ein/aus, Farbpunkt öffnet
+             den Farbwähler, Rechtsklick bietet Standardfarbe & Konto entfernen. -->
+          <div id="kal-kalender-leiste" class="kal-kalender-leiste"></div>
+          <button
+            id="kal-sync-knopf"
+            class="icon-knopf"
+            type="button"
+            title="Kalender abgleichen"
+          >
+            <i class="ph-regular ph-arrows-clockwise"></i>
+          </button>
+          <button
+            id="kal-konto-hinzufuegen-knopf"
+            class="icon-knopf"
+            type="button"
+            title="Kalender-Konto hinzufügen"
+          >
+            <i class="ph-regular ph-plus"></i>
+          </button>
+        </header>
+        <div id="kal-wochentage" class="kal-wochentage"></div>
+        <div id="kal-raster" class="kal-raster scrollbereich"></div>
+        <div id="kal-leerzustand" class="leerzustand versteckt">
+          <i class="ph-regular ph-calendar-dots"></i>
+          <p>Noch kein Kalender-Konto eingerichtet.</p>
+          <button
+            id="kal-leer-hinzufuegen-knopf"
+            class="knopf-primaer"
+            type="button"
+          >
+            <i class="ph-regular ph-plus"></i> Kalender-Konto hinzufügen
+          </button>
+        </div>
+      </section>
+    </div>
 
-  <dialog id="konto-dialog">
-    <form id="konto-formular" method="dialog">
-      <h2 id="konto-dialog-titel">Mail-Konto einrichten</h2>
-      <p class="dialog-untertitel">
-        Für Infomaniak sind die Server bereits ausgefüllt.
-        Benutzername ist meist die <b>vollständige E-Mail-Adresse</b>.
-        Bei aktivierter Zwei-Faktor-Anmeldung ist ein <b>App-Passwort</b>
-        zwingend (im Anbieter-Konto unter „Sicherheit“ erstellbar).
-      </p>
+    <!-- Termin-Details (per JS befüllt und am Klickpunkt positioniert) -->
+    <div id="termin-popover" class="termin-popover versteckt"></div>
 
-      <label>Kontoname (frei wählbar)
-        <input name="name" required placeholder="z. B. Infomaniak privat" />
-      </label>
-      <label>E-Mail-Adresse
-        <input name="email" type="email" required placeholder="name@example.com" />
-      </label>
-      <label>Benutzername (meist die E-Mail-Adresse)
-        <input name="benutzer" required placeholder="name@example.com" />
-      </label>
-      <label id="passwort-label">Passwort / App-Passwort
-        <input name="passwort" type="password" />
-      </label>
-      <div class="feld-reihe">
-        <label class="feld-breit">Posteingangs-Server (IMAP)
-          <input name="imap_host" required value="mail.infomaniak.com" />
+    <!-- Unsichtbarer Farbwähler für die Kalender-Farbe -->
+    <input
+      type="color"
+      id="kal-farbe-input"
+      class="kal-farbe-input"
+      tabindex="-1"
+    />
+
+    <footer id="statusleiste">
+      <span id="backend-status">Starte …</span>
+    </footer>
+
+    <!-- Rechtsklick-Menü der Mail-Liste (per JS befüllt und positioniert) -->
+    <div id="kontextmenu" class="kontextmenu versteckt"></div>
+
+    <dialog id="konto-dialog">
+      <form id="konto-formular" method="dialog">
+        <h2 id="konto-dialog-titel">Mail-Konto einrichten</h2>
+        <p class="dialog-untertitel">
+          Für Infomaniak sind die Server bereits ausgefüllt. Benutzername ist
+          meist die <b>vollständige E-Mail-Adresse</b>. Bei aktivierter
+          Zwei-Faktor-Anmeldung ist ein <b>App-Passwort</b>
+          zwingend (im Anbieter-Konto unter „Sicherheit“ erstellbar).
+        </p>
+
+        <label
+          >Kontoname (frei wählbar)
+          <input name="name" required placeholder="z. B. Infomaniak privat" />
         </label>
-        <label class="feld-schmal">Port
-          <input name="imap_port" type="number" required value="993" min="1" max="65535" />
+        <label
+          >E-Mail-Adresse
+          <input
+            name="email"
+            type="email"
+            required
+            placeholder="name@example.com"
+          />
         </label>
-      </div>
-      <div class="feld-reihe">
-        <label class="feld-breit">Versand-Server (SMTP)
-          <input name="smtp_host" required value="mail.infomaniak.com" />
+        <label
+          >Benutzername (meist die E-Mail-Adresse)
+          <input name="benutzer" required placeholder="name@example.com" />
         </label>
-        <label class="feld-schmal">Port
-          <input name="smtp_port" type="number" required value="465" min="1" max="65535" />
+        <label id="passwort-label"
+          >Passwort / App-Passwort
+          <input name="passwort" type="password" />
         </label>
-      </div>
+        <div class="feld-reihe">
+          <label class="feld-breit"
+            >Posteingangs-Server (IMAP)
+            <input name="imap_host" required value="mail.infomaniak.com" />
+          </label>
+          <label class="feld-schmal"
+            >Port
+            <input
+              name="imap_port"
+              type="number"
+              required
+              value="993"
+              min="1"
+              max="65535"
+            />
+          </label>
+        </div>
+        <div class="feld-reihe">
+          <label class="feld-breit"
+            >Versand-Server (SMTP)
+            <input name="smtp_host" required value="mail.infomaniak.com" />
+          </label>
+          <label class="feld-schmal"
+            >Port
+            <input
+              name="smtp_port"
+              type="number"
+              required
+              value="465"
+              min="1"
+              max="65535"
+            />
+          </label>
+        </div>
+        <label
+          >Signatur (wird beim Verfassen automatisch eingefügt, leer = keine)
+          <textarea
+            name="signatur"
+            rows="3"
+            placeholder="z. B.&#10;Viele Grüße&#10;Philipp"
+          ></textarea>
+        </label>
+        <label
+          >Konto-Farbe (zieht sich durch die ganze Oberfläche)
+          <span class="farbe-zeile">
+            <input name="farbe" type="color" value="#c678dd" />
+            <button
+              id="farbe-standard-knopf"
+              class="knopf-sekundaer"
+              type="button"
+            >
+              Standard (Violett)
+            </button>
+          </span>
+        </label>
 
-      <p id="dialog-fehler" class="fehler-text versteckt"></p>
+        <p id="dialog-fehler" class="fehler-text versteckt"></p>
 
-      <div class="dialog-knoepfe">
-        <button id="konto-entfernen-knopf" class="knopf-gefahr versteckt" type="button">
-          Konto entfernen
-        </button>
-        <span class="fueller"></span>
-        <button id="konto-abbrechen-knopf" class="knopf-sekundaer versteckt" type="button">Abbrechen</button>
-        <button id="konto-speichern-knopf" class="knopf-primaer" type="submit">
-          Verbindung prüfen &amp; speichern
-        </button>
-      </div>
-    </form>
-  </dialog>
+        <div class="dialog-knoepfe">
+          <button
+            id="konto-entfernen-knopf"
+            class="knopf-gefahr versteckt"
+            type="button"
+          >
+            Konto entfernen
+          </button>
+          <span class="fueller"></span>
+          <button
+            id="konto-abbrechen-knopf"
+            class="knopf-sekundaer versteckt"
+            type="button"
+          >
+            Abbrechen
+          </button>
+          <button
+            id="konto-speichern-knopf"
+            class="knopf-primaer"
+            type="submit"
+          >
+            Verbindung prüfen &amp; speichern
+          </button>
+        </div>
+      </form>
+    </dialog>
 
-  <script src="main.js"></script>
-</body>
+    <dialog id="kalender-dialog">
+      <form id="kalender-formular" method="dialog">
+        <h2>Kalender-Konto (Nextcloud)</h2>
+        <p class="dialog-untertitel">
+          Nanomail verbindet sich über CalDAV mit deiner Nextcloud. Bitte ein
+          <b>App-Passwort</b> verwenden (in Nextcloud unter Einstellungen →
+          Sicherheit → „Neues App-Passwort erstellen“).
+        </p>
+
+        <!-- Bereits eingerichtete Konten (mit Entfernen-Knopf) -->
+        <div id="kal-konten-liste" class="kal-konten-liste"></div>
+
+        <label
+          >Name (frei wählbar)
+          <input name="name" required placeholder="z. B. Nextcloud privat" />
+        </label>
+        <label
+          >Server-Adresse
+          <input
+            name="server"
+            required
+            placeholder="https://cloud.example.com"
+          />
+        </label>
+        <label
+          >Benutzername
+          <input
+            name="benutzer"
+            required
+            placeholder="Nextcloud-Benutzername"
+          />
+        </label>
+        <label
+          >App-Passwort
+          <input name="passwort" type="password" required />
+        </label>
+
+        <p id="kal-dialog-fehler" class="fehler-text versteckt"></p>
+
+        <div class="dialog-knoepfe">
+          <span class="fueller"></span>
+          <button
+            id="kal-abbrechen-knopf"
+            class="knopf-sekundaer"
+            type="button"
+          >
+            Schließen
+          </button>
+          <button id="kal-speichern-knopf" class="knopf-primaer" type="submit">
+            Verbinden &amp; Kalender suchen
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="fenster.js"></script>
+    <script src="main.js"></script>
+    <script src="kalender.js"></script>
+  </body>
 </html>

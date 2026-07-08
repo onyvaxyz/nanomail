@@ -4,7 +4,7 @@
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
-const { WebviewWindow } = window.__TAURI__.webviewWindow;
+const { WebviewWindow, getCurrentWebviewWindow } = window.__TAURI__.webviewWindow;
 
 const SEITENGROESSE = 50;
 
@@ -17,6 +17,13 @@ const zustand = {
   offset: 0,
   alleGeladen: false,
   laedtNach: false,
+  nurUngelesen: false,
+  suchbegriff: "",
+  /// Ordner der geöffneten Mail (kann bei Suchtreffern vom aktiven
+  /// Ordner abweichen — wichtig für die Papierkorb-Rückfrage).
+  aktiveMailOrdnerId: null,
+  /// Inhalt des Lesebereichs: beide HTML-Fassungen + gewählte Ansicht.
+  lese: { html: null, schlicht: null, modus: "app" },
   kontoDialog: { modus: "anlegen", kontoId: null },
 };
 
@@ -57,8 +64,34 @@ function zeige(id, sichtbar) {
 
 function icon(name) {
   const i = document.createElement("i");
-  i.className = `ph-thin ph-${name}`;
+  i.className = `ph-light ph-${name}`;
   return i;
+}
+
+// ------------------------------------------------------ Fensterleiste --
+
+const aktuellesFenster = getCurrentWebviewWindow();
+el("fenster-minimieren").addEventListener("click", () => aktuellesFenster.minimize());
+el("fenster-maximieren").addEventListener("click", () => aktuellesFenster.toggleMaximize());
+el("fenster-schliessen").addEventListener("click", () => aktuellesFenster.close());
+// Doppelklick-Maximieren übernimmt die Tauri-Drag-Region der Titelleiste
+// selbst — hier keinen eigenen dblclick-Handler ergänzen, sonst wird
+// doppelt umgeschaltet und das Fenster springt sofort zurück.
+// Größenändern per Rand-Ziehen: siehe fenster.js.
+
+// ------------------------------------------------------- Konto-Farben --
+
+const STANDARD_FARBE = "#c678dd";
+
+function kontoFarbe(konto) {
+  return konto && konto.farbe ? konto.farbe : STANDARD_FARBE;
+}
+
+/// Zieht die Farbe des aktiven Kontos als Akzent durch die ganze
+/// Oberfläche (alle Akzent-Töne leiten sich per color-mix von --akzent ab).
+function akzentAnwenden() {
+  const konto = zustand.konten.find((k) => k.id === zustand.aktivesKontoId);
+  document.documentElement.style.setProperty("--akzent", kontoFarbe(konto));
 }
 
 // ------------------------------------------------------------- Avatare --
@@ -187,6 +220,7 @@ function kontenLeisteAnzeigen() {
     const knopf = document.createElement("button");
     knopf.className = "konto-icon";
     knopf.type = "button";
+    knopf.style.setProperty("--konto-farbe", kontoFarbe(konto));
     if (konto.id === zustand.aktivesKontoId) knopf.classList.add("aktiv");
     knopf.title = `${konto.name} · ${konto.email}`;
     knopf.appendChild(avatarElement(konto.name, konto.email, "avatar-konto"));
@@ -215,9 +249,17 @@ function ordnerPillenAnzeigen() {
     ? zustand.ordnerJeKonto.get(zustand.aktivesKontoId) || []
     : [];
 
+  const reihenfolge = { "entwuerfe": 1, "gesendet": 2, "spam": 3, "papierkorb": 4 };
+  const sortierteOrdner = [...ordnerListe].sort((a, b) => {
+    const istEingang = (o) => o.name.toUpperCase() === "INBOX";
+    const ra = istEingang(a) ? 0 : reihenfolge[a.rolle] ?? 9;
+    const rb = istEingang(b) ? 0 : reihenfolge[b.rolle] ?? 9;
+    return ra - rb;
+  });
+
   const pillen = el("ordner-pillen");
   pillen.innerHTML = "";
-  for (const ordner of ordnerListe) {
+  for (const ordner of sortierteOrdner) {
     const pille = document.createElement("li");
     pille.className = "ordner-pille";
     if (ordner.id === zustand.aktiverOrdnerId) pille.classList.add("aktiv");
@@ -242,16 +284,26 @@ function kontoAuswaehlen(kontoId) {
 }
 
 function ordnerOeffnen(kontoId, ordnerId) {
+  // Ein Ordnerwechsel beendet eine laufende Suche.
+  zustand.suchbegriff = "";
+  el("suche-feld").value = "";
   zustand.aktivesKontoId = kontoId;
   zustand.aktiverOrdnerId = ordnerId;
   zustand.offset = 0;
   zustand.alleGeladen = false;
   el("mail-eintraege").innerHTML = "";
+  akzentAnwenden();
   kontenAnzeigen(); // aktiv-Markierung (Icon-Leiste + Ordner-Reiter)
   naechsteSeiteLaden();
 }
 
 // --------------------------------------------------------- Mail-Liste --
+
+function leerText() {
+  return zustand.nurUngelesen
+    ? "Keine ungelesenen Mails in diesem Ordner."
+    : "Dieser Ordner ist leer.";
+}
 
 function leerzustand(behaelter, iconName, text) {
   behaelter.innerHTML = "";
@@ -265,11 +317,13 @@ function leerzustand(behaelter, iconName, text) {
 }
 
 async function naechsteSeiteLaden() {
+  if (zustand.suchbegriff) return; // Suchansicht blättert nicht nach
   if (zustand.alleGeladen || zustand.laedtNach || !zustand.aktiverOrdnerId) return;
   zustand.laedtNach = true;
   try {
     const mails = await invoke("mails_liste", {
       ordnerId: zustand.aktiverOrdnerId,
+      nurUngelesen: zustand.nurUngelesen,
       offset: zustand.offset,
       limit: SEITENGROESSE,
     });
@@ -277,7 +331,7 @@ async function naechsteSeiteLaden() {
 
     const behaelter = el("mail-eintraege");
     if (zustand.offset === 0 && mails.length === 0) {
-      leerzustand(behaelter, "tray", "Dieser Ordner ist leer.");
+      leerzustand(behaelter, "tray", leerText());
     } else {
       if (zustand.offset === 0) behaelter.innerHTML = "";
       for (const mail of mails) behaelter.appendChild(mailEintrag(mail));
@@ -290,12 +344,13 @@ async function naechsteSeiteLaden() {
   }
 }
 
-function mailEintrag(mail) {
+function mailEintrag(mail, ordnerName = null) {
   const eintrag = document.createElement("div");
   eintrag.className = "mail-eintrag";
   if (!mail.gelesen) eintrag.classList.add("ungelesen");
   if (mail.id === zustand.aktiveMailId) eintrag.classList.add("aktiv");
   eintrag.dataset.mailId = mail.id;
+  eintrag.dataset.gelesen = mail.gelesen ? "1" : "0";
 
   const avatarWrap = document.createElement("div");
   avatarWrap.className = "mail-avatar-wrap";
@@ -326,21 +381,160 @@ function mailEintrag(mail) {
   betreff.className = "mail-betreff";
   betreff.textContent = mail.betreff || "(kein Betreff)";
   zeile2.appendChild(betreff);
+  if (ordnerName) {
+    // Suchtreffer zeigen, in welchem Ordner die Mail liegt.
+    const tag = document.createElement("span");
+    tag.className = "mail-ordner-tag";
+    tag.textContent = ordnerName;
+    zeile2.appendChild(tag);
+  }
   if (mail.hat_anhang) zeile2.appendChild(icon("paperclip"));
 
   text.append(zeile1, zeile2);
   eintrag.appendChild(text);
-  eintrag.addEventListener("click", () => mailOeffnen(mail.id));
+  eintrag.addEventListener("click", () => mailAnklicken(mail));
+  eintrag.addEventListener("contextmenu", (ereignis) => kontextmenuZeigen(ereignis, mail.id));
   return eintrag;
 }
 
+/// Klick auf einen Listeneintrag: Entwürfe öffnen sich im
+/// Verfassen-Fenster zum Weiterbearbeiten, alles andere im Lesebereich.
+function mailAnklicken(mail) {
+  const ordnerListe = zustand.ordnerJeKonto.get(zustand.aktivesKontoId) || [];
+  const ordner = ordnerListe.find((o) => o.id === mail.ordner_id);
+  if (ordner?.rolle === "entwuerfe") {
+    verfassenFensterOeffnen(
+      `?entwurfId=${mail.id}&kontoId=${zustand.aktivesKontoId}`,
+      "Entwurf bearbeiten",
+    );
+    return;
+  }
+  mailOeffnen(mail.id);
+}
+
+// --------------------------------------------------------------- Suche --
+// Volltextsuche über alle Ordner des aktiven Kontos (Betreff, Absender
+// und — soweit lokal vorhanden — Mailtext). Tippen startet die Suche
+// leicht verzögert; Leeren oder Escape kehrt zur Ordneransicht zurück.
+
+let sucheVerzoegerung = null;
+
+el("suche-feld").addEventListener("input", () => {
+  clearTimeout(sucheVerzoegerung);
+  sucheVerzoegerung = setTimeout(() => {
+    const eingabe = el("suche-feld").value.trim();
+    if (eingabe.length < 2) {
+      sucheBeenden();
+    } else {
+      zustand.suchbegriff = eingabe;
+      sucheAusfuehren();
+    }
+  }, 250);
+});
+
+el("suche-feld").addEventListener("keydown", (ereignis) => {
+  if (ereignis.key === "Escape") {
+    el("suche-feld").value = "";
+    sucheBeenden();
+  }
+});
+
+function sucheBeenden() {
+  if (!zustand.suchbegriff) return;
+  zustand.suchbegriff = "";
+  ordnerPillenAnzeigen(); // Ordner-Zähler ersetzt die Treffer-Zahl
+  listeNeuLaden();
+}
+
+async function sucheAusfuehren() {
+  if (!zustand.suchbegriff || !zustand.aktivesKontoId) return;
+  try {
+    const treffer = await invoke("mails_suchen", {
+      kontoId: zustand.aktivesKontoId,
+      eingabe: zustand.suchbegriff,
+    });
+    const behaelter = el("mail-eintraege");
+    behaelter.innerHTML = "";
+    if (treffer.length === 0) {
+      leerzustand(behaelter, "magnifying-glass", "Keine Treffer.");
+    } else {
+      for (const mail of treffer) behaelter.appendChild(mailEintrag(mail, mail.ordner_name));
+    }
+    el("ordner-anzahl").textContent =
+      treffer.length === 1 ? "1 Treffer" : `${treffer.length} Treffer`;
+  } catch (fehler) {
+    status(`✗ ${fehler}`, "fehler");
+  }
+}
+
+// -------------------------------------------------- Ungelesen-Filter --
+
+el("ungelesen-filter-knopf").addEventListener("click", () => {
+  // Der Filter arbeitet auf der Ordneransicht — eine laufende Suche endet.
+  zustand.suchbegriff = "";
+  el("suche-feld").value = "";
+  zustand.nurUngelesen = !zustand.nurUngelesen;
+  el("ungelesen-filter-knopf").classList.toggle("aktiv", zustand.nurUngelesen);
+  zustand.offset = 0;
+  zustand.alleGeladen = false;
+  el("mail-eintraege").innerHTML = "";
+  naechsteSeiteLaden();
+});
+
+// -------------------------------------------------------- Kontextmenü --
+
+/// Rechtsklick auf einen Listeneintrag: „Als (un)gelesen markieren“.
+function kontextmenuZeigen(ereignis, mailId) {
+  ereignis.preventDefault();
+  const eintrag = ereignis.currentTarget;
+  const gelesen = eintrag.dataset.gelesen === "1";
+
+  const menu = el("kontextmenu");
+  menu.innerHTML = "";
+  const knopf = document.createElement("button");
+  knopf.type = "button";
+  knopf.appendChild(icon(gelesen ? "envelope-simple" : "envelope-simple-open"));
+  knopf.append(gelesen ? "Als ungelesen markieren" : "Als gelesen markieren");
+  knopf.addEventListener("click", async () => {
+    kontextmenuSchliessen();
+    try {
+      await invoke("mail_gelesen_setzen", { mailId, gelesen: !gelesen });
+      await listeNeuLaden();
+      kontenAnzeigen(); // Ungelesen-Zähler der Konto-Icons auffrischen
+    } catch (fehler) {
+      status(`✗ ${fehler}`, "fehler");
+    }
+  });
+  menu.appendChild(knopf);
+
+  // Am Zeiger öffnen, aber nie über den Fensterrand hinausragen.
+  menu.classList.remove("versteckt");
+  const kasten = menu.getBoundingClientRect();
+  menu.style.left = `${Math.min(ereignis.clientX, window.innerWidth - kasten.width - 8)}px`;
+  menu.style.top = `${Math.min(ereignis.clientY, window.innerHeight - kasten.height - 8)}px`;
+}
+
+function kontextmenuSchliessen() {
+  el("kontextmenu").classList.add("versteckt");
+}
+
+document.addEventListener("click", kontextmenuSchliessen);
+window.addEventListener("blur", kontextmenuSchliessen);
+document.addEventListener("keydown", (ereignis) => {
+  if (ereignis.key === "Escape") kontextmenuSchliessen();
+});
+
 async function listeNeuLaden() {
+  // In der Suchansicht heißt „neu laden“: Suche erneut ausführen
+  // (z. B. nach Löschen, Markieren oder neuen Mails).
+  if (zustand.suchbegriff) return sucheAusfuehren();
   if (!zustand.aktiverOrdnerId) return;
   const anzahl = Math.max(zustand.offset, SEITENGROESSE);
   zustand.alleGeladen = false;
   try {
     const mails = await invoke("mails_liste", {
       ordnerId: zustand.aktiverOrdnerId,
+      nurUngelesen: zustand.nurUngelesen,
       offset: 0,
       limit: anzahl,
     });
@@ -348,7 +542,7 @@ async function listeNeuLaden() {
     if (mails.length < anzahl) zustand.alleGeladen = true;
     const behaelter = el("mail-eintraege");
     if (mails.length === 0) {
-      leerzustand(behaelter, "tray", "Dieser Ordner ist leer.");
+      leerzustand(behaelter, "tray", leerText());
     } else {
       behaelter.innerHTML = "";
       for (const mail of mails) behaelter.appendChild(mailEintrag(mail));
@@ -366,6 +560,7 @@ async function mailOeffnen(mailId) {
   status("Lade Mail …");
   try {
     const ansicht = await invoke("mail_lesen", { mailId });
+    zustand.aktiveMailOrdnerId = ansicht.kopf.ordner_id;
     zeige("lese-platzhalter", false);
     zeige("lese-kopf", true);
 
@@ -391,17 +586,23 @@ async function mailOeffnen(mailId) {
 
     zeige("bilder-leiste", ansicht.hatte_externe_bilder);
 
+    // Beide HTML-Fassungen merken; Standard ist die App-Ansicht.
+    zustand.lese = { html: ansicht.html, schlicht: ansicht.html_schlicht, modus: "app" };
     if (ansicht.html) {
-      htmlAnzeigen(ansicht.html);
+      ansichtKnopfAktualisieren(true);
+      htmlAnzeigen();
     } else {
+      ansichtKnopfAktualisieren(false);
       zeige("mail-html", false);
       el("mail-text").textContent = ansicht.text;
       zeige("mail-text", true);
     }
+    anhangLeisteAnzeigen(mailId, ansicht.anhaenge || []);
 
     const eintrag = document.querySelector(`.mail-eintrag[data-mail-id="${mailId}"]`);
     if (eintrag) {
       eintrag.classList.remove("ungelesen");
+      eintrag.dataset.gelesen = "1";
       eintrag.querySelector(".ungelesen-punkt")?.remove();
     }
     kontenAnzeigen();
@@ -411,15 +612,180 @@ async function mailOeffnen(mailId) {
   }
 }
 
-function htmlAnzeigen(html) {
+// Stile fürs Sandbox-iframe: Standard ist die App-Ansicht (dunkel, im
+// Design der App), per Umschalter gibt es die Originalansicht des
+// Absenders (hell). Die Inter-Schrift lädt relativ — srcdoc-Dokumente
+// erben die Basis-URL der App; schlägt das fehl, greift system-ui.
+const LESE_STIL_APP =
+  '@font-face{font-family:Inter;font-style:normal;font-weight:100 900;' +
+  'src:url("fonts/inter-latin-wght-normal.woff2") format("woff2-variations")}' +
+  "body{background:#282c34;color:#fff;font-family:Inter,system-ui,sans-serif;" +
+  "font-size:15px;line-height:1.75;max-width:72ch;margin:0 auto;" +
+  "padding:40px 36px;overflow-wrap:break-word}" +
+  "a{color:#61afef}img{max-width:100%;height:auto}" +
+  "blockquote{border-left:3px solid #3e4452;margin:10px 0;padding:2px 14px;color:#abb2bf}" +
+  "hr{border:none;border-top:1px solid #3e4452}" +
+  "pre{white-space:pre-wrap}" +
+  "table{border-collapse:collapse;max-width:100%}td,th{padding:2px 8px;vertical-align:top}";
+const LESE_STIL_ORIGINAL =
+  "body{font-family:system-ui,sans-serif;font-size:14px;margin:16px;" +
+  "line-height:1.5;overflow-wrap:break-word;background:#ffffff;color:#1a1a1a}" +
+  "a{color:#1a56c4}";
+
+/// Zeigt den gemerkten HTML-Inhalt in der gewählten Ansicht an.
+function htmlAnzeigen() {
   zeige("mail-text", false);
   const rahmen = el("mail-html");
+  const original = zustand.lese.modus === "original";
+  rahmen.classList.toggle("original", original);
+  const inhalt = original ? zustand.lese.html : zustand.lese.schlicht || zustand.lese.html;
   rahmen.srcdoc =
-    "<style>body{font-family:system-ui,sans-serif;font-size:14px;margin:16px;" +
-    "line-height:1.5;overflow-wrap:break-word;background:#ffffff;color:#1a1a1a}" +
-    "a{color:#1a56c4}</style>" + html;
+    `<style>${original ? LESE_STIL_ORIGINAL : LESE_STIL_APP}</style>` + inhalt;
   zeige("mail-html", true);
 }
+
+/// Blendet den Ansicht-Umschalter ein/aus und spiegelt den Modus wider.
+function ansichtKnopfAktualisieren(sichtbar) {
+  const knopf = el("ansicht-knopf");
+  zeige("ansicht-knopf", sichtbar);
+  const original = zustand.lese.modus === "original";
+  knopf.classList.toggle("aktiv", original);
+  knopf.title = original ? "Zur App-Ansicht wechseln" : "Originalansicht des Absenders";
+}
+
+el("ansicht-knopf").addEventListener("click", () => {
+  if (!zustand.lese.html) return;
+  zustand.lese.modus = zustand.lese.modus === "app" ? "original" : "app";
+  ansichtKnopfAktualisieren(true);
+  htmlAnzeigen();
+});
+
+/// Setzt den Lesebereich auf den Platzhalter zurück.
+function lesebereichLeeren() {
+  zustand.lese = { html: null, schlicht: null, modus: "app" };
+  zustand.aktiveMailOrdnerId = null;
+  zeige("lese-kopf", false);
+  zeige("bilder-leiste", false);
+  zeige("mail-html", false);
+  zeige("mail-text", false);
+  zeige("anhang-leiste", false);
+  zeige("lese-platzhalter", true);
+}
+
+// ------------------------------------------------------------ Anhänge --
+
+/// Lesbare Größenangabe für die Anhang-Knöpfe.
+function groesseText(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+}
+
+/// Zeigt die Anhänge der geöffneten Mail als Knöpfe in der Leiste unten;
+/// ein Klick öffnet den Speichern-Dialog.
+function anhangLeisteAnzeigen(mailId, anhaenge) {
+  const leiste = el("anhang-leiste");
+  leiste.innerHTML = "";
+  zeige("anhang-leiste", anhaenge.length > 0);
+  for (const anhang of anhaenge) {
+    const knopf = document.createElement("button");
+    knopf.type = "button";
+    knopf.className = "anhang-knopf";
+    knopf.title = `„${anhang.dateiname}“ speichern`;
+    knopf.appendChild(icon("paperclip"));
+    const name = document.createElement("span");
+    name.className = "anhang-name";
+    name.textContent = anhang.dateiname;
+    knopf.appendChild(name);
+    const groesse = document.createElement("span");
+    groesse.className = "anhang-groesse";
+    groesse.textContent = groesseText(anhang.groesse);
+    knopf.appendChild(groesse);
+    knopf.addEventListener("click", () => anhangSpeichern(mailId, anhang, knopf));
+    leiste.appendChild(knopf);
+  }
+}
+
+async function anhangSpeichern(mailId, anhang, knopf) {
+  try {
+    const ziel = await window.__TAURI__.dialog.save({
+      title: "Anhang speichern",
+      defaultPath: anhang.dateiname,
+    });
+    if (!ziel) return; // Dialog abgebrochen
+    knopf.disabled = true;
+    status("Speichere Anhang …");
+    await invoke("anhang_speichern", { mailId, index: anhang.index, zielPfad: ziel });
+    status(`✓ Anhang gespeichert: ${anhang.dateiname}`, "ok");
+  } catch (fehler) {
+    status(`✗ ${fehler}`, "fehler");
+  } finally {
+    knopf.disabled = false;
+  }
+}
+
+// ------------------------------------------------------- Mail löschen --
+
+/// Löscht die geöffnete Mail (Papierkorb; dort: endgültig nach Rückfrage)
+/// und wählt danach die nächste Mail in der Liste aus.
+async function aktiveMailLoeschen() {
+  const mailId = zustand.aktiveMailId;
+  if (!mailId) return;
+
+  // Rolle über den Ordner der Mail selbst bestimmen — bei Suchtreffern
+  // kann er vom gerade aktiven Ordner abweichen.
+  const ordnerListe = zustand.ordnerJeKonto.get(zustand.aktivesKontoId) || [];
+  const ordner = ordnerListe.find((o) => o.id === zustand.aktiveMailOrdnerId);
+  const endgueltig = ordner?.rolle === "papierkorb";
+  if (endgueltig) {
+    const sicher = confirm(
+      "Diese Mail endgültig löschen?\n\n" +
+        "Sie liegt im Papierkorb und kann danach nicht wiederhergestellt werden.",
+    );
+    if (!sicher) return;
+  }
+
+  const knopf = el("loeschen-knopf");
+  knopf.disabled = true;
+  status("Lösche Mail …");
+  try {
+    await invoke("mail_loeschen", { mailId });
+    const eintrag = document.querySelector(`.mail-eintrag[data-mail-id="${mailId}"]`);
+    const naechsteId =
+      eintrag?.nextElementSibling?.dataset.mailId ||
+      eintrag?.previousElementSibling?.dataset.mailId ||
+      null;
+    eintrag?.remove();
+    zustand.offset = Math.max(0, zustand.offset - 1);
+    zustand.aktiveMailId = null;
+    lesebereichLeeren();
+    status(endgueltig ? "✓ Mail endgültig gelöscht." : "✓ Mail in den Papierkorb verschoben.", "ok");
+    kontenAnzeigen();
+    if (naechsteId) {
+      mailOeffnen(Number(naechsteId));
+    } else if (el("mail-eintraege").children.length === 0) {
+      leerzustand(el("mail-eintraege"), "tray", "Dieser Ordner ist leer.");
+    }
+  } catch (fehler) {
+    status(`✗ ${fehler}`, "fehler");
+  } finally {
+    knopf.disabled = false;
+  }
+}
+
+el("loeschen-knopf").addEventListener("click", aktiveMailLoeschen);
+
+// Entf-Taste löscht die geöffnete Mail — aber nie beim Tippen in Feldern
+// oder bei geöffnetem Dialog.
+document.addEventListener("keydown", (ereignis) => {
+  if (ereignis.key !== "Delete") return;
+  if (el("konto-dialog").open) return;
+  const ziel = ereignis.target;
+  if (ziel instanceof Element && ziel.closest("input, textarea, select, [contenteditable]")) {
+    return;
+  }
+  aktiveMailLoeschen();
+});
 
 function markiereAktivenEintrag(mailId) {
   document.querySelectorAll(".mail-eintrag.aktiv").forEach((e) => e.classList.remove("aktiv"));
@@ -433,8 +799,10 @@ el("bilder-laden-knopf").addEventListener("click", async () => {
   knopf.disabled = true;
   knopf.textContent = "Lade Bilder …";
   try {
-    const html = await invoke("mail_bilder_laden", { mailId: zustand.aktiveMailId });
-    htmlAnzeigen(html);
+    const ansicht = await invoke("mail_bilder_laden", { mailId: zustand.aktiveMailId });
+    zustand.lese.html = ansicht.html;
+    zustand.lese.schlicht = ansicht.html_schlicht;
+    htmlAnzeigen();
     zeige("bilder-leiste", false);
   } catch (fehler) {
     status(`✗ ${fehler}`, "fehler");
@@ -486,6 +854,7 @@ listen("mail:gesendet", () => {
 });
 
 el("mail-eintraege").addEventListener("scroll", (ereignis) => {
+  kontextmenuSchliessen();
   const ziel = ereignis.target;
   if (ziel.scrollTop + ziel.clientHeight >= ziel.scrollHeight - 200) {
     naechsteSeiteLaden();
@@ -506,6 +875,7 @@ function verfassenFensterOeffnen(query, titel) {
     height: 620,
     minWidth: 480,
     minHeight: 420,
+    decorations: false,
   });
 }
 
@@ -543,6 +913,8 @@ function kontoDialogOeffnen(modus, kontoId) {
     formular.elements.imap_port.value = konto.imap_port;
     formular.elements.smtp_host.value = konto.smtp_host || "mail.infomaniak.com";
     formular.elements.smtp_port.value = konto.smtp_port || 465;
+    formular.elements.signatur.value = konto.signatur || "";
+    formular.elements.farbe.value = konto.farbe || STANDARD_FARBE;
     passwortFeld.value = "";
     passwortFeld.placeholder = "leer lassen = Passwort unverändert";
     passwortFeld.required = false;
@@ -569,6 +941,9 @@ el("konto-bearbeiten-knopf").addEventListener("click", () => {
   if (zustand.aktivesKontoId) kontoDialogOeffnen("bearbeiten", zustand.aktivesKontoId);
 });
 el("konto-abbrechen-knopf").addEventListener("click", () => el("konto-dialog").close());
+el("farbe-standard-knopf").addEventListener("click", () => {
+  el("konto-formular").elements.farbe.value = STANDARD_FARBE;
+});
 
 el("konto-entfernen-knopf").addEventListener("click", async () => {
   const konto = zustand.konten.find((k) => k.id === zustand.kontoDialog.kontoId);
@@ -586,10 +961,7 @@ el("konto-entfernen-knopf").addEventListener("click", async () => {
     zustand.aktivesKontoId = null;
     zustand.aktiveMailId = null;
     el("mail-eintraege").innerHTML = "";
-    zeige("lese-kopf", false);
-    zeige("mail-html", false);
-    zeige("mail-text", false);
-    zeige("lese-platzhalter", true);
+    lesebereichLeeren();
     status(`Konto „${konto.name}“ entfernt.`);
     await start();
   } catch (fehler) {
@@ -615,6 +987,9 @@ el("konto-formular").addEventListener("submit", async (ereignis) => {
     imap_port: Number(daten.get("imap_port")),
     smtp_host: daten.get("smtp_host"),
     smtp_port: Number(daten.get("smtp_port")),
+    signatur: daten.get("signatur"),
+    // Standard-Violett wird als „leer“ gespeichert (= Vorgabe der App).
+    farbe: daten.get("farbe") === STANDARD_FARBE ? "" : daten.get("farbe"),
   };
   try {
     if (zustand.kontoDialog.modus === "bearbeiten") {

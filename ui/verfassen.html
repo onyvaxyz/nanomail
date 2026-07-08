@@ -5,9 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verfassen — Nanomail</title>
   <link rel="stylesheet" href="phosphor/style.css" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=9" />
 </head>
 <body class="fenster-verfassen">
+  <!-- Eigene Fensterleiste im App-Design (Systemrahmen ist abgeschaltet) -->
+  <header class="titelleiste" data-tauri-drag-region>
+    <span id="fenster-titel" class="titelleiste-titel">Neue Mail</span>
+    <span class="fueller"></span>
+    <button id="fenster-minimieren" class="fenster-knopf" type="button" title="Minimieren">
+      <i class="ph-light ph-minus"></i>
+    </button>
+    <button id="fenster-maximieren" class="fenster-knopf" type="button" title="Maximieren">
+      <i class="ph-light ph-square"></i>
+    </button>
+    <button id="fenster-schliessen" class="fenster-knopf schliessen" type="button" title="Schließen">
+      <i class="ph-light ph-x"></i>
+    </button>
+  </header>
+
   <form id="verfassen-formular">
     <div class="verfassen-kopf">
       <label id="von-label" class="feld">
@@ -16,11 +31,11 @@
       </label>
       <label class="feld">
         <span class="feld-titel">An <span class="label-hinweis">(mehrere durch Komma trennen)</span></span>
-        <input name="an" required placeholder="empfaenger@example.com" />
+        <input name="an" required placeholder="empfaenger@example.com" autocomplete="off" />
       </label>
       <label class="feld">
         <span class="feld-titel">Kopie (CC) <span class="label-hinweis">optional</span></span>
-        <input name="cc" />
+        <input name="cc" autocomplete="off" />
       </label>
       <label class="feld">
         <span class="feld-titel">Betreff</span>
@@ -28,7 +43,34 @@
       </label>
     </div>
 
-    <textarea name="text" id="verfassen-text" placeholder="Nachricht schreiben …"></textarea>
+    <div class="editor-leiste">
+      <button type="button" data-befehl="bold" title="Fett (Strg+B)">
+        <i class="ph-light ph-text-b"></i>
+      </button>
+      <button type="button" data-befehl="italic" title="Kursiv (Strg+I)">
+        <i class="ph-light ph-text-italic"></i>
+      </button>
+      <button type="button" data-befehl="underline" title="Unterstrichen (Strg+U)">
+        <i class="ph-light ph-text-underline"></i>
+      </button>
+      <span class="editor-trenner"></span>
+      <button type="button" data-befehl="insertUnorderedList" title="Aufzählung">
+        <i class="ph-light ph-list-bullets"></i>
+      </button>
+      <button type="button" data-befehl="insertOrderedList" title="Nummerierte Liste">
+        <i class="ph-light ph-list-numbers"></i>
+      </button>
+      <span class="editor-trenner"></span>
+      <button id="link-knopf" type="button" title="Link einfügen">
+        <i class="ph-light ph-link"></i>
+      </button>
+      <button type="button" data-befehl="removeFormat" title="Formatierung entfernen">
+        <i class="ph-light ph-eraser"></i>
+      </button>
+    </div>
+
+    <div id="verfassen-editor" contenteditable="true"
+         data-platzhalter="Nachricht schreiben …"></div>
 
     <div id="anhang-liste" class="anhang-liste"></div>
 
@@ -36,16 +78,29 @@
 
     <footer class="verfassen-fuss">
       <button id="anhang-knopf" class="knopf-sekundaer" type="button">
-        <i class="ph-thin ph-paperclip"></i> Datei anhängen
+        <i class="ph-light ph-paperclip"></i> Datei anhängen
       </button>
+      <span class="label-hinweis">… oder Dateien einfach ins Fenster ziehen</span>
       <span class="fueller"></span>
+      <button id="entwurf-knopf" class="knopf-sekundaer" type="button">
+        <i class="ph-light ph-note-pencil"></i> Entwurf speichern
+      </button>
       <button id="abbrechen-knopf" class="knopf-sekundaer" type="button">Abbrechen</button>
       <button id="senden-knopf" class="knopf-primaer" type="submit">
-        <i class="ph-thin ph-paper-plane-tilt"></i> Senden
+        <i class="ph-light ph-paper-plane-tilt"></i> Senden
       </button>
     </footer>
   </form>
 
+  <!-- Adress-Vorschläge unterm An-/CC-Feld (per JS befüllt und positioniert) -->
+  <div id="adress-vorschlaege" class="vorschlagsliste versteckt"></div>
+
+  <div id="drop-overlay" class="drop-overlay versteckt">
+    <i class="ph-light ph-paperclip"></i>
+    <span>Dateien loslassen, um sie anzuhängen</span>
+  </div>
+
+  <script src="fenster.js"></script>
   <script src="verfassen.js"></script>
 </body>
 </html>

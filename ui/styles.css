@@ -1,7 +1,5 @@
-/* Nanomail — Oberfläche (M3.2).
-   Dunkles Design in Anlehnung an den Zed-Editor („One Dark“, Violett-Akzent).
-   Farben und Maße sind Variablen — hier gefahrlos anpassbar,
-   danach genügt ein Neustart der App. */
+/* Nanomail — Zed One Dark Extended (M3.2).
+   Zed-Farbwerte mit bewusst luftigerer Dichte für bessere Lesbarkeit. */
 
 @font-face {
   font-family: "JetBrains Mono";
@@ -26,30 +24,41 @@
 }
 
 :root {
-  --flaeche-fenster: #21252b; /* Statusleiste, erhöhte Flächen */
-  --flaeche-panel: #282c34; /* Icon-Leiste, Dialoge */
-  --flaeche-inhalt: #282c34; /* Listen, Lesebereich */
-  --flaeche-erhoben: #21252b; /* Karten, Eingaben, Chips */
-  --farbe-rahmen: #ffffff1a;
-  --farbe-rahmen-stark: #ffffff26;
-  --farbe-text: #ffffff;
-  --farbe-text-gedimmt: #b4bac4;
-  --farbe-text-leise: #8a929e;
-  --farbe-akzent: #c678dd;
-  --farbe-akzent-schwach: color-mix(in oklab, var(--farbe-akzent) 12%, transparent);
-  --flaeche-hover: #2c313a;
-  --flaeche-auswahl: color-mix(in oklab, var(--farbe-akzent) 6%, transparent);
-  --farbe-fehler: #e06c75;
-  --farbe-warnung: #e5c07b;
-  --farbe-ok: #98c379;
+  --bg-window: #1f232a;
+  --bg-editor: #282c34;
+  --bg-panel: #23272e;
+  --bg-surface: #2e343e;
+  --bg-hover: #404754;
+  --bg-aktiv: #404754;
+  --bg-auswahl: #343b47;
+
+  --border: #3e4452;
+  --border-weich: #343a46;
+
+  --text: #fff;
+  --text-hell: #fff;
+  --text-muted: #abb2bf;
+  --text-leise: #7f838c;
+  --text-subtil: #636b78;
+
+  /* Akzentfarbe: Standard Violett; wird je Konto per JS überschrieben.
+     Alle Abtönungen leiten sich per color-mix davon ab. */
+  --akzent: #a371f7;
+  --akzent-hell: color-mix(in srgb, var(--akzent) 80%, white);
+  --akzent-schwach: color-mix(in srgb, var(--akzent) 16%, transparent);
+
+  --rot: #ff616e;
+  --gelb: #e5c07b;
+  --grun: #a5e075;
+  --blau: #61afef;
 
   --schrift-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
   --schrift-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 
-  --breite-seitenleiste: 56px;
-  --breite-mailliste: 320px;
-  --radius: 10px;
-  --radius-klein: 4px;
+  --breite-seitenleiste: 64px;
+  --breite-mailliste: 380px;
+  --radius: 8px;
+  --radius-klein: 6px;
 }
 
 * {
@@ -58,15 +67,22 @@
   padding: 0;
 }
 
+::selection {
+  background: color-mix(in srgb, var(--akzent) 30%, transparent);
+}
+
 html,
 body {
   height: 100%;
-  font-family: var(--schrift-mono);
-  font-size: 13px;
-  color: var(--farbe-text);
-  background: var(--flaeche-inhalt);
+  font-family: var(--schrift-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg-window);
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-klein);
 }
 
 body {
@@ -79,6 +95,22 @@ body {
   display: grid;
   grid-template-columns: var(--breite-seitenleiste) var(--breite-mailliste) 1fr;
   min-height: 0;
+  background: var(--bg-editor);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--akzent) 55%, transparent);
+  outline-offset: 2px;
 }
 
 .versteckt {
@@ -91,36 +123,155 @@ body {
   flex: 1;
 }
 
+/* ------------------------------------------------------ Fensterleiste -- */
+/* Eigene Titelleiste im App-Design; der Systemrahmen ist abgeschaltet.
+   data-tauri-drag-region macht sie zum Anfasser fürs Verschieben. */
+
+.titelleiste {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 10px 0 18px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Nur die Knöpfe fangen Klicks — alles andere gehört der Drag-Region. */
+.titelleiste > :not(button) {
+  pointer-events: none;
+}
+
+.titelleiste-titel {
+  font-family: var(--schrift-mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--text-hell);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fenster-knopf {
+  border: none;
+  background: transparent;
+  color: var(--text-hell);
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-klein);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.fenster-knopf:hover {
+  background: var(--bg-hover);
+  color: var(--text-hell);
+}
+.fenster-knopf.schliessen:hover {
+  background: var(--bg-window);
+  color: #fff;
+}
+
+/* --------------------------------------------- Fenster-Anfasser -- */
+/* Unsichtbare Leisten an Kanten/Ecken zum Größenändern (fenster.js) —
+   ohne Systemrahmen bietet GNOME sonst keine Ränder zum Ziehen an. */
+
+.fenster-griff {
+  position: fixed;
+  z-index: 200;
+}
+.griff-n {
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 5px;
+  cursor: n-resize;
+}
+.griff-s {
+  bottom: 0;
+  left: 12px;
+  right: 12px;
+  height: 5px;
+  cursor: s-resize;
+}
+.griff-w {
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 5px;
+  cursor: w-resize;
+}
+.griff-e {
+  right: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 5px;
+  cursor: e-resize;
+}
+.griff-nw {
+  top: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nw-resize;
+}
+.griff-ne {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  cursor: ne-resize;
+}
+.griff-sw {
+  bottom: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  cursor: sw-resize;
+}
+.griff-se {
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  cursor: se-resize;
+}
+
+/* --------------------------------------------------------- Scrollbar -- */
+
 ::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
-}
-::-webkit-scrollbar-thumb {
-  background: #ffffff1f;
-  border-radius: 5px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--farbe-rahmen-stark);
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
-.ph-thin {
-  font-size: 1.15em;
-  line-height: 1;
+::-webkit-scrollbar-thumb {
+  background: #4e5666;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #5a6375;
 }
 
 /* ------------------------------------------------------- Icon-Leiste -- */
 
 #sidebar {
-  background: var(--flaeche-panel);
-  border-right: 1px solid var(--farbe-rahmen);
-  padding: 12px 0;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  padding: 10px 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-height: 0;
 }
 
@@ -128,35 +279,40 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  padding: 10px;
 }
 
 .konto-icon {
   position: relative;
   display: inline-flex;
-  padding: 2px;
+  padding: 3px;
   border: none;
   background: none;
-  border-radius: 999px;
-  box-shadow: inset 0 0 0 1px transparent;
+  border-radius: 50%;
   cursor: pointer;
-  transition: box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
 }
 .konto-icon:hover {
-  box-shadow: inset 0 0 0 1px var(--farbe-rahmen-stark);
+  background: var(--bg-hover);
+  box-shadow: 0 0 0 2px var(--bg-aktiv);
 }
+/* Ring, Aktiv-Balken und Abzeichen tragen die Farbe des jeweiligen
+   Kontos (per JS gesetzt) — unabhängig davon, welches Konto aktiv ist. */
 .konto-icon.aktiv {
-  box-shadow: inset 0 0 0 1px var(--farbe-akzent);
+  box-shadow: 0 0 0 2px var(--konto-farbe, var(--akzent));
 }
 .konto-icon.aktiv::before {
   content: "";
   position: absolute;
-  left: -8px;
+  left: -10px;
   top: 50%;
   transform: translateY(-50%);
-  width: 2px;
+  width: 3px;
   height: 20px;
-  background: var(--farbe-akzent);
+  background: var(--konto-farbe, var(--akzent));
   border-radius: 0 2px 2px 0;
 }
 
@@ -164,13 +320,16 @@ body {
   position: absolute;
   top: -2px;
   right: -2px;
-  min-width: 15px;
-  height: 15px;
+  min-width: 16px;
+  height: 16px;
   padding: 0 4px;
   border-radius: 999px;
-  background: var(--farbe-akzent);
-  color: #10151d;
-  font: 600 9px/15px var(--schrift-mono);
+  background: var(--konto-farbe, var(--akzent));
+  color: var(--bg-window);
+  font-family: var(--schrift-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
   text-align: center;
 }
 
@@ -179,73 +338,85 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  padding-bottom: 6px;
 }
 
 .konto-hinzufuegen {
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  border: 1px dashed var(--farbe-rahmen-stark);
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px dashed var(--text-subtil);
   background: transparent;
-  color: var(--farbe-text-leise);
+  color: var(--text-leise);
   cursor: pointer;
   display: grid;
   place-items: center;
   transition:
     color 0.15s,
     border-color 0.15s;
+  font-size: 18px;
 }
 .konto-hinzufuegen:hover {
-  color: var(--farbe-text);
-  border-color: var(--farbe-text-leise);
+  color: var(--text);
+  border-color: var(--text-muted);
 }
 
 /* -------------------------------------------------------- Mail-Liste -- */
 
 #mailliste {
-  border-right: 1px solid var(--farbe-rahmen);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--flaeche-inhalt);
+  background: var(--bg-panel);
 }
 
 .mailliste-kopf {
-  border-bottom: 1px solid var(--farbe-rahmen);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
 }
 
 .mailliste-suchzeile {
-  height: 44px;
+  min-height: 56px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 16px;
+  gap: 12px;
+  padding: 10px 16px;
 }
-.mailliste-suchzeile .ph-thin {
-  color: var(--farbe-text-leise);
-  flex-shrink: 0;
+.mailliste-suchzeile i {
+  color: var(--text-hell);
+  font-size: 19px;
 }
 
 .mailliste-suche {
   flex: 1;
   min-width: 0;
-  border: none;
-  background: none;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-editor);
   outline: none;
-  font: inherit;
-  font-family: var(--schrift-mono);
-  font-size: 0.85rem;
-  color: var(--farbe-text);
+  padding: 8px 12px;
+  font-family: var(--schrift-sans);
+  font-size: 14px;
+  color: var(--text);
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+.mailliste-suche:focus {
+  border-color: var(--akzent);
+  background: #2b3039;
 }
 .mailliste-suche::placeholder {
-  color: var(--farbe-text-leise);
+  color: var(--text-leise);
 }
 
 .ordner-pillen {
   display: flex;
-  gap: 4px;
-  padding: 0 12px 10px;
+  gap: 8px;
+  padding: 4px 16px 14px;
   overflow-x: auto;
   list-style: none;
 }
@@ -253,53 +424,91 @@ body {
 .ordner-pille {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 9px;
-  border-radius: var(--radius-klein);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font-family: var(--schrift-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--farbe-text-leise);
+  color: var(--text-leise);
   white-space: nowrap;
   cursor: pointer;
   transition:
-    background 0.15s,
-    color 0.15s;
+    background 0.12s,
+    color 0.12s;
 }
 .ordner-pille:hover {
-  background: var(--flaeche-hover);
-  color: var(--farbe-text);
+  background: var(--bg-hover);
+  color: var(--text);
 }
 .ordner-pille.aktiv {
-  background: var(--farbe-akzent-schwach);
-  color: var(--farbe-akzent);
+  background: var(--bg-aktiv);
+  border-color: var(--border);
+  color: var(--text-hell);
+}
+.ordner-pille i {
+  font-size: 13px;
 }
 
 .mailliste-konto-zeile {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
-  border-top: 1px solid var(--farbe-rahmen);
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
 }
 
 .mailliste-konto-adresse {
   flex: 1;
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--farbe-text-leise);
+  font-family: var(--schrift-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--text-leise);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .ordner-anzahl {
-  font-size: 0.78rem;
-  color: var(--farbe-text-leise);
+  font-size: 11px;
+  font-family: var(--schrift-mono);
+  color: var(--text-leise);
   flex-shrink: 0;
+}
+
+/* Ungelesen-Filter in der Konto-Zeile (M3.4). */
+.filter-pille {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-leise);
+  font-family: var(--schrift-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+.filter-pille:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.filter-pille.aktiv {
+  background: var(--akzent-schwach);
+  border-color: var(--akzent);
+  color: var(--akzent-hell);
 }
 
 #mail-eintraege {
@@ -308,25 +517,66 @@ body {
 
 .mail-eintrag {
   display: flex;
-  gap: 11px;
+  gap: 14px;
   align-items: flex-start;
-  padding: 11px 16px;
-  border-bottom: 1px solid var(--farbe-rahmen);
+  min-height: 84px;
+  padding: 16px 16px;
+  border-bottom: 1px solid var(--border-weich);
+  border-left: 3px solid transparent;
   cursor: pointer;
-  border-left: 2px solid transparent;
+  transition: background 0.1s;
 }
-
 .mail-eintrag:hover {
-  background: var(--flaeche-hover);
+  background: var(--bg-hover);
 }
 .mail-eintrag.aktiv {
-  background: var(--flaeche-auswahl);
-  border-left-color: var(--farbe-akzent);
+  background: var(--bg-auswahl);
+  border-left-color: var(--akzent);
+}
+.mail-eintrag.ungelesen {
+  background: color-mix(in srgb, var(--akzent) 4%, transparent);
+}
+.mail-eintrag.ungelesen:hover,
+.mail-eintrag.ungelesen.aktiv {
+  background: var(--bg-auswahl);
 }
 
 .mail-avatar-wrap {
   position: relative;
   flex-shrink: 0;
+}
+
+.avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  font-family: var(--schrift-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  user-select: none;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.avatar-gross {
+  width: 56px;
+  height: 56px;
+  font-size: 18px;
+}
+
+.avatar-konto {
+  width: 38px;
+  height: 38px;
+  font-size: 13px;
 }
 
 .mail-text-block {
@@ -337,99 +587,83 @@ body {
 .mail-zeile-oben {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   align-items: baseline;
 }
 
 .mail-von {
-  font-size: 0.9rem;
-  color: var(--farbe-text-gedimmt);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .mail-zeit {
-  font-size: 0.76rem;
-  color: var(--farbe-text-leise);
+  font-family: var(--schrift-mono);
+  font-size: 12px;
+  color: var(--text-leise);
   flex-shrink: 0;
 }
 
 .mail-zeile-unten {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 3px;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .mail-betreff {
-  font-size: 0.9rem;
-  color: var(--farbe-text-gedimmt);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-leise);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
 }
 
-.mail-zeile-unten .ph-thin {
-  color: var(--farbe-text-leise);
+.mail-zeile-unten i {
+  color: var(--text-leise);
+  font-size: 14px;
   flex-shrink: 0;
+}
+
+/* Ordner-Hinweis an Suchtreffern (M3.5). */
+.mail-ordner-tag {
+  flex-shrink: 0;
+  max-width: 110px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--schrift-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: var(--text-leise);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ungelesen-punkt {
   position: absolute;
-  left: -6px;
+  left: -5px;
   top: 50%;
   transform: translateY(-50%);
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--farbe-akzent);
+  background: var(--akzent);
 }
 
 .mail-eintrag.ungelesen .mail-von {
-  color: var(--farbe-text);
-  font-weight: 700;
+  color: var(--text-hell);
+  font-weight: 650;
 }
 .mail-eintrag.ungelesen .mail-betreff {
-  color: var(--farbe-text);
-}
-
-/* ---------------------------------------------------------- Avatare -- */
-
-.avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1px solid var(--farbe-rahmen);
-  overflow: hidden;
-  flex-shrink: 0;
-  display: inline-grid;
-  place-items: center;
-  font-family: var(--schrift-mono);
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #fff;
-  user-select: none;
-}
-
-.avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.avatar-gross {
-  width: 48px;
-  height: 48px;
-  font-size: 1rem;
-}
-
-.avatar-konto {
-  width: 32px;
-  height: 32px;
-  font-size: 0.72rem;
+  color: var(--text-muted);
 }
 
 /* ------------------------------------------------------ Lesebereich -- */
@@ -438,15 +672,16 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--flaeche-inhalt);
+  background: var(--bg-editor);
 }
 
 .lese-kopf {
   display: flex;
-  gap: 14px;
+  gap: 20px;
   align-items: flex-start;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--farbe-rahmen);
+  padding: 32px 36px 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .lese-kopf-mitte {
@@ -457,30 +692,33 @@ body {
 #mail-titel {
   font-family: var(--schrift-sans);
   font-weight: 500;
-  font-size: 1.15rem;
+  font-size: 26px;
   line-height: 1.3;
-  margin-bottom: 5px;
+  margin-bottom: 12px;
   word-wrap: break-word;
+  color: var(--text-hell);
 }
 
 .mail-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
   align-items: baseline;
-  font-size: 0.84rem;
+  font-size: 14px;
 }
 
 .meta-von {
-  color: var(--farbe-text);
+  color: var(--text-hell);
   font-weight: 600;
 }
 .meta-adresse {
-  color: var(--farbe-text-leise);
+  color: var(--text-muted);
 }
 .meta-datum {
-  color: var(--farbe-text-gedimmt);
+  color: var(--text-leise);
   margin-left: auto;
+  font-family: var(--schrift-mono);
+  font-size: 12px;
 }
 
 .lese-aktionen {
@@ -494,35 +732,134 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 8px 16px;
-  font-size: 0.85rem;
-  color: var(--farbe-warnung);
-  background: color-mix(in srgb, var(--farbe-warnung) 10%, var(--flaeche-inhalt));
-  border-bottom: 1px solid var(--farbe-rahmen);
+  padding: 9px 18px;
+  font-size: 12px;
+  color: var(--gelb);
+  background: rgba(229, 192, 123, 0.09);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .hinweis-leiste span {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
 }
 
+/* Standard = App-Ansicht (dunkel); „Originalansicht“ schaltet auf das
+   helle Design des Absenders um (Klasse per JS). */
 #mail-html {
   flex: 1;
   border: none;
-  background: #ffffff;
+  background: var(--bg-editor);
+}
+#mail-html.original {
+  background: #fff;
 }
 
 #mail-text {
   flex: 1;
-  max-width: 68ch;
+  max-width: 72ch;
   margin: 0 auto;
-  padding: 32px;
+  padding: 56px 48px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
   font-family: var(--schrift-sans);
-  font-size: 0.92rem;
-  line-height: 1.6;
-  color: var(--farbe-text);
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--text);
+}
+
+/* ------------------------------------------------ Kontextmenü (M3.4) -- */
+
+.kontextmenu {
+  position: fixed;
+  z-index: 100;
+  min-width: 230px;
+  padding: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+.kontextmenu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-klein);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.kontextmenu button:hover {
+  background: var(--bg-hover);
+  color: var(--text-hell);
+}
+.kontextmenu button i {
+  font-size: 17px;
+  color: var(--text-leise);
+}
+
+/* ---------------------------------------- Anhang-Leiste (M3.6) -- */
+/* Unten im Lesebereich: ein Knopf je Anhang, Klick speichert die Datei. */
+
+#anhang-leiste {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.anhang-knopf {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-hover);
+  color: var(--text);
+  font-family: var(--schrift-sans);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.anhang-knopf:hover {
+  background: var(--bg-aktiv);
+  border-color: var(--akzent);
+}
+.anhang-knopf:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+.anhang-knopf i {
+  color: var(--text-leise);
+  font-size: 15px;
+  flex-shrink: 0;
+}
+.anhang-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.anhang-groesse {
+  color: var(--text-leise);
+  font-family: var(--schrift-mono);
+  font-size: 11px;
+  flex-shrink: 0;
 }
 
 /* ----------------------------------------------------- Leerzustände -- */
@@ -533,35 +870,39 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  color: var(--farbe-text-leise);
-  padding: 40px;
+  gap: 14px;
+  color: var(--text-leise);
+  padding: 48px;
   text-align: center;
 }
-
-.leerzustand .ph-thin {
-  font-size: 2.6rem;
-  opacity: 0.6;
+.leerzustand i {
+  font-size: 44px;
+  opacity: 0.45;
 }
 .leerzustand p {
-  font-size: 0.9rem;
+  font-size: 14px;
 }
 
 /* ------------------------------------------------------ Statusleiste -- */
 
 #statusleiste {
-  padding: 6px 14px;
-  font-size: 0.79rem;
-  color: var(--farbe-text-gedimmt);
-  border-top: 1px solid var(--farbe-rahmen);
-  background: var(--flaeche-fenster);
+  display: flex;
+  align-items: center;
+  padding: 6px 16px;
+  font-family: var(--schrift-mono);
+  font-size: 12px;
+  color: var(--text-leise);
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+  min-height: 32px;
 }
 
 #statusleiste .ok {
-  color: var(--farbe-ok);
+  color: var(--grun);
 }
 #statusleiste .fehler {
-  color: var(--farbe-fehler);
+  color: var(--rot);
 }
 
 /* ------------------------------------------------------------ Knöpfe -- */
@@ -570,159 +911,207 @@ body {
 .knopf-sekundaer,
 .knopf-gefahr,
 .knopf-flach {
-  font: inherit;
-  font-size: 0.87rem;
-  padding: 7px 13px;
-  border-radius: var(--radius-klein);
+  font-family: var(--schrift-sans);
+  font-size: 14px;
+  min-height: 38px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
   cursor: pointer;
   border: 1px solid transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 6px;
   transition:
     background 0.12s,
-    filter 0.12s;
+    color 0.12s;
 }
 
 .knopf-primaer {
-  background: var(--farbe-akzent);
-  color: #10151d;
+  background: var(--akzent);
+  color: var(--bg-window);
   font-weight: 600;
 }
 .knopf-primaer:hover {
-  filter: brightness(1.1);
+  filter: brightness(1.15);
 }
 
 .knopf-sekundaer {
-  background: var(--flaeche-erhoben);
-  color: var(--farbe-text);
-  border-color: var(--farbe-rahmen-stark);
+  background: var(--bg-hover);
+  border-color: var(--border);
+  color: var(--text);
 }
 .knopf-sekundaer:hover {
-  background: var(--farbe-rahmen-stark);
+  background: var(--bg-aktiv);
+  color: var(--text);
 }
 
 .knopf-flach {
   background: transparent;
-  color: var(--farbe-text-gedimmt);
+  color: var(--text-leise);
   justify-content: flex-start;
   padding: 7px 8px;
 }
 .knopf-flach:hover {
-  background: var(--flaeche-hover);
-  color: var(--farbe-text);
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .knopf-gefahr {
   background: transparent;
-  color: var(--farbe-fehler);
-  border-color: var(--farbe-fehler);
+  color: var(--rot);
+  border: 1px solid var(--rot);
 }
 .knopf-gefahr:hover {
-  background: color-mix(in srgb, var(--farbe-fehler) 15%, transparent);
+  background: rgba(224, 108, 117, 0.12);
 }
 
 .knopf-primaer:disabled,
 .knopf-sekundaer:disabled,
 .knopf-gefahr:disabled {
-  opacity: 0.55;
+  opacity: 0.45;
   cursor: wait;
 }
 
 .verfassen-kompakt {
   padding: 6px 10px;
-  font-size: 0.78rem;
+  font-size: 12px;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
+.verfassen-kompakt i {
+  color: var(--bg-window);
+}
+
 .icon-knopf {
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
-  color: var(--farbe-text-gedimmt);
+  color: var(--text-hell);
   cursor: pointer;
   width: 34px;
   height: 34px;
-  border-radius: var(--radius-klein);
+  border-radius: var(--radius);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.1rem;
+  font-size: 17px;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 .icon-knopf:hover {
-  background: var(--flaeche-hover);
-  color: var(--farbe-akzent);
+  background: var(--bg-hover);
+  color: var(--text-hell);
 }
 .icon-knopf.klein {
-  width: 26px;
-  height: 26px;
-  font-size: 0.95rem;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+}
+.icon-knopf.aktiv {
+  background: var(--akzent-schwach);
+  color: var(--akzent-hell);
 }
 
 /* ---------------------------------------------------------- Dialoge -- */
 
-#konto-dialog {
+#konto-dialog,
+#kalender-dialog {
   margin: auto;
-  border: 1px solid var(--farbe-rahmen-stark);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 24px;
-  width: min(460px, 92vw);
-  background: var(--flaeche-panel);
-  color: var(--farbe-text);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  padding: 36px;
+  width: min(560px, 92vw);
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
-
-#konto-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.55);
+#konto-dialog::backdrop,
+#kalender-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
 }
-#konto-dialog h2 {
-  font-size: 1.05rem;
-  margin-bottom: 4px;
+#konto-dialog h2,
+#kalender-dialog h2 {
+  font-family: var(--schrift-sans);
+  font-weight: 500;
+  font-size: 22px;
+  margin-bottom: 8px;
+  color: var(--text-hell);
 }
-
 .dialog-untertitel {
-  font-size: 0.82rem;
-  color: var(--farbe-text-gedimmt);
-  margin-bottom: 16px;
-  line-height: 1.5;
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+  line-height: 1.6;
 }
-
-#konto-formular label {
+#konto-formular label,
+#kalender-formular label {
   display: block;
-  font-size: 0.79rem;
-  color: var(--farbe-text-gedimmt);
-  margin-bottom: 11px;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
 }
-
-#konto-formular input {
+#konto-formular input,
+#kalender-formular input {
   display: block;
   width: 100%;
-  font: inherit;
-  font-size: 0.9rem;
-  color: var(--farbe-text);
-  background: var(--flaeche-erhoben);
-  padding: 8px 10px;
-  margin-top: 4px;
-  border: 1px solid var(--farbe-rahmen-stark);
-  border-radius: var(--radius-klein);
+  font-family: var(--schrift-sans);
+  font-size: 14px;
+  min-height: 40px;
+  color: var(--text-hell);
+  background: var(--bg-editor);
+  padding: 10px 14px;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  transition: border-color 0.12s;
 }
-
-#konto-formular input:focus {
-  outline: 2px solid var(--farbe-akzent);
-  outline-offset: -1px;
+#konto-formular input:focus,
+#kalender-formular input:focus {
+  border-color: var(--akzent);
 }
-
+#konto-formular textarea {
+  display: block;
+  width: 100%;
+  font-family: var(--schrift-sans);
+  font-size: 14px;
+  color: var(--text-hell);
+  background: var(--bg-editor);
+  padding: 9px 10px;
+  margin-top: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.12s;
+}
+#konto-formular textarea:focus {
+  border-color: var(--akzent);
+}
+.farbe-zeile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 5px;
+}
+#konto-formular input[name="farbe"] {
+  width: 60px;
+  min-height: 40px;
+  padding: 4px;
+  margin-top: 0;
+  cursor: pointer;
+}
 .fehler-text {
-  color: var(--farbe-fehler);
-  font-size: 0.85rem;
-  margin-bottom: 10px;
+  color: var(--rot);
+  font-size: 13px;
+  margin-bottom: 12px;
   line-height: 1.4;
 }
-
 .feld-reihe {
   display: flex;
-  gap: 10px;
+  gap: 12px;
 }
 .feld-breit {
   flex: 1;
@@ -730,127 +1119,586 @@ body {
 .feld-schmal {
   width: 92px;
 }
-
 .dialog-knoepfe {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 /* ------------------------------------------- Verfassen-Fenster (M3.1) -- */
 
 body.fenster-verfassen {
-  background: var(--flaeche-panel);
+  background: var(--bg-editor);
   height: 100vh;
 }
 
 #verfassen-formular {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
 .verfassen-kopf {
-  padding: 14px 16px 4px;
-  border-bottom: 1px solid var(--farbe-rahmen);
+  padding: 24px 28px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
 }
 
 .verfassen-kopf .feld {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
 .feld-titel {
-  width: 74px;
+  width: 80px;
   flex-shrink: 0;
-  font-size: 0.8rem;
-  color: var(--farbe-text-gedimmt);
+  font-size: 13px;
+  color: var(--text-muted);
   text-align: right;
 }
 
 .label-hinweis {
-  color: var(--farbe-text-leise);
-  font-size: 0.72rem;
+  color: var(--text-leise);
+  font-size: 11px;
 }
 
 .verfassen-kopf input,
 .verfassen-kopf select {
   flex: 1;
-  font: inherit;
-  font-size: 0.9rem;
-  color: var(--farbe-text);
-  background: var(--flaeche-erhoben);
-  padding: 8px 10px;
-  border: 1px solid var(--farbe-rahmen-stark);
-  border-radius: var(--radius-klein);
+  min-height: 36px;
+  font-family: var(--schrift-sans);
+  font-size: 14px;
+  color: var(--text-hell);
+  background: var(--bg-editor);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  transition: border-color 0.12s;
+}
+
+.verfassen-kopf select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg fill='%23abb2bf' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 36px;
+  cursor: pointer;
 }
 
 .verfassen-kopf input:focus,
 .verfassen-kopf select:focus {
-  outline: 2px solid var(--farbe-akzent);
-  outline-offset: -1px;
+  border-color: var(--akzent);
 }
 
-#verfassen-text {
-  flex: 1;
-  margin: 0;
-  padding: 16px;
-  font-family: var(--schrift-sans);
-  font-size: 0.94rem;
-  line-height: 1.6;
-  color: var(--farbe-text);
-  background: var(--flaeche-inhalt);
-  border: none;
-  resize: none;
+/* Formatierleiste über dem Editor (fett, kursiv, Listen, Link …). */
+.editor-leiste {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-weich);
+  background: var(--bg-surface);
+  flex-shrink: 0;
 }
-#verfassen-text:focus {
+.editor-leiste button {
+  border: none;
+  background: transparent;
+  color: var(--text-leise);
+  cursor: pointer;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-klein);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.editor-leiste button:hover {
+  background: var(--bg-hover);
+  color: var(--text-hell);
+}
+.editor-trenner {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 6px;
+}
+
+/* Der eigentliche Schreibbereich (contenteditable). */
+#verfassen-editor {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 32px 36px;
+  font-family: var(--schrift-sans);
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--text-hell);
+  background: var(--bg-editor);
   outline: none;
+  overflow-wrap: break-word;
+}
+#verfassen-editor:empty::before {
+  content: attr(data-platzhalter);
+  color: var(--text-leise);
+  pointer-events: none;
+}
+#verfassen-editor a {
+  color: var(--blau);
+}
+#verfassen-editor ul,
+#verfassen-editor ol {
+  padding-left: 26px;
+  margin: 6px 0;
+}
+#zitat-block {
+  color: var(--text-muted);
+}
+
+/* Adress-Vorschläge unterm An-/CC-Feld (M3.4). */
+.vorschlagsliste {
+  position: fixed;
+  z-index: 60;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+.vorschlagsliste .vorschlag {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-klein);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.vorschlagsliste .vorschlag:hover,
+.vorschlagsliste .vorschlag.aktiv {
+  background: var(--bg-hover);
+  color: var(--text-hell);
+}
+.vorschlag-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vorschlag-adresse {
+  color: var(--text-leise);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Overlay, solange Dateien über dem Fenster schweben. */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: color-mix(in srgb, var(--akzent) 14%, rgba(0, 0, 0, 0.65));
+  border: 2px dashed var(--akzent);
+  color: var(--text-hell);
+  font-size: 15px;
+  pointer-events: none;
+}
+.drop-overlay i {
+  font-size: 44px;
 }
 
 .anhang-liste {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
-  padding: 0 16px;
+  gap: 8px;
+  padding: 0 18px;
 }
 .anhang-liste:not(:empty) {
-  padding: 10px 16px;
+  padding: 10px 18px;
 }
 
 .anhang-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--flaeche-erhoben);
-  border: 1px solid var(--farbe-rahmen-stark);
-  border-radius: var(--radius-klein);
-  padding: 4px 8px;
-  font-size: 0.82rem;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-weich);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+  font-size: 12px;
 }
 
 .anhang-entfernen {
   border: none;
   background: none;
   cursor: pointer;
-  color: var(--farbe-text-leise);
+  color: var(--text-leise);
   display: inline-flex;
   padding: 0;
 }
 .anhang-entfernen:hover {
-  color: var(--farbe-fehler);
+  color: var(--rot);
 }
 
 .fenster-verfassen .fehler-text {
-  padding: 0 16px;
+  padding: 0 18px;
 }
 
 .verfassen-fuss {
   display: flex;
   align-items: center;
+  gap: 12px;
+  padding: 16px 28px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+/* --------------------------------------------------- Kalender (M4) -- */
+
+/* Umschalter in der Icon-Leiste (Mail ↔ Kalender). */
+.sidebar-trenner {
+  width: 32px;
+  height: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.ansicht-knopf {
+  width: 38px;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-leise);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.ansicht-knopf:hover {
+  background: var(--bg-hover);
+  color: var(--text-hell);
+}
+.ansicht-knopf.aktiv {
+  background: var(--akzent-schwach);
+  border-color: var(--akzent);
+  color: var(--akzent-hell);
+}
+
+/* Die Kalender-Ansicht ersetzt Mail-Liste + Lesebereich (Spalten 2–3). */
+#kalenderbereich {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-editor);
+}
+
+.kalender-kopf {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--farbe-rahmen);
+  min-height: 56px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+.kal-heute {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.kal-monat-titel {
+  margin-left: 10px;
+  font-family: var(--schrift-sans);
+  font-size: 19px;
+  font-weight: 500;
+  color: var(--text-hell);
+  white-space: nowrap;
+}
+
+/* Ein Chip je Kalender: Klick = ein-/ausblenden, Farbpunkt = Farbwähler. */
+.kal-kalender-leiste {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  max-width: 45%;
+}
+
+.kal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 0.12s,
+    opacity 0.12s;
+}
+.kal-chip:hover {
+  background: var(--bg-hover);
+}
+.kal-chip.aus {
+  opacity: 0.45;
+}
+.kal-chip.aus span {
+  text-decoration: line-through;
+}
+
+.kal-chip-farbe {
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--kal-farbe, var(--akzent));
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.kal-chip-farbe:hover {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--kal-farbe, var(--akzent)) 45%, transparent);
+}
+
+/* Unsichtbarer Farbwähler — wird per JS geöffnet. */
+.kal-farbe-input {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  border: none;
+  padding: 0;
+}
+
+/* Wochentags-Zeile über dem Raster. */
+.kal-wochentage {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+.kal-wochentage span {
+  padding: 7px 10px;
+  font-family: var(--schrift-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-leise);
+}
+.kal-wochentage span:nth-child(n + 6) {
+  color: var(--text-subtil); /* Wochenende leicht abgesetzt */
+}
+
+/* Monatsraster: 7 Spalten × 6 Wochen, Zellen scrollen bei Überfüllung. */
+.kal-raster {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(6, minmax(96px, 1fr));
+}
+
+.kal-zelle {
+  padding: 6px 6px 8px;
+  border-right: 1px solid var(--border-weich);
+  border-bottom: 1px solid var(--border-weich);
+  min-width: 0;
+  overflow-y: auto;
+}
+.kal-zelle:nth-child(7n) {
+  border-right: none;
+}
+.kal-zelle.nebenmonat {
+  background: color-mix(in srgb, var(--bg-window) 55%, var(--bg-editor));
+}
+.kal-zelle.nebenmonat .kal-tagnummer {
+  color: var(--text-subtil);
+}
+
+.kal-tagnummer {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  font-family: var(--schrift-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.kal-tagnummer.heute {
+  background: var(--akzent);
+  color: var(--bg-window);
+  font-weight: 600;
+}
+
+/* Ein Termin im Raster, eingefärbt in der Kalenderfarbe. */
+.kal-termin {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  width: 100%;
+  margin-bottom: 3px;
+  padding: 2px 7px;
+  border: none;
+  border-left: 3px solid var(--termin-farbe, var(--akzent));
+  border-radius: var(--radius-klein);
+  background: color-mix(in srgb, var(--termin-farbe, var(--akzent)) 16%, transparent);
+  color: var(--text);
+  font-family: var(--schrift-sans);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.kal-termin:hover {
+  background: color-mix(in srgb, var(--termin-farbe, var(--akzent)) 30%, transparent);
+}
+.kal-termin.ganztags {
+  background: color-mix(in srgb, var(--termin-farbe, var(--akzent)) 32%, transparent);
+}
+.kal-termin.ganztags:hover {
+  background: color-mix(in srgb, var(--termin-farbe, var(--akzent)) 45%, transparent);
+}
+
+.kal-termin-zeit {
+  font-family: var(--schrift-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.kal-termin-titel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Termin-Details am Klickpunkt. */
+.termin-popover {
+  position: fixed;
+  z-index: 100;
+  width: min(340px, 90vw);
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.popover-kopf {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 10px;
+  font-size: 15px;
+  color: var(--text-hell);
+}
+.popover-kopf strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.popover-farbpunkt {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.popover-zeile {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+}
+.popover-zeile.leise {
+  color: var(--text-leise);
+  font-size: 12px;
+  margin-bottom: 0;
+}
+.popover-zeile i {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: var(--text-leise);
+}
+
+.popover-beschreibung {
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-klein);
+  background: var(--bg-editor);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+/* Konten-Liste im Kalender-Dialog. */
+.kal-konten-liste:not(:empty) {
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.kal-konto-zeile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.kal-konto-zeile + .kal-konto-zeile {
+  border-top: 1px solid var(--border-weich);
+}
+
+#kal-leerzustand {
+  flex: 1;
 }
