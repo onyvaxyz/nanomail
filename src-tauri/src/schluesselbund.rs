@@ -47,3 +47,31 @@ pub fn passwort_loeschen(konto_id: i64) -> Result<()> {
         Err(fehler) => Err(fehler).context("Passwort aus dem Schlüsselbund löschen"),
     }
 }
+
+// ------------------------------------------------- Kalender-Konten (M4) --
+// Eigener Eintrag je Kalender-Konto (`kalender:<id>`), getrennt von den
+// Mail-Konten — gleiche Regeln, gleicher Dienstname.
+
+fn kalender_eintrag(konto_id: i64) -> Result<keyring_core::Entry> {
+    keyring_core::Entry::new(DIENST, &format!("kalender:{konto_id}"))
+        .context("Schlüsselbund-Eintrag anlegen")
+}
+
+pub fn kalender_passwort_speichern(konto_id: i64, passwort: &str) -> Result<()> {
+    kalender_eintrag(konto_id)?
+        .set_password(passwort)
+        .context("Passwort im Schlüsselbund speichern")
+}
+
+pub fn kalender_passwort_holen(konto_id: i64) -> Result<String> {
+    kalender_eintrag(konto_id)?
+        .get_password()
+        .context("Passwort aus dem Schlüsselbund lesen")
+}
+
+pub fn kalender_passwort_loeschen(konto_id: i64) -> Result<()> {
+    match kalender_eintrag(konto_id)?.delete_credential() {
+        Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+        Err(fehler) => Err(fehler).context("Passwort aus dem Schlüsselbund löschen"),
+    }
+}

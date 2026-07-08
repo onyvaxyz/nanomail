@@ -36,6 +36,9 @@ pub struct NeueNachricht {
     pub cc: Vec<String>,
     pub betreff: String,
     pub text: String,
+    /// Formatierte Fassung (bereits bereinigt) — wenn vorhanden, wird die
+    /// Mail als multipart/alternative mit Text- und HTML-Teil gebaut.
+    pub html: Option<String>,
     pub anhaenge: Vec<Anhang>,
     pub antwort: Option<AntwortKontext>,
 }
@@ -54,6 +57,7 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
             .context("Absenderadresse ungültig")?
     };
 
+    let absender_adresse = von.email.clone();
     let mut builder = Message::builder().from(von);
     for adresse in &eingabe.an {
         builder = builder.to(parse_adresse(adresse)?);
@@ -62,6 +66,17 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
         builder = builder.cc(parse_adresse(adresse)?);
     }
     builder = builder.subject(&eingabe.betreff);
+
+    // Entwürfe dürfen ohne Empfänger gebaut werden. `lettre` verlangt aber
+    // einen Umschlag mit Ziel — der ist nur fürs Versenden relevant und
+    // landet nicht in den Rohbytes, deshalb genügt die eigene Adresse.
+    // (Der Versand-Weg prüft vorher, dass Empfänger vorhanden sind.)
+    if eingabe.an.is_empty() && eingabe.cc.is_empty() {
+        builder = builder.envelope(
+            lettre::address::Envelope::new(Some(absender_adresse.clone()), vec![absender_adresse])
+                .context("Umschlag ohne Empfänger bauen")?,
+        );
+    }
 
     if let Some(antwort) = &eingabe.antwort {
         if let Some(id) = &antwort.message_id {
@@ -75,13 +90,30 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
     let text_teil = SinglePart::builder()
         .header(ContentType::TEXT_PLAIN)
         .body(eingabe.text.clone());
+    // Mit HTML-Fassung: Text + HTML als Alternative (Empfänger-Programm
+    // wählt), sonst schlichter Text-Teil.
+    let inhalt = match &eingabe.html {
+        Some(html) => Inhalt::Mehrteilig(
+            MultiPart::alternative().singlepart(text_teil).singlepart(
+                SinglePart::builder()
+                    .header(ContentType::TEXT_HTML)
+                    .body(html.clone()),
+            ),
+        ),
+        None => Inhalt::Einteilig(text_teil),
+    };
 
     let nachricht = if eingabe.anhaenge.is_empty() {
-        builder
-            .singlepart(text_teil)
-            .context("Nachricht zusammenbauen")?
+        match inhalt {
+            Inhalt::Einteilig(teil) => builder.singlepart(teil),
+            Inhalt::Mehrteilig(teil) => builder.multipart(teil),
+        }
+        .context("Nachricht zusammenbauen")?
     } else {
-        let mut mehrteilig = MultiPart::mixed().singlepart(text_teil);
+        let mut mehrteilig = match inhalt {
+            Inhalt::Einteilig(teil) => MultiPart::mixed().singlepart(teil),
+            Inhalt::Mehrteilig(teil) => MultiPart::mixed().multipart(teil),
+        };
         for anhang in &eingabe.anhaenge {
             let typ = anhang
                 .mime
@@ -99,6 +131,12 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
 
     let rohbytes = nachricht.formatted();
     Ok((nachricht, rohbytes))
+}
+
+/// Inhaltsteil der Mail vor dem Anfügen der Anhänge.
+enum Inhalt {
+    Einteilig(SinglePart),
+    Mehrteilig(MultiPart),
 }
 
 fn parse_adresse(eingabe: &str) -> Result<Mailbox> {
@@ -212,6 +250,7 @@ mod tests {
             cc: vec![],
             betreff: "Testbetreff".into(),
             text: "Hallo Anna!".into(),
+            html: None,
             anhaenge: vec![],
             antwort: None,
         }
@@ -252,6 +291,46 @@ mod tests {
         let roh = String::from_utf8_lossy(&roh);
         assert!(roh.contains("multipart/mixed"));
         assert!(roh.contains("attachment; filename=\"notiz.txt\""));
+    }
+
+    #[test]
+    fn html_fassung_erzeugt_alternative_teile() {
+        let mut eingabe = beispiel();
+        eingabe.html = Some("<p>Hallo <b>Anna</b>!</p>".into());
+        let (_, roh) = baue_nachricht(&eingabe).unwrap();
+        let roh = String::from_utf8_lossy(&roh);
+        assert!(roh.contains("multipart/alternative"));
+        assert!(roh.contains("text/plain"));
+        assert!(roh.contains("text/html"));
+        assert!(roh.contains("Hallo <b>Anna</b>!"));
+    }
+
+    #[test]
+    fn html_und_anhang_verschachteln_alternative_in_mixed() {
+        let mut eingabe = beispiel();
+        eingabe.html = Some("<p>Hallo</p>".into());
+        eingabe.anhaenge.push(Anhang {
+            dateiname: "notiz.txt".into(),
+            mime: "text/plain".into(),
+            daten: b"Inhalt".to_vec(),
+        });
+        let (_, roh) = baue_nachricht(&eingabe).unwrap();
+        let roh = String::from_utf8_lossy(&roh);
+        assert!(roh.contains("multipart/mixed"));
+        assert!(roh.contains("multipart/alternative"));
+        assert!(roh.contains("attachment; filename=\"notiz.txt\""));
+    }
+
+    #[test]
+    fn entwurf_ohne_empfaenger_laesst_sich_bauen() {
+        let mut eingabe = beispiel();
+        eingabe.an = vec![];
+        let (_, roh) = baue_nachricht(&eingabe).unwrap();
+        let roh = String::from_utf8_lossy(&roh);
+        assert!(roh.contains("Subject: Testbetreff"));
+        assert!(roh.contains("Hallo Anna!"));
+        // Kein To-Header in den Rohbytes — der Hilfs-Umschlag bleibt außen vor.
+        assert!(!roh.contains("\r\nTo:"));
     }
 
     #[test]

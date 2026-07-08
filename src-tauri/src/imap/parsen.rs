@@ -111,6 +111,47 @@ pub fn parse_fuer_antwort(roh: &[u8]) -> AntwortDaten {
     }
 }
 
+/// Felder eines gespeicherten Entwurfs fürs Weiterbearbeiten im
+/// Verfassen-Fenster.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct EntwurfDaten {
+    /// Alle An-Adressen, durch Komma getrennt (nur Adressen, keine Namen —
+    /// so wie das An-Feld sie erwartet).
+    pub an: String,
+    pub cc: String,
+    pub betreff: String,
+    pub text: String,
+}
+
+pub fn parse_fuer_entwurf(roh: &[u8]) -> EntwurfDaten {
+    let Some(nachricht) = MessageParser::default().parse(roh) else {
+        return EntwurfDaten::default();
+    };
+
+    let adressliste = |adressen: Option<&mail_parser::Address>| -> String {
+        adressen
+            .map(|liste| {
+                liste
+                    .iter()
+                    .filter_map(|a| a.address())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default()
+    };
+
+    EntwurfDaten {
+        an: adressliste(nachricht.to()),
+        cc: adressliste(nachricht.cc()),
+        betreff: nachricht.subject().unwrap_or_default().trim().to_string(),
+        text: nachricht
+            .body_text(0)
+            .unwrap_or_default()
+            .trim_end()
+            .to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,6 +209,26 @@ mod tests {
         assert_eq!(daten.message_id, Some("<m123@example.org>".into()));
         assert_eq!(daten.references, Some("<wurzel@example.org>".into()));
         assert_eq!(daten.text, "Wie sieht es aus?");
+    }
+
+    #[test]
+    fn entwurf_liefert_alle_empfaenger_und_text() {
+        let daten = parse_fuer_entwurf(
+            b"From: ich@example.org\r\n\
+              To: Anna <anna@example.org>, bert@example.org\r\n\
+              Cc: chef@example.org\r\n\
+              Subject: Halbfertig\r\n\r\n\
+              Erster Satz.\r\n",
+        );
+        assert_eq!(daten.an, "anna@example.org, bert@example.org");
+        assert_eq!(daten.cc, "chef@example.org");
+        assert_eq!(daten.betreff, "Halbfertig");
+        assert_eq!(daten.text, "Erster Satz.");
+
+        // Entwurf ganz ohne Empfänger ist erlaubt.
+        let leer = parse_fuer_entwurf(b"From: ich@example.org\r\nSubject: X\r\n\r\nInhalt");
+        assert_eq!(leer.an, "");
+        assert_eq!(leer.cc, "");
     }
 
     #[test]

@@ -68,6 +68,7 @@ pub fn run() {
                 db: Mutex::new(conn),
                 sync_laeuft: Mutex::new(HashSet::new()),
                 idle_tasks: Mutex::new(std::collections::HashMap::new()),
+                kalender_sync_laeuft: Mutex::new(false),
             });
             // Live-Update je Konto + periodischer Voll-Sync als Sicherheitsnetz.
             let handle = app.handle();
@@ -75,6 +76,14 @@ pub fn run() {
                 commands::idle_starten(handle, konto.id);
             }
             tauri::async_runtime::spawn(commands::periodischer_sync(handle.clone()));
+            // Kalender beim Start einmal abgleichen (Fehler zeigt die UI
+            // beim manuellen Abgleich — hier nur ins Protokoll).
+            let kalender_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(fehler) = commands::kalender_sync_ausfuehren(&kalender_handle).await {
+                    tracing::warn!("Kalender-Abgleich beim Start: {fehler}");
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -86,11 +95,26 @@ pub fn run() {
             commands::ordner_liste,
             commands::sync_starten,
             commands::mails_liste,
+            commands::mails_suchen,
+            commands::mail_gelesen_setzen,
+            commands::adress_vorschlaege,
             commands::mail_lesen,
+            commands::mail_loeschen,
             commands::mail_bilder_laden,
+            commands::anhang_speichern,
             commands::antwort_vorbereiten,
             commands::mail_senden,
+            commands::entwurf_speichern,
+            commands::entwurf_laden,
             commands::absender_avatar,
+            commands::kalender_konto_anlegen,
+            commands::kalender_konto_loeschen,
+            commands::kalender_konten_liste,
+            commands::kalender_liste,
+            commands::kalender_farbe_setzen,
+            commands::kalender_sichtbar_setzen,
+            commands::kalender_termine,
+            commands::kalender_sync,
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Starten der Tauri-Anwendung");

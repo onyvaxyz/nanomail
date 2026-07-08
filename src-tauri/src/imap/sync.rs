@@ -59,6 +59,54 @@ pub fn vergleiche_ordner(server: &[(u32, bool)], cache: &[(u32, bool)]) -> Abgle
     }
 }
 
+/// Entscheidet anhand der BODYSTRUCTURE-Antwort des Servers, ob eine
+/// Mail „echte“ Anhänge hat — dieselbe Regel wie beim vollständigen
+/// Parsen (`anzeige::anhang_teile`): Anhang-Disposition zählt immer,
+/// Nicht-Text-Teile ohne Content-ID ebenfalls; eingebettete `cid:`-Bilder
+/// und die Text-/HTML-Körper zählen nicht.
+pub fn struktur_hat_anhang(struktur: &async_imap::imap_proto::types::BodyStructure<'_>) -> bool {
+    use async_imap::imap_proto::types::BodyStructure;
+
+    let ist_anhang_disposition = |common: &async_imap::imap_proto::types::BodyContentCommon<'_>| {
+        common
+            .disposition
+            .as_ref()
+            .is_some_and(|d| d.ty.eq_ignore_ascii_case("attachment"))
+    };
+
+    match struktur {
+        BodyStructure::Multipart { bodies, .. } => bodies.iter().any(struktur_hat_anhang),
+        // Text-Teile sind normalerweise der Mail-Körper.
+        BodyStructure::Text { common, .. } => ist_anhang_disposition(common),
+        // Angehängte Nachricht (message/rfc822) ist immer ein Anhang.
+        BodyStructure::Message { .. } => true,
+        BodyStructure::Basic { common, other, .. } => {
+            ist_anhang_disposition(common) || other.id.is_none()
+        }
+    }
+}
+
+/// Rät die Sonderrolle eines Ordners aus seinem (letzten) Namensteil —
+/// Fallback für Server, die kein SPECIAL-USE (RFC 6154) melden. Damit
+/// stimmen Icons und Papierkorb-Erkennung auch dort.
+pub fn rolle_aus_name(kurzname: &str) -> Option<&'static str> {
+    match kurzname.to_lowercase().as_str() {
+        "gesendet" | "sent" | "sent items" | "sent messages" | "gesendete objekte" => {
+            Some("gesendet")
+        }
+        "entwürfe" | "entwuerfe" | "drafts" => Some("entwuerfe"),
+        "trash"
+        | "papierkorb"
+        | "deleted items"
+        | "deleted messages"
+        | "gelöscht"
+        | "gelöschte elemente" => Some("papierkorb"),
+        "spam" | "junk" | "junk-e-mail" => Some("spam"),
+        "archiv" | "archive" | "archives" => Some("archiv"),
+        _ => None,
+    }
+}
+
 /// Teilt UIDs in Batches fester Größe auf (Reihenfolge bleibt erhalten —
 /// bei absteigend sortierter Eingabe kommen die neuesten Mails zuerst).
 pub fn batches(uids: &[u32], groesse: usize) -> Vec<Vec<u32>> {
@@ -150,11 +198,126 @@ mod tests {
     }
 
     #[test]
+    fn rolle_aus_name_erkennt_gaengige_namen() {
+        assert_eq!(rolle_aus_name("Trash"), Some("papierkorb"));
+        assert_eq!(rolle_aus_name("Papierkorb"), Some("papierkorb"));
+        assert_eq!(rolle_aus_name("Sent Items"), Some("gesendet"));
+        assert_eq!(rolle_aus_name("Entwürfe"), Some("entwuerfe"));
+        assert_eq!(rolle_aus_name("Junk"), Some("spam"));
+        assert_eq!(rolle_aus_name("Archive"), Some("archiv"));
+        assert_eq!(rolle_aus_name("INBOX"), None);
+        assert_eq!(rolle_aus_name("Rechnungen"), None);
+    }
+
+    #[test]
     fn uid_sequenz_fasst_bereiche_zusammen() {
         assert_eq!(uid_sequenz(&[3, 5, 9, 8, 7]), "3,5,7:9");
         assert_eq!(uid_sequenz(&[1]), "1");
         assert_eq!(uid_sequenz(&[2, 1, 3]), "1:3");
         assert_eq!(uid_sequenz(&[4, 4, 4]), "4");
         assert_eq!(uid_sequenz(&[]), "");
+    }
+
+    mod struktur {
+        use super::super::struktur_hat_anhang;
+        use async_imap::imap_proto::types::{
+            BodyContentCommon, BodyContentSinglePart, BodyStructure, ContentDisposition,
+            ContentEncoding, ContentType,
+        };
+        use std::borrow::Cow;
+
+        fn common(
+            ty: &'static str,
+            subtype: &'static str,
+            disposition: Option<&'static str>,
+        ) -> BodyContentCommon<'static> {
+            BodyContentCommon {
+                ty: ContentType {
+                    ty: Cow::Borrowed(ty),
+                    subtype: Cow::Borrowed(subtype),
+                    params: None,
+                },
+                disposition: disposition.map(|d| ContentDisposition {
+                    ty: Cow::Borrowed(d),
+                    params: None,
+                }),
+                language: None,
+                location: None,
+            }
+        }
+
+        fn einzelteil(content_id: Option<&'static str>) -> BodyContentSinglePart<'static> {
+            BodyContentSinglePart {
+                id: content_id.map(Cow::Borrowed),
+                md5: None,
+                description: None,
+                transfer_encoding: ContentEncoding::Base64,
+                octets: 1000,
+            }
+        }
+
+        fn text_teil() -> BodyStructure<'static> {
+            BodyStructure::Text {
+                common: common("text", "plain", None),
+                other: einzelteil(None),
+                lines: 10,
+                extension: None,
+            }
+        }
+
+        #[test]
+        fn reiner_text_hat_keinen_anhang() {
+            assert!(!struktur_hat_anhang(&text_teil()));
+        }
+
+        #[test]
+        fn pdf_ohne_content_id_ist_anhang() {
+            let pdf = BodyStructure::Basic {
+                common: common("application", "pdf", None),
+                other: einzelteil(None),
+                extension: None,
+            };
+            let mail = BodyStructure::Multipart {
+                common: common("multipart", "mixed", None),
+                bodies: vec![text_teil(), pdf],
+                extension: None,
+            };
+            assert!(struktur_hat_anhang(&mail));
+        }
+
+        #[test]
+        fn eingebettetes_cid_bild_ist_kein_anhang() {
+            let inline_bild = BodyStructure::Basic {
+                common: common("image", "png", Some("inline")),
+                other: einzelteil(Some("<bild1@example.org>")),
+                extension: None,
+            };
+            let mail = BodyStructure::Multipart {
+                common: common("multipart", "related", None),
+                bodies: vec![text_teil(), inline_bild],
+                extension: None,
+            };
+            assert!(!struktur_hat_anhang(&mail));
+        }
+
+        #[test]
+        fn anhang_disposition_zaehlt_immer() {
+            // Auch ein Bild mit Content-ID ist Anhang, wenn es als
+            // „attachment“ gekennzeichnet ist — und sogar ein Text-Teil.
+            let bild = BodyStructure::Basic {
+                common: common("image", "jpeg", Some("attachment")),
+                other: einzelteil(Some("<foto@example.org>")),
+                extension: None,
+            };
+            assert!(struktur_hat_anhang(&bild));
+
+            let text_anhang = BodyStructure::Text {
+                common: common("text", "plain", Some("attachment")),
+                other: einzelteil(None),
+                lines: 200,
+                extension: None,
+            };
+            assert!(struktur_hat_anhang(&text_anhang));
+        }
     }
 }

@@ -4,6 +4,8 @@
 //! IMAP-Server. Passwörter liegen nie hier, sondern im GNOME Keyring.
 //! Ablage nach XDG-Standard unter `~/.local/share/nanomail/nanomail.db`.
 
+pub mod kalender;
+
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -22,6 +24,10 @@ pub struct Konto {
     /// Leer = SMTP noch nicht eingerichtet (Konto aus M1-Bestand).
     pub smtp_host: String,
     pub smtp_port: u16,
+    /// Signatur, die beim Verfassen unter die Mail gesetzt wird (leer = keine).
+    pub signatur: String,
+    /// Akzentfarbe des Kontos als Hex-Wert, z. B. `#c678dd` (leer = Standard).
+    pub farbe: String,
 }
 
 /// Ein IMAP-Ordner samt Cache-Stand und Zählern für die Anzeige.
@@ -188,6 +194,125 @@ fn migrieren(conn: &Connection) -> Result<()> {
         )
         .context("Migration 3 ausführen")?;
     }
+    if version < 4 {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE konten ADD COLUMN signatur TEXT NOT NULL DEFAULT '';
+            ALTER TABLE konten ADD COLUMN farbe TEXT NOT NULL DEFAULT '';
+            INSERT INTO schema_version (version) VALUES (4);
+            "#,
+        )
+        .context("Migration 4 ausführen")?;
+    }
+    if version < 5 {
+        conn.execute_batch(
+            r#"
+            -- Empfänger bisheriger Mails, für die Adress-Vorschläge beim
+            -- Verfassen (M3.4). Kein Adressbuch — wird beim Senden befüllt.
+            CREATE TABLE bekannte_adressen (
+                email             TEXT PRIMARY KEY,
+                name              TEXT NOT NULL DEFAULT '',
+                zuletzt_verwendet INTEGER NOT NULL
+            );
+            INSERT INTO schema_version (version) VALUES (5);
+            "#,
+        )
+        .context("Migration 5 ausführen")?;
+    }
+    if version < 6 {
+        conn.execute_batch(
+            r#"
+            -- Volltext-Suchindex (M3.5): Betreff/Absender aller Mails plus
+            -- Mailtext, sobald er im Cache liegt (mail_bodies). Trigger
+            -- halten den Index automatisch aktuell; rowid = mails.id.
+            CREATE VIRTUAL TABLE mails_fts USING fts5(betreff, von, von_email, text);
+            INSERT INTO mails_fts (rowid, betreff, von, von_email, text)
+                SELECT m.id, m.betreff, m.von, m.von_email, COALESCE(b.text, '')
+                FROM mails m LEFT JOIN mail_bodies b ON b.mail_id = m.id;
+            CREATE TRIGGER mails_fts_einfuegen AFTER INSERT ON mails BEGIN
+                INSERT INTO mails_fts (rowid, betreff, von, von_email, text)
+                VALUES (new.id, new.betreff, new.von, new.von_email, '');
+            END;
+            CREATE TRIGGER mails_fts_loeschen AFTER DELETE ON mails BEGIN
+                DELETE FROM mails_fts WHERE rowid = old.id;
+            END;
+            CREATE TRIGGER mails_fts_text_einfuegen AFTER INSERT ON mail_bodies BEGIN
+                UPDATE mails_fts SET text = new.text WHERE rowid = new.mail_id;
+            END;
+            CREATE TRIGGER mails_fts_text_aendern AFTER UPDATE ON mail_bodies BEGIN
+                UPDATE mails_fts SET text = new.text WHERE rowid = new.mail_id;
+            END;
+            INSERT INTO schema_version (version) VALUES (6);
+            "#,
+        )
+        .context("Migration 6 ausführen")?;
+    }
+    if version < 7 {
+        conn.execute_batch(
+            r#"
+            -- Anhang-Namen und -Größen für die Anhang-Leiste (M3.6);
+            -- wird beim ersten Öffnen einer Mail gefüllt. Die Inhalte
+            -- selbst bleiben auf dem Server.
+            CREATE TABLE mail_anhaenge (
+                mail_id   INTEGER NOT NULL REFERENCES mails(id) ON DELETE CASCADE,
+                idx       INTEGER NOT NULL,
+                dateiname TEXT NOT NULL,
+                groesse   INTEGER NOT NULL,
+                PRIMARY KEY (mail_id, idx)
+            );
+            -- Das Anhang-Kennzeichen wurde bisher erst beim Öffnen einer
+            -- Mail erkannt und ist im Bestand unvollständig. Der Cache
+            -- wird einmalig geleert; der nächste Abgleich lädt alle
+            -- Kopfzeilen mit korrektem Kennzeichen neu.
+            DELETE FROM mails;
+            INSERT INTO schema_version (version) VALUES (7);
+            "#,
+        )
+        .context("Migration 7 ausführen")?;
+    }
+    if version < 8 {
+        conn.execute_batch(
+            r#"
+            -- Kalender (M4): Nextcloud-CalDAV, getrennt von den Mail-Konten.
+            -- SQLite ist auch hier nur Cache — Quelle der Wahrheit ist der
+            -- CalDAV-Server; App-Passwörter liegen im Schlüsselbund.
+            CREATE TABLE kalender_konten (
+                id       INTEGER PRIMARY KEY,
+                name     TEXT NOT NULL,
+                server   TEXT NOT NULL, -- Basis-Adresse, z. B. https://cloud.example.com
+                benutzer TEXT NOT NULL
+            );
+            CREATE TABLE kalender (
+                id           INTEGER PRIMARY KEY,
+                konto_id     INTEGER NOT NULL REFERENCES kalender_konten(id) ON DELETE CASCADE,
+                href         TEXT NOT NULL,  -- Collection-Pfad auf dem Server
+                anzeige_name TEXT NOT NULL,
+                farbe_server TEXT NOT NULL DEFAULT '', -- Farbe laut Nextcloud
+                farbe_eigen  TEXT NOT NULL DEFAULT '', -- Überschreibt die Server-Farbe
+                sichtbar     INTEGER NOT NULL DEFAULT 1,
+                sync_token   TEXT NOT NULL DEFAULT '',
+                UNIQUE(konto_id, href)
+            );
+            -- Termin-Objekte als Roh-ICS (nötig für Wiederholungsregeln samt
+            -- Ausnahmen); beginn/ende (UTC-Sekunden) dienen der schnellen
+            -- Bereichsabfrage einfacher Termine.
+            CREATE TABLE termine (
+                id               INTEGER PRIMARY KEY,
+                kalender_id      INTEGER NOT NULL REFERENCES kalender(id) ON DELETE CASCADE,
+                href             TEXT NOT NULL,
+                etag             TEXT NOT NULL DEFAULT '',
+                ics              TEXT NOT NULL,
+                beginn           INTEGER,
+                ende             INTEGER,
+                hat_wiederholung INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(kalender_id, href)
+            );
+            CREATE INDEX termine_bereich_idx ON termine(kalender_id, beginn, ende);
+            INSERT INTO schema_version (version) VALUES (8);
+            "#,
+        )
+        .context("Migration 8 ausführen")?;
+    }
     Ok(())
 }
 
@@ -203,12 +328,15 @@ pub struct KontoDaten {
     pub benutzer: String,
     pub smtp_host: String,
     pub smtp_port: u16,
+    pub signatur: String,
+    pub farbe: String,
 }
 
 pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
     conn.execute(
-        "INSERT INTO konten (name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO konten (name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port,
+                             signatur, farbe)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             daten.name,
             daten.email,
@@ -216,7 +344,9 @@ pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
             daten.imap_port,
             daten.benutzer,
             daten.smtp_host,
-            daten.smtp_port
+            daten.smtp_port,
+            daten.signatur,
+            daten.farbe
         ],
     )
     .context("Konto speichern")?;
@@ -230,13 +360,16 @@ pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
         benutzer: daten.benutzer.clone(),
         smtp_host: daten.smtp_host.clone(),
         smtp_port: daten.smtp_port,
+        signatur: daten.signatur.clone(),
+        farbe: daten.farbe.clone(),
     })
 }
 
 pub fn konto_aktualisieren(conn: &Connection, id: i64, daten: &KontoDaten) -> Result<()> {
     conn.execute(
         "UPDATE konten SET name = ?2, email = ?3, imap_host = ?4, imap_port = ?5,
-                           benutzer = ?6, smtp_host = ?7, smtp_port = ?8
+                           benutzer = ?6, smtp_host = ?7, smtp_port = ?8,
+                           signatur = ?9, farbe = ?10
          WHERE id = ?1",
         params![
             id,
@@ -246,7 +379,9 @@ pub fn konto_aktualisieren(conn: &Connection, id: i64, daten: &KontoDaten) -> Re
             daten.imap_port,
             daten.benutzer,
             daten.smtp_host,
-            daten.smtp_port
+            daten.smtp_port,
+            daten.signatur,
+            daten.farbe
         ],
     )
     .context("Konto aktualisieren")?;
@@ -256,7 +391,8 @@ pub fn konto_aktualisieren(conn: &Connection, id: i64, daten: &KontoDaten) -> Re
 pub fn konten_liste(conn: &Connection) -> Result<Vec<Konto>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port
+            "SELECT id, name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port,
+                    signatur, farbe
              FROM konten ORDER BY id",
         )
         .context("Konten abfragen")?;
@@ -269,7 +405,8 @@ pub fn konten_liste(conn: &Connection) -> Result<Vec<Konto>> {
 
 pub fn konto_holen(conn: &Connection, id: i64) -> Result<Option<Konto>> {
     conn.query_row(
-        "SELECT id, name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port
+        "SELECT id, name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port,
+                signatur, farbe
          FROM konten WHERE id = ?1",
         params![id],
         zeile_zu_konto,
@@ -288,6 +425,8 @@ fn zeile_zu_konto(zeile: &rusqlite::Row<'_>) -> rusqlite::Result<Konto> {
         benutzer: zeile.get(5)?,
         smtp_host: zeile.get(6)?,
         smtp_port: zeile.get(7)?,
+        signatur: zeile.get(8)?,
+        farbe: zeile.get(9)?,
     })
 }
 
@@ -402,6 +541,43 @@ pub fn finde_gesendet_ordner(ordner: &[Ordner]) -> Option<&Ordner> {
         })
 }
 
+/// Findet den Entwürfe-Ordner: bevorzugt die Server-Rolle (SPECIAL-USE),
+/// sonst über gängige Namen.
+pub fn finde_entwuerfe_ordner(ordner: &[Ordner]) -> Option<&Ordner> {
+    const NAMEN: [&str; 3] = ["drafts", "entwürfe", "entwuerfe"];
+    ordner
+        .iter()
+        .find(|o| o.rolle.as_deref() == Some("entwuerfe"))
+        .or_else(|| {
+            ordner.iter().find(|o| {
+                let kurzname = o.name.rsplit(['/', '.']).next().unwrap_or(&o.name);
+                NAMEN.contains(&kurzname.to_lowercase().as_str())
+            })
+        })
+}
+
+/// Findet den Papierkorb: bevorzugt die Server-Rolle (SPECIAL-USE),
+/// sonst über gängige Namen.
+pub fn finde_papierkorb_ordner(ordner: &[Ordner]) -> Option<&Ordner> {
+    const NAMEN: [&str; 6] = [
+        "trash",
+        "papierkorb",
+        "deleted items",
+        "deleted messages",
+        "gelöscht",
+        "gelöschte elemente",
+    ];
+    ordner
+        .iter()
+        .find(|o| o.rolle.as_deref() == Some("papierkorb"))
+        .or_else(|| {
+            ordner.iter().find(|o| {
+                let kurzname = o.name.rsplit(['/', '.']).next().unwrap_or(&o.name);
+                NAMEN.contains(&kurzname.to_lowercase().as_str())
+            })
+        })
+}
+
 /// UIDVALIDITY hat sich geändert: kompletten Ordner-Cache verwerfen.
 pub fn ordner_cache_verwerfen(
     conn: &Connection,
@@ -495,19 +671,23 @@ pub fn mails_cache_stand(conn: &Connection, ordner_id: i64) -> Result<Vec<(u32, 
 pub fn mails_liste(
     conn: &Connection,
     ordner_id: i64,
+    nur_ungelesen: bool,
     offset: i64,
     limit: i64,
 ) -> Result<Vec<MailKopf>> {
     let mut stmt = conn
         .prepare(
             "SELECT id, ordner_id, uid, betreff, von, von_email, datum, gelesen, hat_anhang
-             FROM mails WHERE ordner_id = ?1
+             FROM mails WHERE ordner_id = ?1 AND (?2 = 0 OR gelesen = 0)
              ORDER BY datum IS NULL, datum DESC, uid DESC
-             LIMIT ?2 OFFSET ?3",
+             LIMIT ?3 OFFSET ?4",
         )
         .context("Mail-Liste abfragen")?;
     let mails = stmt
-        .query_map(params![ordner_id, limit, offset], zeile_zu_mailkopf)?
+        .query_map(
+            params![ordner_id, nur_ungelesen, limit, offset],
+            zeile_zu_mailkopf,
+        )?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(mails)
 }
@@ -537,12 +717,21 @@ fn zeile_zu_mailkopf(zeile: &rusqlite::Row<'_>) -> rusqlite::Result<MailKopf> {
     })
 }
 
-pub fn mail_als_gelesen_markieren(conn: &Connection, mail_id: i64) -> Result<()> {
+/// Entfernt eine einzelne Mail aus dem Cache (nach dem Löschen auf dem Server).
+pub fn mail_entfernen(conn: &Connection, mail_id: i64) -> Result<()> {
+    conn.execute("DELETE FROM mails WHERE id = ?1", params![mail_id])
+        .context("Mail aus dem Cache entfernen")?;
+    Ok(())
+}
+
+/// Setzt das Gelesen-Flag im Cache — in beide Richtungen (Öffnen einer
+/// Mail bzw. Kontextmenü „Als (un)gelesen markieren“).
+pub fn mail_gelesen_setzen(conn: &Connection, mail_id: i64, gelesen: bool) -> Result<()> {
     conn.execute(
-        "UPDATE mails SET gelesen = 1 WHERE id = ?1",
-        params![mail_id],
+        "UPDATE mails SET gelesen = ?2 WHERE id = ?1",
+        params![mail_id, gelesen],
     )
-    .context("Mail als gelesen markieren")?;
+    .context("Gelesen-Flag speichern")?;
     Ok(())
 }
 
@@ -554,6 +743,61 @@ pub fn mail_setze_hat_anhang(conn: &Connection, mail_id: i64, hat_anhang: bool) 
     )
     .context("Anhang-Flag speichern")?;
     Ok(())
+}
+
+// --------------------------------------------------------------- Anhänge --
+
+/// Ein Anhang für die Anhang-Leiste im Lesebereich.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AnhangEintrag {
+    /// Position innerhalb der Mail — Schlüssel fürs Speichern.
+    pub index: i64,
+    pub dateiname: String,
+    pub groesse: i64,
+}
+
+/// Speichert die Anhang-Liste einer Mail (ersetzt einen alten Stand).
+pub fn anhaenge_speichern(
+    conn: &Connection,
+    mail_id: i64,
+    anhaenge: &[(String, usize)],
+) -> Result<()> {
+    conn.execute(
+        "DELETE FROM mail_anhaenge WHERE mail_id = ?1",
+        params![mail_id],
+    )
+    .context("Alte Anhang-Liste leeren")?;
+    let mut stmt = conn
+        .prepare(
+            "INSERT INTO mail_anhaenge (mail_id, idx, dateiname, groesse)
+             VALUES (?1, ?2, ?3, ?4)",
+        )
+        .context("Anhang-Insert vorbereiten")?;
+    for (index, (dateiname, groesse)) in anhaenge.iter().enumerate() {
+        stmt.execute(params![mail_id, index as i64, dateiname, *groesse as i64])
+            .context("Anhang speichern")?;
+    }
+    Ok(())
+}
+
+pub fn anhaenge_liste(conn: &Connection, mail_id: i64) -> Result<Vec<AnhangEintrag>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT idx, dateiname, groesse FROM mail_anhaenge
+             WHERE mail_id = ?1 ORDER BY idx",
+        )
+        .context("Anhänge abfragen")?;
+    let anhaenge = stmt
+        .query_map(params![mail_id], |z| {
+            Ok(AnhangEintrag {
+                index: z.get(0)?,
+                dateiname: z.get(1)?,
+                groesse: z.get(2)?,
+            })
+        })
+        .context("Anhänge lesen")?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(anhaenge)
 }
 
 // ---------------------------------------------------------------- Bodies --
@@ -592,6 +836,187 @@ pub fn inhalt_speichern(conn: &Connection, mail_id: i64, inhalt: &MailInhalt) ->
     )
     .context("Mail-Inhalt speichern")?;
     Ok(())
+}
+
+// ------------------------------------------------------------- Suche --
+
+/// Ein Treffer der Volltextsuche: Mail-Kopf plus Ordnername zur Anzeige.
+/// `flatten` legt die Kopf-Felder im JSON direkt auf die oberste Ebene,
+/// sodass das Frontend Treffer wie normale Listeneinträge behandelt.
+#[derive(Debug, Clone, Serialize)]
+pub struct SuchTreffer {
+    #[serde(flatten)]
+    pub kopf: MailKopf,
+    pub ordner_name: String,
+}
+
+/// Baut aus der Nutzereingabe eine FTS5-Abfrage: jedes Wort wird zur
+/// Präfix-Phrase („"wort"*“), alle Wörter müssen vorkommen. Die Anführungs-
+/// zeichen entschärfen zugleich die FTS5-Sonderzeichen der Eingabe.
+fn fts_abfrage(eingabe: &str) -> Option<String> {
+    let woerter: Vec<String> = eingabe
+        .split_whitespace()
+        .map(|wort| format!("\"{}\"*", wort.replace('"', "\"\"")))
+        .collect();
+    if woerter.is_empty() {
+        None
+    } else {
+        Some(woerter.join(" "))
+    }
+}
+
+/// Volltextsuche über alle Ordner eines Kontos: Betreff, Absender und —
+/// soweit im Cache — Mailtext. Neueste Treffer zuerst.
+pub fn mails_suchen(
+    conn: &Connection,
+    konto_id: i64,
+    eingabe: &str,
+    limit: i64,
+) -> Result<Vec<SuchTreffer>> {
+    let Some(abfrage) = fts_abfrage(eingabe) else {
+        return Ok(Vec::new());
+    };
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.id, m.ordner_id, m.uid, m.betreff, m.von, m.von_email, m.datum,
+                    m.gelesen, m.hat_anhang, o.anzeige_name
+             FROM mails_fts
+             JOIN mails m ON m.id = mails_fts.rowid
+             JOIN ordner o ON o.id = m.ordner_id
+             WHERE mails_fts MATCH ?1 AND o.konto_id = ?2
+             ORDER BY m.datum IS NULL, m.datum DESC, m.uid DESC
+             LIMIT ?3",
+        )
+        .context("Suche vorbereiten")?;
+    let treffer = stmt
+        .query_map(params![abfrage, konto_id, limit], |zeile| {
+            Ok(SuchTreffer {
+                kopf: zeile_zu_mailkopf(zeile)?,
+                ordner_name: zeile.get(9)?,
+            })
+        })
+        .context("Suche ausführen")?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(treffer)
+}
+
+// ---------------------------------------------------- Adress-Vorschläge --
+
+/// Ein Vorschlag fürs Empfänger-Feld beim Verfassen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AdressVorschlag {
+    pub email: String,
+    /// Anzeigename, sofern bekannt (sonst leer).
+    pub name: String,
+}
+
+/// Merkt sich einen Empfänger für die Adress-Vorschläge. Nimmt rohe
+/// Feld-Einträge wie „Anna Muster <anna@example.org>“ oder nur die
+/// Adresse entgegen; ein leerer Name überschreibt keinen bekannten.
+pub fn adresse_merken(conn: &Connection, eintrag: &str) -> Result<()> {
+    let (name, email) = zerlege_adresseintrag(eintrag);
+    if !email.contains('@') {
+        return Ok(()); // kein brauchbarer Eintrag — still ignorieren
+    }
+    conn.execute(
+        "INSERT INTO bekannte_adressen (email, name, zuletzt_verwendet) VALUES (?1, ?2, ?3)
+         ON CONFLICT(email) DO UPDATE SET
+             name = CASE WHEN excluded.name != '' THEN excluded.name ELSE name END,
+             zuletzt_verwendet = excluded.zuletzt_verwendet",
+        params![email.to_lowercase(), name, jetzt_sekunden()],
+    )
+    .context("Adresse merken")?;
+    Ok(())
+}
+
+/// Zerlegt „Name <adresse>“ in beide Teile; ohne spitze Klammern ist
+/// der ganze Eintrag die Adresse.
+fn zerlege_adresseintrag(eintrag: &str) -> (String, String) {
+    let eintrag = eintrag.trim();
+    if let (Some(anfang), Some(ende)) = (eintrag.find('<'), eintrag.rfind('>')) {
+        if anfang < ende {
+            let name = eintrag[..anfang].trim().trim_matches('"').trim();
+            let email = eintrag[anfang + 1..ende].trim();
+            return (name.to_string(), email.to_string());
+        }
+    }
+    (String::new(), eintrag.to_string())
+}
+
+/// Vorschläge fürs Empfänger-Feld: bereits angeschriebene Adressen plus
+/// Absender aus dem Mail-Cache, gefiltert nach der Eingabe (Adresse oder
+/// Name), zuletzt genutzte bzw. jüngste zuerst.
+pub fn adress_vorschlaege(
+    conn: &Connection,
+    eingabe: &str,
+    limit: usize,
+) -> Result<Vec<AdressVorschlag>> {
+    let eingabe = eingabe.trim();
+    if eingabe.is_empty() {
+        return Ok(Vec::new());
+    }
+    let muster = format!(
+        "%{}%",
+        eingabe
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    );
+
+    let mut quellen: Vec<(String, String, i64)> = Vec::new();
+    let mut stmt = conn
+        .prepare(
+            "SELECT email, name, zuletzt_verwendet FROM bekannte_adressen
+             WHERE email LIKE ?1 ESCAPE '\\' OR name LIKE ?1 ESCAPE '\\'
+             ORDER BY zuletzt_verwendet DESC LIMIT 100",
+        )
+        .context("Bekannte Adressen abfragen")?;
+    let zeilen = stmt
+        .query_map(params![muster], |z| Ok((z.get(0)?, z.get(1)?, z.get(2)?)))
+        .context("Bekannte Adressen lesen")?;
+    for zeile in zeilen {
+        quellen.push(zeile?);
+    }
+    let mut stmt = conn
+        .prepare(
+            "SELECT von_email, von, COALESCE(datum, 0) FROM mails
+             WHERE von_email != ''
+               AND (von_email LIKE ?1 ESCAPE '\\' OR von LIKE ?1 ESCAPE '\\')
+             ORDER BY datum DESC LIMIT 100",
+        )
+        .context("Absender abfragen")?;
+    let zeilen = stmt
+        .query_map(params![muster], |z| Ok((z.get(0)?, z.get(1)?, z.get(2)?)))
+        .context("Absender lesen")?;
+    for zeile in zeilen {
+        quellen.push(zeile?);
+    }
+
+    // Nach Adresse zusammenführen: höchste Priorität gewinnt, ein leerer
+    // Name wird durch einen bekannten ergänzt.
+    let mut vereint: std::collections::HashMap<String, (String, i64)> =
+        std::collections::HashMap::new();
+    for (email, name, prio) in quellen {
+        let schluessel = email.to_lowercase();
+        if !schluessel.contains('@') {
+            continue;
+        }
+        let eintrag = vereint.entry(schluessel).or_insert((name.clone(), prio));
+        eintrag.1 = eintrag.1.max(prio);
+        if eintrag.0.is_empty() && !name.is_empty() {
+            eintrag.0 = name;
+        }
+    }
+    let mut liste: Vec<(i64, AdressVorschlag)> = vereint
+        .into_iter()
+        .map(|(email, (name, prio))| (prio, AdressVorschlag { email, name }))
+        .collect();
+    liste.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.email.cmp(&b.1.email)));
+    Ok(liste
+        .into_iter()
+        .take(limit)
+        .map(|(_, vorschlag)| vorschlag)
+        .collect())
 }
 
 // ---------------------------------------------------------- Avatare --
@@ -647,6 +1072,8 @@ mod tests {
             benutzer: "test".into(),
             smtp_host: "smtp.example.org".into(),
             smtp_port: 465,
+            signatur: String::new(),
+            farbe: String::new(),
         }
     }
 
@@ -661,7 +1088,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -728,13 +1155,17 @@ mod tests {
         assert_eq!(konto.email, "alt@example.org");
         assert_eq!(konto.smtp_host, ""); // leer = SMTP noch nicht eingerichtet
         assert_eq!(konto.smtp_port, 465);
+        assert_eq!(konto.signatur, ""); // Migration 4: leere Vorgaben
+        assert_eq!(konto.farbe, "");
         let ordner = &ordner_liste(&conn, konto.id).unwrap()[0];
         assert_eq!(ordner.rolle, None);
-        assert_eq!(ordner.gesamt, 1);
-        assert_eq!(
-            mails_liste(&conn, ordner.id, 0, 10).unwrap()[0].betreff,
-            "Alte Mail"
-        );
+        // Konto und Ordner bleiben erhalten; den Mail-Cache leert
+        // Migration 7 absichtlich (Anhang-Kennzeichen im Bestand war
+        // unvollständig) — der nächste Sync lädt die Köpfe neu.
+        assert_eq!(ordner.gesamt, 0);
+        assert!(mails_liste(&conn, ordner.id, false, 0, 10)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -762,6 +1193,70 @@ mod tests {
             .cloned()
             .collect();
         assert!(finde_gesendet_ordner(&nur_inbox).is_none());
+    }
+
+    #[test]
+    fn papierkorb_wird_ueber_rolle_oder_namen_gefunden() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        ordner_upsert(&conn, konto.id, "INBOX/Trash", "Trash", None).unwrap();
+        let ordner = ordner_liste(&conn, konto.id).unwrap();
+        // Ohne Rolle greift die Namensliste (auch bei Unterordner-Pfaden).
+        assert_eq!(
+            finde_papierkorb_ordner(&ordner).unwrap().name,
+            "INBOX/Trash"
+        );
+
+        // Mit Server-Rolle gewinnt diese.
+        ordner_upsert(&conn, konto.id, "Muell", "Müll", Some("papierkorb")).unwrap();
+        let ordner = ordner_liste(&conn, konto.id).unwrap();
+        assert_eq!(finde_papierkorb_ordner(&ordner).unwrap().name, "Muell");
+
+        // Gar kein Kandidat → None.
+        let nur_inbox: Vec<Ordner> = ordner
+            .iter()
+            .filter(|o| o.name == "INBOX")
+            .cloned()
+            .collect();
+        assert!(finde_papierkorb_ordner(&nur_inbox).is_none());
+    }
+
+    #[test]
+    fn konto_speichert_signatur_und_farbe() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let mut daten = beispiel_daten();
+        daten.signatur = "Viele Grüße\nPhilipp".into();
+        daten.farbe = "#61afef".into();
+        konto_aktualisieren(&conn, konto.id, &daten).unwrap();
+        let neu = konto_holen(&conn, konto.id).unwrap().unwrap();
+        assert_eq!(neu.signatur, "Viele Grüße\nPhilipp");
+        assert_eq!(neu.farbe, "#61afef");
+    }
+
+    #[test]
+    fn mail_entfernen_loescht_nur_die_eine() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        let koepfe: Vec<NeuerMailKopf> = (1..=2)
+            .map(|i| NeuerMailKopf {
+                uid: i,
+                betreff: format!("Mail {i}"),
+                von: String::new(),
+                von_email: String::new(),
+                datum: None,
+                gelesen: false,
+                hat_anhang: false,
+            })
+            .collect();
+        mails_einfuegen(&conn, id, &koepfe).unwrap();
+        let erste = mails_liste(&conn, id, false, 0, 10).unwrap()[0].id;
+        mail_entfernen(&conn, erste).unwrap();
+        let rest = mails_liste(&conn, id, false, 0, 10).unwrap();
+        assert_eq!(rest.len(), 1);
+        assert_ne!(rest[0].id, erste);
     }
 
     #[test]
@@ -847,10 +1342,10 @@ mod tests {
             .collect();
         mails_einfuegen(&conn, id, &koepfe).unwrap();
 
-        let seite1 = mails_liste(&conn, id, 0, 2).unwrap();
+        let seite1 = mails_liste(&conn, id, false, 0, 2).unwrap();
         assert_eq!(seite1[0].betreff, "Mail 5");
         assert_eq!(seite1[1].betreff, "Mail 4");
-        let seite2 = mails_liste(&conn, id, 2, 2).unwrap();
+        let seite2 = mails_liste(&conn, id, false, 2, 2).unwrap();
         assert_eq!(seite2[0].betreff, "Mail 3");
 
         let ordner = ordner_holen(&conn, id).unwrap().unwrap();
@@ -913,7 +1408,7 @@ mod tests {
             }],
         )
         .unwrap();
-        let mail = &mails_liste(&conn, id, 0, 10).unwrap()[0];
+        let mail = &mails_liste(&conn, id, false, 0, 10).unwrap()[0];
         assert!(inhalt_holen(&conn, mail.id).unwrap().is_none());
         inhalt_speichern(
             &conn,
@@ -928,5 +1423,294 @@ mod tests {
         let inhalt = inhalt_holen(&conn, mail.id).unwrap().unwrap();
         assert_eq!(inhalt.text, "Hallo");
         assert!(inhalt.hatte_externe_bilder);
+    }
+
+    #[test]
+    fn anhaenge_speichern_und_lesen() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        mails_einfuegen(
+            &conn,
+            id,
+            &[NeuerMailKopf {
+                uid: 1,
+                betreff: "Mit Anhang".into(),
+                von: String::new(),
+                von_email: String::new(),
+                datum: None,
+                gelesen: false,
+                hat_anhang: true,
+            }],
+        )
+        .unwrap();
+        let mail_id = mails_liste(&conn, id, false, 0, 10).unwrap()[0].id;
+
+        assert!(anhaenge_liste(&conn, mail_id).unwrap().is_empty());
+        anhaenge_speichern(
+            &conn,
+            mail_id,
+            &[("doku.pdf".into(), 1000), ("foto.jpg".into(), 2000)],
+        )
+        .unwrap();
+        let liste = anhaenge_liste(&conn, mail_id).unwrap();
+        assert_eq!(liste.len(), 2);
+        assert_eq!(liste[0].index, 0);
+        assert_eq!(liste[0].dateiname, "doku.pdf");
+        assert_eq!(liste[1].groesse, 2000);
+
+        // Erneutes Speichern ersetzt den alten Stand.
+        anhaenge_speichern(&conn, mail_id, &[("neu.txt".into(), 5)]).unwrap();
+        assert_eq!(anhaenge_liste(&conn, mail_id).unwrap().len(), 1);
+
+        // Löschen der Mail räumt die Anhänge mit ab.
+        mail_entfernen(&conn, mail_id).unwrap();
+        assert!(anhaenge_liste(&conn, mail_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn entwuerfe_ordner_wird_ueber_rolle_oder_namen_gefunden() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        ordner_upsert(&conn, konto.id, "INBOX/Drafts", "Drafts", None).unwrap();
+        let ordner = ordner_liste(&conn, konto.id).unwrap();
+        // Ohne Rolle greift die Namensliste (auch bei Unterordner-Pfaden).
+        assert_eq!(
+            finde_entwuerfe_ordner(&ordner).unwrap().name,
+            "INBOX/Drafts"
+        );
+
+        // Mit Server-Rolle gewinnt diese.
+        ordner_upsert(&conn, konto.id, "Skizzen", "Skizzen", Some("entwuerfe")).unwrap();
+        let ordner = ordner_liste(&conn, konto.id).unwrap();
+        assert_eq!(finde_entwuerfe_ordner(&ordner).unwrap().name, "Skizzen");
+
+        // Gar kein Kandidat → None.
+        let nur_inbox: Vec<Ordner> = ordner
+            .iter()
+            .filter(|o| o.name == "INBOX")
+            .cloned()
+            .collect();
+        assert!(finde_entwuerfe_ordner(&nur_inbox).is_none());
+    }
+
+    #[test]
+    fn suche_findet_betreff_absender_und_text() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        mails_einfuegen(
+            &conn,
+            id,
+            &[
+                NeuerMailKopf {
+                    uid: 1,
+                    betreff: "Rechnung Oktober".into(),
+                    von: "Buchhaltung".into(),
+                    von_email: "rechnung@example.org".into(),
+                    datum: Some(1_000),
+                    gelesen: true,
+                    hat_anhang: false,
+                },
+                NeuerMailKopf {
+                    uid: 2,
+                    betreff: "Urlaubsfotos".into(),
+                    von: "Anna Muster".into(),
+                    von_email: "anna@example.org".into(),
+                    datum: Some(2_000),
+                    gelesen: true,
+                    hat_anhang: false,
+                },
+            ],
+        )
+        .unwrap();
+
+        // Präfix im Betreff.
+        let treffer = mails_suchen(&conn, konto.id, "rechn", 50).unwrap();
+        assert_eq!(treffer.len(), 1);
+        assert_eq!(treffer[0].kopf.betreff, "Rechnung Oktober");
+        assert_eq!(treffer[0].ordner_name, "Posteingang");
+
+        // Absendername.
+        let treffer = mails_suchen(&conn, konto.id, "anna", 50).unwrap();
+        assert_eq!(treffer.len(), 1);
+        assert_eq!(treffer[0].kopf.betreff, "Urlaubsfotos");
+
+        // Mailtext zählt, sobald der Inhalt im Cache liegt (Trigger).
+        let mail_id = mails_liste(&conn, id, false, 0, 10).unwrap()[1].id;
+        inhalt_speichern(
+            &conn,
+            mail_id,
+            &MailInhalt {
+                text: "Bitte um Überweisung bis Ende des Monats.".into(),
+                html_bereinigt: None,
+                hatte_externe_bilder: false,
+            },
+        )
+        .unwrap();
+        let treffer = mails_suchen(&conn, konto.id, "überweisung", 50).unwrap();
+        assert_eq!(treffer.len(), 1);
+        assert_eq!(treffer[0].kopf.betreff, "Rechnung Oktober");
+
+        // Mehrere Wörter = alle müssen vorkommen.
+        assert_eq!(
+            mails_suchen(&conn, konto.id, "rechnung urlaubsfotos", 50)
+                .unwrap()
+                .len(),
+            0
+        );
+        // Anführungszeichen in der Eingabe stören die Abfrage nicht.
+        assert_eq!(
+            mails_suchen(&conn, konto.id, "\"rechn", 50).unwrap().len(),
+            1
+        );
+        // Leere Eingabe liefert nichts.
+        assert!(mails_suchen(&conn, konto.id, "   ", 50).unwrap().is_empty());
+    }
+
+    #[test]
+    fn suche_trennt_konten_und_folgt_loeschungen() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto_a = beispiel_konto(&conn);
+        let konto_b = konto_anlegen(&conn, &beispiel_daten()).unwrap();
+        let ordner_a = ordner_upsert(&conn, konto_a.id, "INBOX", "Posteingang", None).unwrap();
+        mails_einfuegen(
+            &conn,
+            ordner_a,
+            &[NeuerMailKopf {
+                uid: 1,
+                betreff: "Geheimprojekt".into(),
+                von: String::new(),
+                von_email: String::new(),
+                datum: Some(1_000),
+                gelesen: true,
+                hat_anhang: false,
+            }],
+        )
+        .unwrap();
+
+        // Nur das eigene Konto findet die Mail.
+        assert_eq!(
+            mails_suchen(&conn, konto_a.id, "geheim", 50).unwrap().len(),
+            1
+        );
+        assert!(mails_suchen(&conn, konto_b.id, "geheim", 50)
+            .unwrap()
+            .is_empty());
+
+        // Nach dem Löschen verschwindet sie auch aus dem Suchindex.
+        let mail_id = mails_liste(&conn, ordner_a, false, 0, 10).unwrap()[0].id;
+        mail_entfernen(&conn, mail_id).unwrap();
+        assert!(mails_suchen(&conn, konto_a.id, "geheim", 50)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn mails_liste_filtert_ungelesene() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        let koepfe: Vec<NeuerMailKopf> = (1..=4)
+            .map(|i| NeuerMailKopf {
+                uid: i,
+                betreff: format!("Mail {i}"),
+                von: String::new(),
+                von_email: String::new(),
+                datum: Some(i64::from(i)),
+                gelesen: i % 2 == 0,
+                hat_anhang: false,
+            })
+            .collect();
+        mails_einfuegen(&conn, id, &koepfe).unwrap();
+
+        let ungelesen = mails_liste(&conn, id, true, 0, 10).unwrap();
+        assert_eq!(ungelesen.len(), 2);
+        assert!(ungelesen.iter().all(|m| !m.gelesen));
+        // Ohne Filter kommen weiterhin alle.
+        assert_eq!(mails_liste(&conn, id, false, 0, 10).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn gelesen_setzen_wirkt_in_beide_richtungen() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        mails_einfuegen(
+            &conn,
+            id,
+            &[NeuerMailKopf {
+                uid: 1,
+                betreff: "eins".into(),
+                von: String::new(),
+                von_email: String::new(),
+                datum: None,
+                gelesen: false,
+                hat_anhang: false,
+            }],
+        )
+        .unwrap();
+        let mail_id = mails_liste(&conn, id, false, 0, 10).unwrap()[0].id;
+
+        mail_gelesen_setzen(&conn, mail_id, true).unwrap();
+        assert!(mail_holen(&conn, mail_id).unwrap().unwrap().gelesen);
+        mail_gelesen_setzen(&conn, mail_id, false).unwrap();
+        assert!(!mail_holen(&conn, mail_id).unwrap().unwrap().gelesen);
+        assert_eq!(ordner_holen(&conn, id).unwrap().unwrap().ungelesen, 1);
+    }
+
+    #[test]
+    fn adresse_merken_zerlegt_eintraege_und_ergaenzt_namen() {
+        let conn = oeffnen_im_speicher().unwrap();
+        // Nur-Adresse, dann derselbe Empfänger mit Anzeigename.
+        adresse_merken(&conn, "anna@example.org").unwrap();
+        adresse_merken(&conn, "\"Anna Muster\" <Anna@example.org>").unwrap();
+        // Unbrauchbares wird still ignoriert.
+        adresse_merken(&conn, "kein-eintrag").unwrap();
+
+        let treffer = adress_vorschlaege(&conn, "anna", 10).unwrap();
+        assert_eq!(
+            treffer,
+            vec![AdressVorschlag {
+                email: "anna@example.org".into(),
+                name: "Anna Muster".into(),
+            }]
+        );
+        // Späterer Eintrag ohne Namen löscht den bekannten Namen nicht.
+        adresse_merken(&conn, "anna@example.org").unwrap();
+        assert_eq!(adress_vorschlaege(&conn, "anna", 10).unwrap(), treffer);
+    }
+
+    #[test]
+    fn adress_vorschlaege_nutzen_auch_absender_aus_dem_cache() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        mails_einfuegen(
+            &conn,
+            id,
+            &[NeuerMailKopf {
+                uid: 1,
+                betreff: "Hallo".into(),
+                von: "Bert Beispiel".into(),
+                von_email: "bert@example.org".into(),
+                datum: Some(1_000),
+                gelesen: true,
+                hat_anhang: false,
+            }],
+        )
+        .unwrap();
+        // Treffer über den Namen, obwohl die Adresse nie gemerkt wurde …
+        let treffer = adress_vorschlaege(&conn, "bert", 10).unwrap();
+        assert_eq!(treffer[0].email, "bert@example.org");
+        assert_eq!(treffer[0].name, "Bert Beispiel");
+        // … und keine Dublette, wenn dieselbe Adresse auch gemerkt ist.
+        adresse_merken(&conn, "bert@example.org").unwrap();
+        assert_eq!(adress_vorschlaege(&conn, "bert", 10).unwrap().len(), 1);
+        // LIKE-Sonderzeichen in der Eingabe wirken nicht als Platzhalter.
+        assert!(adress_vorschlaege(&conn, "b%rt", 10).unwrap().is_empty());
+        // Leere Eingabe liefert nichts.
+        assert!(adress_vorschlaege(&conn, "  ", 10).unwrap().is_empty());
     }
 }

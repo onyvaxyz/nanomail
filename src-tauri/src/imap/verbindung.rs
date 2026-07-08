@@ -39,6 +39,8 @@ pub struct OrdnerStatus {
 pub struct KopfDaten {
     pub uid: u32,
     pub gelesen: bool,
+    /// Aus der BODYSTRUCTURE-Antwort abgeleitet (siehe `sync::struktur_hat_anhang`).
+    pub hat_anhang: bool,
     pub header: Vec<u8>,
 }
 
@@ -88,21 +90,26 @@ impl ImapVerbindung {
                     .to_string(),
                 _ => voller_name.clone(),
             };
+            let rolle = name
+                .attributes()
+                .iter()
+                .find_map(|attribut| {
+                    Some(match attribut {
+                        NameAttribute::Sent => "gesendet",
+                        NameAttribute::Drafts => "entwuerfe",
+                        NameAttribute::Trash => "papierkorb",
+                        NameAttribute::Junk => "spam",
+                        NameAttribute::Archive => "archiv",
+                        _ => return None,
+                    })
+                })
+                // Ohne SPECIAL-USE-Angabe: Rolle aus dem Namen raten.
+                .or_else(|| super::sync::rolle_aus_name(&letzter_teil));
             let anzeige_name = if voller_name.eq_ignore_ascii_case("INBOX") {
                 "Posteingang".to_string()
             } else {
                 letzter_teil
             };
-            let rolle = name.attributes().iter().find_map(|attribut| {
-                Some(match attribut {
-                    NameAttribute::Sent => "gesendet",
-                    NameAttribute::Drafts => "entwuerfe",
-                    NameAttribute::Trash => "papierkorb",
-                    NameAttribute::Junk => "spam",
-                    NameAttribute::Archive => "archiv",
-                    _ => return None,
-                })
-            });
             ordner.push(OrdnerEintrag {
                 name: voller_name,
                 anzeige_name,
@@ -112,11 +119,12 @@ impl ImapVerbindung {
         Ok(ordner)
     }
 
-    /// Legt eine Nachricht (Rohbytes) als gelesen in einem Ordner ab —
-    /// für die „Gesendet“-Ablage nach dem SMTP-Versand.
-    pub async fn nachricht_ablegen(&mut self, ordner: &str, roh: &[u8]) -> Result<()> {
+    /// Legt eine Nachricht (Rohbytes) in einem Ordner ab — mit den
+    /// angegebenen IMAP-Flags (Gesendet-Ablage: `(\Seen)`,
+    /// Entwürfe: `(\Draft \Seen)`).
+    pub async fn nachricht_ablegen(&mut self, ordner: &str, roh: &[u8], flags: &str) -> Result<()> {
         self.session
-            .append(ordner, Some("(\\Seen)"), None, roh)
+            .append(ordner, Some(flags), None, roh)
             .await
             .with_context(|| format!("Nachricht in „{ordner}“ ablegen (APPEND)"))
     }
@@ -166,9 +174,11 @@ impl ImapVerbindung {
             return Ok(Vec::new());
         }
         let sequenz = super::sync::uid_sequenz(uids);
+        // BODYSTRUCTURE liefert den Aufbau der Mail gleich mit — daraus
+        // wird das Anhang-Kennzeichen abgeleitet, ohne die Mail zu laden.
         let fetches: Vec<_> = self
             .session
-            .uid_fetch(&sequenz, "(UID FLAGS RFC822.HEADER)")
+            .uid_fetch(&sequenz, "(UID FLAGS BODYSTRUCTURE RFC822.HEADER)")
             .await
             .context("Kopfzeilen anfragen")?
             .try_collect()
@@ -180,6 +190,9 @@ impl ImapVerbindung {
             koepfe.push(KopfDaten {
                 uid,
                 gelesen: ist_gelesen(fetch),
+                hat_anhang: fetch
+                    .bodystructure()
+                    .is_some_and(super::sync::struktur_hat_anhang),
                 header: fetch.header().unwrap_or_default().to_vec(),
             });
         }
@@ -217,6 +230,74 @@ impl ImapVerbindung {
             .try_collect()
             .await
             .context("Antwort auf Flag-Änderung lesen")?;
+        Ok(())
+    }
+
+    /// Entfernt das \Seen-Flag auf dem Server — die Mail gilt wieder als
+    /// ungelesen (Kontextmenü „Als ungelesen markieren“).
+    pub async fn als_ungelesen_markieren(&mut self, uid: u32) -> Result<()> {
+        let _antworten: Vec<_> = self
+            .session
+            .uid_store(uid.to_string(), "-FLAGS.SILENT (\\Seen)")
+            .await
+            .context("Gelesen-Flag entfernen")?
+            .try_collect()
+            .await
+            .context("Antwort auf Flag-Änderung lesen")?;
+        Ok(())
+    }
+
+    /// Verschiebt eine Nachricht aus dem gewählten Ordner in einen anderen
+    /// (z. B. in den Papierkorb). Nutzt UID MOVE; kann der Server das nicht,
+    /// greift der Fallback COPY + \Deleted + EXPUNGE.
+    pub async fn verschieben(&mut self, uid: u32, ziel: &str) -> Result<()> {
+        match self.session.uid_mv(uid.to_string(), ziel).await {
+            Ok(()) => Ok(()),
+            Err(fehler) => {
+                tracing::debug!("UID MOVE nicht möglich, Fallback über COPY: {fehler}");
+                self.session
+                    .uid_copy(uid.to_string(), ziel)
+                    .await
+                    .with_context(|| format!("Nachricht nach „{ziel}“ kopieren"))?;
+                self.endgueltig_loeschen(uid).await
+            }
+        }
+    }
+
+    /// Löscht eine Nachricht endgültig aus dem gewählten Ordner:
+    /// \Deleted-Flag setzen und expungen. Bevorzugt UID EXPUNGE (entfernt
+    /// gezielt nur diese Nachricht); ohne UIDPLUS-Erweiterung bleibt nur
+    /// das normale EXPUNGE des ganzen Ordners.
+    pub async fn endgueltig_loeschen(&mut self, uid: u32) -> Result<()> {
+        let _antworten: Vec<_> = self
+            .session
+            .uid_store(uid.to_string(), "+FLAGS.SILENT (\\Deleted)")
+            .await
+            .context("Löschen-Flag setzen")?
+            .try_collect()
+            .await
+            .context("Antwort auf Flag-Änderung lesen")?;
+
+        match self.session.uid_expunge(uid.to_string()).await {
+            Ok(antworten) => {
+                let _: Vec<_> = antworten
+                    .try_collect()
+                    .await
+                    .context("UID-EXPUNGE-Antwort lesen")?;
+                return Ok(());
+            }
+            Err(fehler) => {
+                tracing::debug!("UID EXPUNGE nicht möglich, Fallback auf EXPUNGE: {fehler}");
+            }
+        }
+        let _: Vec<_> = self
+            .session
+            .expunge()
+            .await
+            .context("EXPUNGE ausführen")?
+            .try_collect()
+            .await
+            .context("EXPUNGE-Antwort lesen")?;
         Ok(())
     }
 

@@ -25,6 +25,15 @@ pub struct AufbereiteteNachricht {
     pub html_bereinigt: Option<String>,
     pub hatte_externe_bilder: bool,
     pub hat_anhang: bool,
+    /// „Echte“ Anhänge in Mail-Reihenfolge (für die Anhang-Leiste).
+    pub anhaenge: Vec<AnhangInfo>,
+}
+
+/// Ein Anhang, wie ihn die Anhang-Leiste anzeigt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnhangInfo {
+    pub dateiname: String,
+    pub groesse: usize,
 }
 
 /// Standard-Aufbereitung: externe Bilder blockieren.
@@ -35,6 +44,7 @@ pub fn nachricht_aufbereiten(roh: &[u8]) -> AufbereiteteNachricht {
             html_bereinigt: None,
             hatte_externe_bilder: false,
             hat_anhang: false,
+            anhaenge: Vec::new(),
         };
     };
 
@@ -43,7 +53,17 @@ pub fn nachricht_aufbereiten(roh: &[u8]) -> AufbereiteteNachricht {
         .unwrap_or_default()
         .trim()
         .to_string();
-    let hat_anhang = hat_echte_anhaenge(&nachricht);
+    let anhaenge: Vec<AnhangInfo> = anhang_teile(&nachricht)
+        .into_iter()
+        .map(|teil| AnhangInfo {
+            dateiname: teil
+                .attachment_name()
+                .unwrap_or("anhang.bin")
+                .trim()
+                .to_string(),
+            groesse: teil.contents().len(),
+        })
+        .collect();
 
     let (html_bereinigt, externe) = if hat_html_teil(&nachricht) {
         let html_roh = nachricht.body_html(0).unwrap_or_default();
@@ -58,8 +78,23 @@ pub fn nachricht_aufbereiten(roh: &[u8]) -> AufbereiteteNachricht {
         text,
         html_bereinigt,
         hatte_externe_bilder: !externe.is_empty(),
-        hat_anhang,
+        hat_anhang: !anhaenge.is_empty(),
+        anhaenge,
     }
+}
+
+/// Liefert Dateiname und Inhalt des Anhangs mit der angegebenen Nummer
+/// (dieselbe Reihenfolge wie in `AufbereiteteNachricht::anhaenge`).
+pub fn anhang_daten(roh: &[u8], index: usize) -> Option<(String, Vec<u8>)> {
+    let nachricht = MessageParser::default().parse(roh)?;
+    let teil = anhang_teile(&nachricht).into_iter().nth(index)?;
+    Some((
+        teil.attachment_name()
+            .unwrap_or("anhang.bin")
+            .trim()
+            .to_string(),
+        teil.contents().to_vec(),
+    ))
 }
 
 /// Liefert die externen Bild-Adressen einer Nachricht (für „Bilder laden“).
@@ -90,6 +125,21 @@ pub fn nachricht_mit_bildern(roh: &[u8], geladene: &HashMap<String, String>) -> 
     Some(sauber)
 }
 
+/// Zweite, strengere Bereinigungsstufe für die App-Ansicht (M3.5):
+/// entfernt zusätzlich alle mitgebrachten Stile (`style`-Attribute,
+/// Farb- und Layout-Attribute), sodass nur der Inhalt übrig bleibt und
+/// das Frontend ihn im Design der App darstellen kann. Erwartet bereits
+/// bereinigtes HTML (`data:`-Bilder bleiben erhalten).
+pub fn stil_entfernen(html_bereinigt: &str) -> String {
+    let mut builder = ammonia::Builder::default();
+    let schemata: HashSet<&str> = ["http", "https", "mailto", "data"]
+        .iter()
+        .copied()
+        .collect();
+    builder.url_schemes(schemata);
+    builder.clean(html_bereinigt).to_string()
+}
+
 /// Hat die Nachricht einen echten HTML-Teil? (`body_html` würde reine
 /// Text-Mails sonst automatisch in HTML umwandeln — das wollen wir nicht,
 /// Text-Mails werden als Text angezeigt.)
@@ -102,14 +152,18 @@ fn hat_html_teil(nachricht: &Message) -> bool {
 }
 
 /// „Echte“ Anhänge = Teile mit Anhang-Disposition oder ohne Content-ID.
-/// Eingebettete `cid:`-Bilder zählen nicht als Anhang.
-fn hat_echte_anhaenge(nachricht: &Message) -> bool {
-    nachricht.attachments().any(|teil| {
-        let als_anhang_markiert = teil
-            .content_disposition()
-            .is_some_and(|d| d.ctype().eq_ignore_ascii_case("attachment"));
-        als_anhang_markiert || teil.content_id().is_none()
-    })
+/// Eingebettete `cid:`-Bilder zählen nicht als Anhang. Eine Funktion für
+/// Auflisten und Herausgreifen — so bleibt die Nummerierung konsistent.
+fn anhang_teile<'a>(nachricht: &'a Message<'a>) -> Vec<&'a mail_parser::MessagePart<'a>> {
+    nachricht
+        .attachments()
+        .filter(|teil| {
+            let als_anhang_markiert = teil
+                .content_disposition()
+                .is_some_and(|d| d.ctype().eq_ignore_ascii_case("attachment"));
+            als_anhang_markiert || teil.content_id().is_none()
+        })
+        .collect()
 }
 
 /// Sammelt eingebettete Bilder: Content-ID → `data:`-URI.
@@ -319,6 +373,26 @@ mod tests {
     }
 
     #[test]
+    fn stil_entfernen_behaelt_inhalt_und_wirft_design_weg() {
+        let roh = html_mail(
+            r##"<table bgcolor="#ff0000" width="600"><tr><td style="color:red;font-family:Comic Sans">Wichtig</td></tr></table><p style="background:black">Hallo</p><img src="data:image/png;base64,AAAA" alt="Logo"><a href="https://example.org">Link</a>"##,
+        );
+        let bereinigt = nachricht_aufbereiten(&roh).html_bereinigt.unwrap();
+        // Erste Stufe behält Stile (Originalansicht) …
+        assert!(bereinigt.contains("style="));
+        assert!(bereinigt.contains("bgcolor"));
+
+        // … die zweite Stufe entfernt sie, der Inhalt bleibt.
+        let schlicht = stil_entfernen(&bereinigt);
+        assert!(!schlicht.contains("style="));
+        assert!(!schlicht.contains("bgcolor"));
+        assert!(schlicht.contains("Wichtig"));
+        assert!(schlicht.contains("Hallo"));
+        assert!(schlicht.contains("data:image/png;base64,AAAA"));
+        assert!(schlicht.contains("https://example.org"));
+    }
+
+    #[test]
     fn gefaehrliche_links_werden_entschaerft() {
         let roh = html_mail(
             r#"<a href="javascript:alert(1)">klick</a><a href="https://example.org">ok</a>"#,
@@ -358,6 +432,17 @@ mod tests {
             .as_bytes();
         let ergebnis = nachricht_aufbereiten(roh);
         assert!(ergebnis.hat_anhang);
+        // Anhang-Leiste: Name und Größe des dekodierten Inhalts.
+        assert_eq!(ergebnis.anhaenge.len(), 1);
+        assert_eq!(ergebnis.anhaenge[0].dateiname, "doku.pdf");
+        assert_eq!(ergebnis.anhaenge[0].groesse, "%PDF-1.4\n".len());
+
+        // Herausgreifen liefert denselben Anhang mit Inhalt.
+        let (name, daten) = anhang_daten(roh, 0).unwrap();
+        assert_eq!(name, "doku.pdf");
+        assert_eq!(daten, b"%PDF-1.4\n");
+        // Außerhalb des Bereichs: nichts.
+        assert!(anhang_daten(roh, 1).is_none());
     }
 
     #[test]

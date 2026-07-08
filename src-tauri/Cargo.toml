@@ -42,6 +42,10 @@ tauri-plugin-dialog = "2.7.1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 lettre = { version = "0.11.22", default-features = false, features = ["builder", "smtp-transport", "hostname", "tokio1", "tokio1-rustls", "rustls-no-provider", "webpki-roots"] }
 md5 = "0.8.0"
+quick-xml = "0.41.0"
+icalendar = { version = "0.17.12", default-features = false, features = ["parser"] }
+rrule = "0.14.0"
+chrono-tz = "0.10.4"
 
 [profile.release]
 strip = true

@@ -5,3 +5,7 @@
 //! `icalendar`, Wiederholungstermine (RRULE) und Zeitzonen.
 //!
 //! Konventionen: siehe `.claude/skills/caldav/SKILL.md`.
+
+pub mod termine;
+pub mod verbindung;
+pub mod xml;

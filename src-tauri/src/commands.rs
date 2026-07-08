@@ -13,7 +13,9 @@ use base64::Engine;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::db::{self, Konto, MailKopf, NeuerMailKopf, Ordner};
+use crate::caldav::verbindung::{CaldavVerbindung, SyncAntwort};
+use crate::caldav::{termine, xml};
+use crate::db::{self, kalender as db_kalender, Konto, MailKopf, NeuerMailKopf, Ordner};
 use crate::imap::verbindung::ImapVerbindung;
 use crate::imap::{idle, parsen, sync};
 use crate::smtp::{nachricht, versand};
@@ -32,6 +34,8 @@ pub struct AppZustand {
     pub sync_laeuft: Mutex<HashSet<i64>>,
     /// Live-Update-Hintergrundtasks (IMAP IDLE), einer je Konto.
     pub idle_tasks: Mutex<HashMap<i64, tauri::async_runtime::JoinHandle<()>>>,
+    /// Läuft gerade ein Kalender-Abgleich? (verhindert Doppel-Syncs)
+    pub kalender_sync_laeuft: Mutex<bool>,
 }
 
 // ---------------------------------------------------------------- Hilfen --
@@ -166,6 +170,12 @@ pub struct KontoFormular {
     pub imap_port: u16,
     pub smtp_host: String,
     pub smtp_port: u16,
+    /// Signatur (leer = keine).
+    #[serde(default)]
+    pub signatur: String,
+    /// Akzentfarbe als Hex-Wert (leer = Standard).
+    #[serde(default)]
+    pub farbe: String,
 }
 
 impl KontoFormular {
@@ -175,6 +185,14 @@ impl KontoFormular {
         self.benutzer = self.benutzer.trim().to_string();
         self.imap_host = self.imap_host.trim().to_string();
         self.smtp_host = self.smtp_host.trim().to_string();
+        self.farbe = self.farbe.trim().to_lowercase();
+        // Nur echte Hex-Farben übernehmen — alles andere fällt auf Standard.
+        if !(self.farbe.len() == 7
+            && self.farbe.starts_with('#')
+            && self.farbe[1..].chars().all(|z| z.is_ascii_hexdigit()))
+        {
+            self.farbe = String::new();
+        }
         if self.name.is_empty()
             || self.benutzer.is_empty()
             || self.imap_host.is_empty()
@@ -194,6 +212,8 @@ impl KontoFormular {
             benutzer: self.benutzer.clone(),
             smtp_host: self.smtp_host.clone(),
             smtp_port: self.smtp_port,
+            signatur: self.signatur.clone(),
+            farbe: self.farbe.clone(),
         }
     }
 }
@@ -378,6 +398,9 @@ pub async fn periodischer_sync(app: AppHandle) {
         for konto in konten {
             let _ = sync_ausfuehren(&app, konto.id).await;
         }
+        // Kalender hängen am selben Sicherheitsnetz (das Sync-Token macht
+        // den Abgleich billig, wenn sich nichts geändert hat).
+        let _ = kalender_sync_ausfuehren(&app).await;
     }
 }
 
@@ -536,7 +559,7 @@ async fn ordner_synchronisieren(
                         von_email: geparst.von_email,
                         datum: geparst.datum,
                         gelesen: kopf.gelesen,
-                        hat_anhang: false, // wird beim Öffnen der Mail erkannt
+                        hat_anhang: kopf.hat_anhang,
                     }
                 })
                 .collect();
@@ -558,13 +581,88 @@ async fn ordner_synchronisieren(
 pub fn mails_liste(
     zustand: State<'_, AppZustand>,
     ordner_id: i64,
+    nur_ungelesen: bool,
     offset: i64,
     limit: i64,
 ) -> Result<Vec<MailKopf>, String> {
     mit_db(&zustand, |conn| {
-        db::mails_liste(conn, ordner_id, offset.max(0), limit.clamp(1, 500))
+        db::mails_liste(
+            conn,
+            ordner_id,
+            nur_ungelesen,
+            offset.max(0),
+            limit.clamp(1, 500),
+        )
     })
     .map_err(|f| als_meldung(&f))
+}
+
+/// Setzt das Gelesen-Flag einer Mail in beide Richtungen (Kontextmenü
+/// „Als (un)gelesen markieren“). Der Cache wird sofort geändert, das
+/// Server-Flag nebenläufig — scheitert das (z. B. offline), korrigiert
+/// es der nächste Sync.
+#[tauri::command]
+pub fn mail_gelesen_setzen(
+    zustand: State<'_, AppZustand>,
+    mail_id: i64,
+    gelesen: bool,
+) -> Result<(), String> {
+    mail_gelesen_setzen_intern(&zustand, mail_id, gelesen).map_err(|f| als_meldung(&f))
+}
+
+fn mail_gelesen_setzen_intern(zustand: &AppZustand, mail_id: i64, gelesen: bool) -> Result<()> {
+    let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
+    mit_db(zustand, |conn| {
+        db::mail_gelesen_setzen(conn, mail_id, gelesen)
+    })?;
+
+    let uid = mail.uid;
+    let ordner_name = ordner.name.clone();
+    tauri::async_runtime::spawn(async move {
+        match verbindung_zum_konto(&konto).await {
+            Ok(mut verbindung) => {
+                if verbindung.ordner_waehlen(&ordner_name).await.is_ok() {
+                    let ergebnis = if gelesen {
+                        verbindung.als_gelesen_markieren(uid).await
+                    } else {
+                        verbindung.als_ungelesen_markieren(uid).await
+                    };
+                    if let Err(fehler) = ergebnis {
+                        tracing::warn!("Gelesen-Flag nicht übertragen: {fehler:#}");
+                    }
+                }
+                verbindung.abmelden().await;
+            }
+            Err(fehler) => {
+                tracing::warn!("Gelesen-Flag nicht übertragen: {fehler:#}");
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Volltextsuche über alle Ordner des Kontos (Betreff, Absender und —
+/// soweit lokal im Cache — Mailtext). Neueste Treffer zuerst.
+#[tauri::command]
+pub fn mails_suchen(
+    zustand: State<'_, AppZustand>,
+    konto_id: i64,
+    eingabe: String,
+) -> Result<Vec<db::SuchTreffer>, String> {
+    mit_db(&zustand, |conn| {
+        db::mails_suchen(conn, konto_id, &eingabe, 100)
+    })
+    .map_err(|f| als_meldung(&f))
+}
+
+/// Vorschläge fürs Empfänger-Feld beim Verfassen (bekannte Empfänger
+/// plus Absender aus dem Mail-Cache).
+#[tauri::command]
+pub fn adress_vorschlaege(
+    zustand: State<'_, AppZustand>,
+    eingabe: String,
+) -> Result<Vec<db::AdressVorschlag>, String> {
+    mit_db(&zustand, |conn| db::adress_vorschlaege(conn, &eingabe, 8)).map_err(|f| als_meldung(&f))
 }
 
 /// Anzeigefertige Mail für den Lesebereich.
@@ -574,7 +672,12 @@ pub struct MailAnsicht {
     pub text: String,
     /// Bereinigtes HTML — das Frontend zeigt es nur im Sandbox-iframe an.
     pub html: Option<String>,
+    /// Zusätzlich vom Absender-Design befreites HTML für die
+    /// Standard-Ansicht im App-Stil (M3.5).
+    pub html_schlicht: Option<String>,
     pub hatte_externe_bilder: bool,
+    /// Anhänge für die Anhang-Leiste (M3.6).
+    pub anhaenge: Vec<db::AnhangEintrag>,
 }
 
 #[tauri::command]
@@ -607,6 +710,11 @@ async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAns
                 verbindung.abmelden().await;
 
                 let aufbereitet = anzeige::nachricht_aufbereiten(&roh);
+                let anhang_paare: Vec<(String, usize)> = aufbereitet
+                    .anhaenge
+                    .iter()
+                    .map(|a| (a.dateiname.clone(), a.groesse))
+                    .collect();
                 let inhalt = db::MailInhalt {
                     text: aufbereitet.text,
                     html_bereinigt: aufbereitet.html_bereinigt,
@@ -614,6 +722,7 @@ async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAns
                 };
                 mit_db(zustand, |conn| {
                     db::inhalt_speichern(conn, mail_id, &inhalt)?;
+                    db::anhaenge_speichern(conn, mail_id, &anhang_paare)?;
                     db::mail_setze_hat_anhang(conn, mail_id, aufbereitet.hat_anhang)
                 })?;
                 (inhalt, aufbereitet.hat_anhang, true)
@@ -621,9 +730,7 @@ async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAns
         };
 
     if !mail.gelesen {
-        mit_db(zustand, |conn| {
-            db::mail_als_gelesen_markieren(conn, mail_id)
-        })?;
+        mit_db(zustand, |conn| db::mail_gelesen_setzen(conn, mail_id, true))?;
         if !server_flag_gesetzt {
             // Cache-Treffer: Flag nebenläufig auf dem Server setzen —
             // scheitert das (offline), korrigiert es der nächste Sync.
@@ -647,6 +754,8 @@ async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAns
         }
     }
 
+    let anhaenge = mit_db(zustand, |conn| db::anhaenge_liste(conn, mail_id))?;
+
     Ok(MailAnsicht {
         kopf: MailKopf {
             gelesen: true,
@@ -654,18 +763,114 @@ async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAns
             ..mail
         },
         text: inhalt.text,
+        html_schlicht: inhalt
+            .html_bereinigt
+            .as_deref()
+            .map(anzeige::stil_entfernen),
         html: inhalt.html_bereinigt,
         hatte_externe_bilder: inhalt.hatte_externe_bilder,
+        anhaenge,
     })
+}
+
+/// Speichert einen Anhang der Mail unter dem angegebenen Zielpfad
+/// (der Pfad kommt aus dem Speichern-Dialog). Der Inhalt wird frisch
+/// vom Server geholt — Anhänge liegen nie im lokalen Cache.
+#[tauri::command]
+pub async fn anhang_speichern(
+    zustand: State<'_, AppZustand>,
+    mail_id: i64,
+    index: i64,
+    ziel_pfad: String,
+) -> Result<(), String> {
+    anhang_speichern_intern(&zustand, mail_id, index, ziel_pfad)
+        .await
+        .map_err(|f| als_meldung(&f))
+}
+
+async fn anhang_speichern_intern(
+    zustand: &AppZustand,
+    mail_id: i64,
+    index: i64,
+    ziel_pfad: String,
+) -> Result<()> {
+    let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
+    let roh = roh_nachricht_laden(&konto, &ordner.name, mail.uid).await?;
+    let (_, daten) = anzeige::anhang_daten(&roh, usize::try_from(index).unwrap_or(usize::MAX))
+        .ok_or_else(|| nutzerfehler("Der Anhang wurde in der Mail nicht gefunden."))?;
+    tokio::fs::write(&ziel_pfad, daten)
+        .await
+        .map_err(|f| nutzerfehler(format!("Die Datei ließ sich nicht speichern: {f}")))?;
+    tracing::info!(mail_id, index, "Anhang gespeichert");
+    Ok(())
+}
+
+/// Löscht eine Mail: außerhalb des Papierkorbs wird sie dorthin
+/// verschoben, im Papierkorb (oder ohne Papierkorb) endgültig entfernt.
+#[tauri::command]
+pub async fn mail_loeschen(
+    app: AppHandle,
+    zustand: State<'_, AppZustand>,
+    mail_id: i64,
+) -> Result<(), String> {
+    mail_loeschen_intern(&app, &zustand, mail_id)
+        .await
+        .map_err(|f| als_meldung(&f))
+}
+
+async fn mail_loeschen_intern(app: &AppHandle, zustand: &AppZustand, mail_id: i64) -> Result<()> {
+    let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
+    let alle_ordner = mit_db(zustand, |conn| db::ordner_liste(conn, konto.id))?;
+    let papierkorb = db::finde_papierkorb_ordner(&alle_ordner)
+        .filter(|ziel| ziel.id != ordner.id)
+        .cloned();
+
+    let mut verbindung = verbindung_zum_konto(&konto).await?;
+    verbindung.ordner_waehlen(&ordner.name).await?;
+    match &papierkorb {
+        Some(ziel) => verbindung.verschieben(mail.uid, &ziel.name).await?,
+        None => verbindung.endgueltig_loeschen(mail.uid).await?,
+    }
+
+    // Cache sofort nachziehen, damit die Mail aus der Liste verschwindet.
+    mit_db(zustand, |conn| db::mail_entfernen(conn, mail_id))?;
+    let _ = app.emit(
+        "mails:neu",
+        MailsNeu {
+            ordner_id: ordner.id,
+        },
+    );
+
+    // Papierkorb direkt abgleichen, damit die Mail dort sofort auftaucht
+    // (Fehler dabei sind unkritisch — der nächste Sync korrigiert).
+    if let Some(ziel) = &papierkorb {
+        if let Err(fehler) = ordner_synchronisieren(app, zustand, &mut verbindung, ziel).await {
+            tracing::warn!("Papierkorb-Abgleich nach dem Löschen fehlgeschlagen: {fehler:#}");
+        }
+    }
+    verbindung.abmelden().await;
+    tracing::info!(mail_id, endgueltig = papierkorb.is_none(), "Mail gelöscht");
+    Ok(())
+}
+
+/// Ergebnis von „Bilder laden“: dasselbe HTML in beiden Ansichten.
+#[derive(Serialize)]
+pub struct BilderAnsicht {
+    pub html: String,
+    pub html_schlicht: String,
 }
 
 #[tauri::command]
 pub async fn mail_bilder_laden(
     zustand: State<'_, AppZustand>,
     mail_id: i64,
-) -> Result<String, String> {
+) -> Result<BilderAnsicht, String> {
     mail_bilder_laden_intern(&zustand, mail_id)
         .await
+        .map(|html| BilderAnsicht {
+            html_schlicht: anzeige::stil_entfernen(&html),
+            html,
+        })
         .map_err(|f| als_meldung(&f))
 }
 
@@ -770,11 +975,48 @@ pub struct SendeFormular {
     pub cc: String,
     pub betreff: String,
     pub text: String,
+    /// Formatierte Fassung aus dem Editor — wird vor dem Versand bereinigt.
+    #[serde(default)]
+    pub html: Option<String>,
     /// Dateipfade der Anhänge (aus dem Datei-Dialog).
     pub anhaenge: Vec<String>,
     /// Mail-ID des Originals bei Antworten/Weiterleiten.
     pub antwort_auf: Option<i64>,
     pub weiterleiten: bool,
+    /// Mail-ID des Entwurfs, aus dem dieses Fenster hervorging —
+    /// er wird nach dem Senden bzw. erneuten Speichern entfernt.
+    #[serde(default)]
+    pub entwurf_von: Option<i64>,
+}
+
+/// Liest die Datei-Anhänge aus dem Verfassen-Fenster ein
+/// (Pfade kommen aus dem Datei-Dialog bzw. vom Hineinziehen).
+async fn anhaenge_einlesen(pfade: &[String]) -> Result<Vec<nachricht::Anhang>> {
+    let mut anhaenge = Vec::new();
+    for pfad in pfade {
+        let daten = tokio::fs::read(pfad)
+            .await
+            .map_err(|f| nutzerfehler(format!("Anhang „{pfad}“ ließ sich nicht lesen: {f}")))?;
+        anhaenge.push(nachricht::Anhang {
+            dateiname: std::path::Path::new(pfad)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "anhang.bin".to_string()),
+            mime: mime_guess::from_path(pfad)
+                .first_or_octet_stream()
+                .to_string(),
+            daten,
+        });
+    }
+    Ok(anhaenge)
+}
+
+/// Bereinigt die HTML-Fassung aus dem Editor (gleiche Schutzschicht wie
+/// bei der Anzeige — sie verlässt nie ungefiltert die App).
+fn html_aus_editor(html: Option<&str>) -> Option<String> {
+    html.map(str::trim)
+        .filter(|h| !h.is_empty())
+        .map(ammonia::clean)
 }
 
 /// Vorbelegung für den Verfassen-Dialog (Antworten/Weiterleiten).
@@ -861,25 +1103,7 @@ async fn mail_senden_intern(
         return Err(nutzerfehler("Bitte mindestens einen Empfänger angeben."));
     }
 
-    // Anhänge von der Platte lesen (Pfade kommen aus dem Datei-Dialog).
-    let mut anhaenge = Vec::new();
-    let mut gesamt = 0usize;
-    for pfad in &formular.anhaenge {
-        let daten = tokio::fs::read(pfad)
-            .await
-            .map_err(|f| nutzerfehler(format!("Anhang „{pfad}“ ließ sich nicht lesen: {f}")))?;
-        gesamt += daten.len();
-        anhaenge.push(nachricht::Anhang {
-            dateiname: std::path::Path::new(pfad)
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "anhang.bin".to_string()),
-            mime: mime_guess::from_path(pfad)
-                .first_or_octet_stream()
-                .to_string(),
-            daten,
-        });
-    }
+    let mut anhaenge = anhaenge_einlesen(&formular.anhaenge).await?;
 
     // Bezug zum Original (Antwort: Threading-Header; Weiterleiten: Anhänge).
     let mut antwort = None;
@@ -897,13 +1121,15 @@ async fn mail_senden_intern(
         }
     }
 
-    gesamt += anhaenge.iter().map(|a| a.daten.len()).sum::<usize>();
+    let gesamt: usize = anhaenge.iter().map(|a| a.daten.len()).sum();
     if gesamt > MAX_ANHANG_BYTES {
         return Err(nutzerfehler(
             "Die Anhänge sind zusammen größer als 25 MB — das lehnen die meisten \
              Mail-Server ab. Bitte verkleinern.",
         ));
     }
+
+    let html = html_aus_editor(formular.html.as_deref());
 
     let neue = nachricht::NeueNachricht {
         von_name: String::new(), // M2: schlichte Absenderadresse, Name kommt mit Signaturen
@@ -912,6 +1138,7 @@ async fn mail_senden_intern(
         cc,
         betreff: formular.betreff.trim().to_string(),
         text: formular.text.clone(),
+        html,
         anhaenge,
         antwort,
     };
@@ -928,6 +1155,24 @@ async fn mail_senden_intern(
         fertig,
     )
     .await?;
+
+    // Empfänger für die Adress-Vorschläge merken (Fehler dabei unkritisch).
+    if let Err(fehler) = mit_db(zustand, |conn| {
+        for eintrag in neue.an.iter().chain(neue.cc.iter()) {
+            db::adresse_merken(conn, eintrag)?;
+        }
+        Ok(())
+    }) {
+        tracing::warn!("Empfängeradressen nicht gemerkt: {fehler:#}");
+    }
+
+    // Ging die Mail aus einem Entwurf hervor: Entwurf entfernen
+    // (Fehler unkritisch — schlimmstenfalls bleibt er liegen).
+    if let Some(entwurf_id) = formular.entwurf_von {
+        if let Err(fehler) = entwurf_entfernen(app, zustand, entwurf_id).await {
+            tracing::warn!("Entwurf nach dem Senden nicht entfernt: {fehler:#}");
+        }
+    }
 
     // Kopie in den „Gesendet“-Ordner (Fehler hier machen den Versand nicht kaputt).
     let alle_ordner = mit_db(zustand, |conn| db::ordner_liste(conn, konto.id))?;
@@ -961,11 +1206,137 @@ async fn sent_ablage(
 ) -> Result<()> {
     let mut verbindung = verbindung_zum_konto(konto).await?;
     verbindung
-        .nachricht_ablegen(&gesendet.name, rohbytes)
+        .nachricht_ablegen(&gesendet.name, rohbytes, "(\\Seen)")
         .await?;
     // Ordner direkt abgleichen, damit die Kopie sofort in der App auftaucht.
     ordner_synchronisieren(app, zustand, &mut verbindung, gesendet).await?;
     verbindung.abmelden().await;
+    Ok(())
+}
+
+// --------------------------------------------------------------- Entwürfe --
+
+/// Ein geladener Entwurf fürs Weiterbearbeiten im Verfassen-Fenster.
+#[derive(Serialize)]
+pub struct Entwurf {
+    pub an: String,
+    pub cc: String,
+    pub betreff: String,
+    pub text: String,
+    /// Formatierte Fassung (bereinigt) — erhält fett/kursiv/Listen
+    /// beim Weiterbearbeiten.
+    pub html: Option<String>,
+}
+
+/// Lädt einen gespeicherten Entwurf in den Editor.
+#[tauri::command]
+pub async fn entwurf_laden(
+    zustand: State<'_, AppZustand>,
+    mail_id: i64,
+) -> Result<Entwurf, String> {
+    entwurf_laden_intern(&zustand, mail_id)
+        .await
+        .map_err(|f| als_meldung(&f))
+}
+
+async fn entwurf_laden_intern(zustand: &AppZustand, mail_id: i64) -> Result<Entwurf> {
+    let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
+    let roh = roh_nachricht_laden(&konto, &ordner.name, mail.uid).await?;
+    let daten = parsen::parse_fuer_entwurf(&roh);
+    // Die HTML-Fassung durchläuft dieselbe Bereinigung wie bei der
+    // Anzeige, bevor sie in den Editor darf.
+    let html = anzeige::nachricht_aufbereiten(&roh).html_bereinigt;
+    Ok(Entwurf {
+        an: daten.an,
+        cc: daten.cc,
+        betreff: daten.betreff,
+        text: daten.text,
+        html,
+    })
+}
+
+/// Speichert den Stand des Verfassen-Fensters als Entwurf im
+/// Entwürfe-Ordner des Kontos (ersetzt ggf. den bearbeiteten Entwurf).
+#[tauri::command]
+pub async fn entwurf_speichern(
+    app: AppHandle,
+    zustand: State<'_, AppZustand>,
+    konto_id: i64,
+    formular: SendeFormular,
+) -> Result<String, String> {
+    entwurf_speichern_intern(&app, &zustand, konto_id, formular)
+        .await
+        .map_err(|f| als_meldung(&f))
+}
+
+async fn entwurf_speichern_intern(
+    app: &AppHandle,
+    zustand: &AppZustand,
+    konto_id: i64,
+    formular: SendeFormular,
+) -> Result<String> {
+    let konto = konto_laden(zustand, konto_id)?;
+    let alle_ordner = mit_db(zustand, |conn| db::ordner_liste(conn, konto.id))?;
+    let entwuerfe = db::finde_entwuerfe_ordner(&alle_ordner)
+        .ok_or_else(|| {
+            nutzerfehler(
+                "Für dieses Konto wurde kein Entwürfe-Ordner gefunden — \
+                 bitte einmal aktualisieren oder den Ordner beim Anbieter anlegen.",
+            )
+        })?
+        .clone();
+
+    let anhaenge = anhaenge_einlesen(&formular.anhaenge).await?;
+    let neue = nachricht::NeueNachricht {
+        von_name: String::new(),
+        von_adresse: konto.email.clone(),
+        an: adressliste(&formular.an),
+        cc: adressliste(&formular.cc),
+        betreff: formular.betreff.trim().to_string(),
+        text: formular.text.clone(),
+        html: html_aus_editor(formular.html.as_deref()),
+        anhaenge,
+        antwort: None,
+    };
+    let (_, rohbytes) =
+        nachricht::baue_nachricht(&neue).map_err(|f| nutzerfehler(f.to_string()))?;
+
+    let mut verbindung = verbindung_zum_konto(&konto).await?;
+    verbindung
+        .nachricht_ablegen(&entwuerfe.name, &rohbytes, "(\\Draft \\Seen)")
+        .await?;
+
+    // Beim Weiterbearbeiten: alten Stand entfernen (Fehler unkritisch).
+    if let Some(alter_entwurf) = formular.entwurf_von {
+        if let Err(fehler) = entwurf_entfernen(app, zustand, alter_entwurf).await {
+            tracing::warn!("Alter Entwurf nicht entfernt: {fehler:#}");
+        }
+    }
+
+    // Ordner direkt abgleichen, damit der Entwurf sofort auftaucht.
+    if let Err(fehler) = ordner_synchronisieren(app, zustand, &mut verbindung, &entwuerfe).await {
+        tracing::warn!("Entwürfe-Abgleich nach dem Speichern fehlgeschlagen: {fehler:#}");
+    }
+    verbindung.abmelden().await;
+    tracing::info!(konto_id, "Entwurf gespeichert");
+    Ok("Entwurf gespeichert.".to_string())
+}
+
+/// Entfernt einen Entwurf endgültig (nach dem Senden bzw. beim Ersetzen
+/// durch einen neuen Stand).
+async fn entwurf_entfernen(app: &AppHandle, zustand: &AppZustand, mail_id: i64) -> Result<()> {
+    let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
+    let mut verbindung = verbindung_zum_konto(&konto).await?;
+    verbindung.ordner_waehlen(&ordner.name).await?;
+    verbindung.endgueltig_loeschen(mail.uid).await?;
+    verbindung.abmelden().await;
+    mit_db(zustand, |conn| db::mail_entfernen(conn, mail_id))?;
+    let _ = app.emit(
+        "mails:neu",
+        MailsNeu {
+            ordner_id: ordner.id,
+        },
+    );
     Ok(())
 }
 
@@ -1016,4 +1387,419 @@ async fn absender_avatar_intern(zustand: &AppZustand, email: String) -> Result<O
         db::avatar_speichern(conn, &email, bild.as_deref())
     })?;
     Ok(bild)
+}
+
+// ----------------------------------------------------- Kalender (M4) --
+
+/// Wie viele Termin-Objekte je `calendar-multiget` angefragt werden.
+const MULTIGET_BATCH: usize = 50;
+
+/// Schlüsselbund-Zugriffe für Kalender-Konten — wie bei den Mail-Konten
+/// immer über `spawn_blocking` (zbus blockiert intern).
+async fn kalender_passwort_holen(konto_id: i64) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || schluesselbund::kalender_passwort_holen(konto_id))
+        .await
+        .context("Schlüsselbund-Task abgebrochen")?
+}
+
+async fn kalender_passwort_speichern(konto_id: i64, passwort: String) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        schluesselbund::kalender_passwort_speichern(konto_id, &passwort)
+    })
+    .await
+    .context("Schlüsselbund-Task abgebrochen")?
+}
+
+/// Eingaben des Kalender-Konto-Dialogs.
+#[derive(serde::Deserialize)]
+pub struct KalenderKontoFormular {
+    pub name: String,
+    pub server: String,
+    pub benutzer: String,
+    pub passwort: String,
+}
+
+#[tauri::command]
+pub async fn kalender_konto_anlegen(
+    app: AppHandle,
+    zustand: State<'_, AppZustand>,
+    formular: KalenderKontoFormular,
+) -> Result<db_kalender::KalenderKonto, String> {
+    let konto = kalender_konto_anlegen_intern(&zustand, formular)
+        .await
+        .map_err(|f| als_meldung(&f))?;
+    // Termine im Hintergrund laden — die Oberfläche zeigt den Fortschritt
+    // über das `kalender:aktualisiert`-Event.
+    tauri::async_runtime::spawn(async move {
+        let _ = kalender_sync_ausfuehren(&app).await;
+    });
+    Ok(konto)
+}
+
+async fn kalender_konto_anlegen_intern(
+    zustand: &AppZustand,
+    formular: KalenderKontoFormular,
+) -> Result<db_kalender::KalenderKonto> {
+    let name = formular.name.trim().to_string();
+    let server = formular.server.trim().trim_end_matches('/').to_string();
+    let benutzer = formular.benutzer.trim().to_string();
+    if name.is_empty() || server.is_empty() || benutzer.is_empty() || formular.passwort.is_empty() {
+        return Err(nutzerfehler("Bitte alle Felder ausfüllen."));
+    }
+
+    // Zugangsdaten prüfen und Kalender entdecken, bevor etwas gespeichert wird.
+    let verbindung = CaldavVerbindung::neu(&server, &benutzer, &formular.passwort)?;
+    let funde = verbindung.kalender_finden().await?;
+    if funde.is_empty() {
+        return Err(nutzerfehler(
+            "Die Anmeldung hat geklappt, aber auf dem Server wurden keine \
+             Kalender gefunden.",
+        ));
+    }
+
+    let konto = mit_db(zustand, |conn| {
+        db_kalender::konto_anlegen(conn, &name, &server, &benutzer)
+    })?;
+    if let Err(fehler) = kalender_passwort_speichern(konto.id, formular.passwort).await {
+        // Ohne Passwort im Schlüsselbund ist das Konto nutzlos → zurückrollen.
+        let _ = mit_db(zustand, |conn| db_kalender::konto_loeschen(conn, konto.id));
+        return Err(fehler);
+    }
+    mit_db(zustand, |conn| {
+        for fund in &funde {
+            db_kalender::kalender_upsert(
+                conn,
+                konto.id,
+                &fund.href,
+                &fund.anzeige_name,
+                &fund.farbe,
+            )?;
+        }
+        Ok(())
+    })?;
+    tracing::info!(
+        konto_id = konto.id,
+        anzahl = funde.len(),
+        "Kalender-Konto angelegt"
+    );
+    Ok(konto)
+}
+
+#[tauri::command]
+pub async fn kalender_konto_loeschen(
+    zustand: State<'_, AppZustand>,
+    konto_id: i64,
+) -> Result<(), String> {
+    mit_db(&zustand, |conn| db_kalender::konto_loeschen(conn, konto_id))
+        .map_err(|f| als_meldung(&f))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        schluesselbund::kalender_passwort_loeschen(konto_id)
+    })
+    .await
+    .map_err(|_| "Interner Fehler beim Aufräumen des Schlüsselbunds".to_string())?
+    .map_err(|f| als_meldung(&f))?;
+    tracing::info!(konto_id, "Kalender-Konto entfernt");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn kalender_konten_liste(
+    zustand: State<'_, AppZustand>,
+) -> Result<Vec<db_kalender::KalenderKonto>, String> {
+    mit_db(&zustand, db_kalender::konten_liste).map_err(|f| als_meldung(&f))
+}
+
+/// Ein Kalender, wie ihn die Oberfläche anzeigt (mit wirksamer Farbe).
+#[derive(Serialize)]
+pub struct KalenderAnsicht {
+    pub id: i64,
+    pub konto_id: i64,
+    pub konto_name: String,
+    pub anzeige_name: String,
+    /// Wirksame Farbe (eigene Wahl vor Nextcloud-Farbe vor Standard).
+    pub farbe: String,
+    /// Wurde die Farbe in Nanomail überschrieben?
+    pub farbe_ist_eigen: bool,
+    pub sichtbar: bool,
+}
+
+impl From<db_kalender::Kalender> for KalenderAnsicht {
+    fn from(kalender: db_kalender::Kalender) -> Self {
+        Self {
+            farbe: kalender.farbe().to_string(),
+            farbe_ist_eigen: !kalender.farbe_eigen.is_empty(),
+            id: kalender.id,
+            konto_id: kalender.konto_id,
+            konto_name: kalender.konto_name,
+            anzeige_name: kalender.anzeige_name,
+            sichtbar: kalender.sichtbar,
+        }
+    }
+}
+
+#[tauri::command]
+pub fn kalender_liste(zustand: State<'_, AppZustand>) -> Result<Vec<KalenderAnsicht>, String> {
+    mit_db(&zustand, db_kalender::kalender_liste)
+        .map(|liste| liste.into_iter().map(KalenderAnsicht::from).collect())
+        .map_err(|f| als_meldung(&f))
+}
+
+/// Setzt die eigene Kalender-Farbe (leer = zurück zur Nextcloud-Farbe).
+#[tauri::command]
+pub fn kalender_farbe_setzen(
+    zustand: State<'_, AppZustand>,
+    kalender_id: i64,
+    farbe: String,
+) -> Result<(), String> {
+    let farbe = farbe.trim().to_lowercase();
+    let gueltig = farbe.is_empty()
+        || (farbe.len() == 7
+            && farbe.starts_with('#')
+            && farbe[1..].chars().all(|z| z.is_ascii_hexdigit()));
+    if !gueltig {
+        return Err("Die Farbe muss ein Hex-Wert wie #61afef sein.".to_string());
+    }
+    mit_db(&zustand, |conn| {
+        db_kalender::farbe_setzen(conn, kalender_id, &farbe)
+    })
+    .map_err(|f| als_meldung(&f))
+}
+
+#[tauri::command]
+pub fn kalender_sichtbar_setzen(
+    zustand: State<'_, AppZustand>,
+    kalender_id: i64,
+    sichtbar: bool,
+) -> Result<(), String> {
+    mit_db(&zustand, |conn| {
+        db_kalender::sichtbar_setzen(conn, kalender_id, sichtbar)
+    })
+    .map_err(|f| als_meldung(&f))
+}
+
+/// Ein anzeigefertiges Termin-Vorkommen fürs Monatsraster.
+#[derive(Serialize)]
+pub struct TerminAnzeige {
+    pub kalender_id: i64,
+    pub kalender_name: String,
+    pub farbe: String,
+    #[serde(flatten)]
+    pub termin: termine::Termin,
+}
+
+/// Alle Termin-Vorkommen sichtbarer Kalender im Fenster `[von, bis)`
+/// (UTC-Sekunden) — aus dem lokalen Cache, funktioniert auch offline.
+#[tauri::command]
+pub fn kalender_termine(
+    zustand: State<'_, AppZustand>,
+    von: i64,
+    bis: i64,
+) -> Result<Vec<TerminAnzeige>, String> {
+    kalender_termine_intern(&zustand, von, bis).map_err(|f| als_meldung(&f))
+}
+
+fn kalender_termine_intern(zustand: &AppZustand, von: i64, bis: i64) -> Result<Vec<TerminAnzeige>> {
+    let kalender = mit_db(zustand, db_kalender::kalender_liste)?;
+    let quellen = mit_db(zustand, |conn| {
+        db_kalender::termine_im_zeitraum(conn, von, bis)
+    })?;
+
+    let mut anzeige = Vec::new();
+    for quelle in quellen {
+        let Some(kal) = kalender.iter().find(|k| k.id == quelle.kalender_id) else {
+            continue;
+        };
+        match termine::expandiere(&quelle.ics, von, bis) {
+            Ok(vorkommen) => {
+                for termin in vorkommen {
+                    anzeige.push(TerminAnzeige {
+                        kalender_id: kal.id,
+                        kalender_name: kal.anzeige_name.clone(),
+                        farbe: kal.farbe().to_string(),
+                        termin,
+                    });
+                }
+            }
+            // Ein unlesbares Objekt darf die Ansicht nicht verhindern.
+            Err(fehler) => tracing::warn!("Termin-Objekt übersprungen: {fehler:#}"),
+        }
+    }
+    anzeige.sort_by_key(|t| t.termin.beginn);
+    Ok(anzeige)
+}
+
+#[tauri::command]
+pub async fn kalender_sync(app: AppHandle) -> Result<(), String> {
+    kalender_sync_ausfuehren(&app).await
+}
+
+/// Gleicht alle Kalender-Konten ab (mit Doppelstart-Schutz). Wird vom
+/// Command, beim App-Start und vom periodischen Sync genutzt.
+pub async fn kalender_sync_ausfuehren(app: &AppHandle) -> Result<(), String> {
+    let zustand = app.state::<AppZustand>();
+    {
+        let mut laeuft = zustand
+            .kalender_sync_laeuft
+            .lock()
+            .map_err(|_| "Interner Fehler beim Kalender-Abgleich".to_string())?;
+        if *laeuft {
+            return Ok(()); // läuft bereits — kein Fehler
+        }
+        *laeuft = true;
+    }
+
+    let konten = mit_db(&zustand, db_kalender::konten_liste).unwrap_or_default();
+    let mut erster_fehler: Option<String> = None;
+    for konto in konten {
+        if let Err(fehler) = kalender_konto_synchronisieren(app, &zustand, &konto).await {
+            tracing::error!(
+                konto_id = konto.id,
+                "Kalender-Abgleich fehlgeschlagen: {fehler:#}"
+            );
+            erster_fehler
+                .get_or_insert_with(|| format!("{}: {}", konto.name, als_meldung(&fehler)));
+        }
+    }
+
+    if let Ok(mut laeuft) = zustand.kalender_sync_laeuft.lock() {
+        *laeuft = false;
+    }
+    let _ = app.emit("kalender:aktualisiert", ());
+    match erster_fehler {
+        None => Ok(()),
+        Some(meldung) => Err(meldung),
+    }
+}
+
+/// Abgleich eines Kontos: Kalenderliste auffrischen, dann jeden Kalender
+/// über sein Sync-Token abgleichen. Ein kaputter Kalender bricht nicht
+/// den ganzen Abgleich ab.
+async fn kalender_konto_synchronisieren(
+    app: &AppHandle,
+    zustand: &AppZustand,
+    konto: &db_kalender::KalenderKonto,
+) -> Result<()> {
+    let passwort = kalender_passwort_holen(konto.id).await?;
+    let verbindung = CaldavVerbindung::neu(&konto.server, &konto.benutzer, &passwort)?;
+
+    // 1) Kalenderliste abgleichen (neue/umbenannte/gelöschte Kalender).
+    let funde = verbindung.kalender_finden().await?;
+    let konto_id = konto.id;
+    let kalender_liste = mit_db(zustand, |conn| {
+        let hrefs: Vec<String> = funde.iter().map(|f| f.href.clone()).collect();
+        db_kalender::kalender_bereinigen(conn, konto_id, &hrefs)?;
+        for fund in &funde {
+            db_kalender::kalender_upsert(
+                conn,
+                konto_id,
+                &fund.href,
+                &fund.anzeige_name,
+                &fund.farbe,
+            )?;
+        }
+        db_kalender::kalender_liste(conn)
+    })?;
+
+    // 2) Termine je Kalender abgleichen.
+    for kalender in kalender_liste.iter().filter(|k| k.konto_id == konto_id) {
+        if let Err(fehler) = kalender_abgleichen(zustand, &verbindung, kalender).await {
+            tracing::error!(kalender = %kalender.anzeige_name, "Kalender-Sync fehlgeschlagen: {fehler:#}");
+        } else {
+            let _ = app.emit("kalender:aktualisiert", ());
+        }
+    }
+    Ok(())
+}
+
+/// Sync-Token-Abgleich eines einzelnen Kalenders; bei verfallenem Token
+/// wird der Kalender einmal komplett neu geladen.
+async fn kalender_abgleichen(
+    zustand: &AppZustand,
+    verbindung: &CaldavVerbindung,
+    kalender: &db_kalender::Kalender,
+) -> Result<()> {
+    let ergebnis = match verbindung
+        .abgleichen(&kalender.href, &kalender.sync_token)
+        .await?
+    {
+        SyncAntwort::Ergebnis(ergebnis) => ergebnis,
+        SyncAntwort::TokenUngueltig => {
+            mit_db(zustand, |conn| {
+                db_kalender::termine_leeren(conn, kalender.id)
+            })?;
+            match verbindung.abgleichen(&kalender.href, "").await? {
+                SyncAntwort::Ergebnis(ergebnis) => ergebnis,
+                SyncAntwort::TokenUngueltig => {
+                    anyhow::bail!("Server lehnt auch den Erstabgleich ab")
+                }
+            }
+        }
+    };
+
+    // Gelöschte Objekte aus dem Cache räumen.
+    mit_db(zustand, |conn| {
+        for href in &ergebnis.geloescht {
+            db_kalender::termin_loeschen(conn, kalender.id, href)?;
+        }
+        Ok(())
+    })?;
+
+    // Nur Objekte laden, deren ETag sich geändert hat.
+    let mut zu_laden: Vec<String> = Vec::new();
+    for (href, etag) in &ergebnis.geaendert {
+        let gecacht = mit_db(zustand, |conn| {
+            db_kalender::termin_etag(conn, kalender.id, href)
+        })?;
+        if gecacht.as_deref() != Some(etag.as_str()) {
+            zu_laden.push(href.clone());
+        }
+    }
+    for batch in zu_laden.chunks(MULTIGET_BATCH) {
+        let objekte = verbindung.objekte_laden(&kalender.href, batch).await?;
+        mit_db(zustand, |conn| {
+            for objekt in &objekte {
+                termin_objekt_speichern(conn, kalender.id, objekt)?;
+            }
+            Ok(())
+        })?;
+    }
+
+    mit_db(zustand, |conn| {
+        db_kalender::sync_token_setzen(conn, kalender.id, &ergebnis.token)
+    })?;
+    tracing::debug!(
+        kalender = %kalender.anzeige_name,
+        neu = zu_laden.len(),
+        geloescht = ergebnis.geloescht.len(),
+        "Kalender abgeglichen"
+    );
+    Ok(())
+}
+
+/// Legt ein geladenes Termin-Objekt samt Eckdaten im Cache ab.
+fn termin_objekt_speichern(
+    conn: &rusqlite::Connection,
+    kalender_id: i64,
+    objekt: &xml::ObjektDaten,
+) -> Result<()> {
+    // Ein unlesbares ICS wird trotzdem gecacht (ohne Eckdaten), damit
+    // der Abgleich es nicht bei jedem Lauf erneut lädt.
+    let eckdaten = termine::metadaten(&objekt.ics).unwrap_or_else(|fehler| {
+        tracing::warn!("Termin-Eckdaten nicht lesbar: {fehler:#}");
+        termine::Metadaten {
+            beginn: None,
+            ende: None,
+            hat_wiederholung: false,
+        }
+    });
+    db_kalender::termin_upsert(
+        conn,
+        kalender_id,
+        &objekt.href,
+        &objekt.etag,
+        &objekt.ics,
+        eckdaten.beginn,
+        eckdaten.ende,
+        eckdaten.hat_wiederholung,
+    )
 }
