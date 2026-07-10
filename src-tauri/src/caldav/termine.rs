@@ -263,9 +263,22 @@ pub fn email_fuer_ics_geeignet(email: &str) -> bool {
 
 // ------------------------------------------------------------- Schreiben --
 
+/// Wofür das ICS bestimmt ist — die Fassungen unterscheiden sich bewusst.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IcsZiel {
+    /// Für den CalDAV-Server: mit ORGANIZER (Anzeige in Nextcloud) und
+    /// `SCHEDULE-AGENT=CLIENT` (Server verschickt keine eigenen Mails).
+    CaldavObjekt,
+    /// Für die Einladungs-Mail: ohne ORGANIZER und ohne SCHEDULE-AGENT —
+    /// exakt das Format, das Mail-Anbieter-Filter nachweislich passieren
+    /// lassen (iTIP-REQUESTs mit ORGANIZER werden z. T. als
+    /// Kalender-Spoofing abgelehnt, „550 Reject for policy reason“).
+    EinladungsMail,
+}
+
 /// Baut ein neues VCALENDAR-Objekt für einfache Termine. Wiederholungen
 /// werden in M5 bewusst nicht geschrieben; bestehende Serien bleiben lesbar.
-pub fn ics_bauen(entwurf: &TerminEntwurf) -> Result<String> {
+pub fn ics_bauen(entwurf: &TerminEntwurf, ziel: IcsZiel) -> Result<String> {
     if entwurf.titel.trim().is_empty() {
         anyhow::bail!("Termin ohne Titel");
     }
@@ -303,13 +316,15 @@ pub fn ics_bauen(entwurf: &TerminEntwurf) -> Result<String> {
             text_escapen(entwurf.beschreibung.trim())
         ));
     }
-    if let Some(organisator) = entwurf
-        .organisator
-        .as_deref()
-        .map(str::trim)
-        .filter(|wert| email_fuer_ics_geeignet(wert))
-    {
-        zeilen.push(format!("ORGANIZER;CN={organisator}:mailto:{organisator}"));
+    if ziel == IcsZiel::CaldavObjekt {
+        if let Some(organisator) = entwurf
+            .organisator
+            .as_deref()
+            .map(str::trim)
+            .filter(|wert| email_fuer_ics_geeignet(wert))
+        {
+            zeilen.push(format!("ORGANIZER;CN={organisator}:mailto:{organisator}"));
+        }
     }
     for teilnehmer in &entwurf.teilnehmer {
         let email = teilnehmer.email.trim();
@@ -320,12 +335,17 @@ pub fn ics_bauen(entwurf: &TerminEntwurf) -> Result<String> {
             anyhow::bail!("Teilnehmeradresse „{email}“ enthält unzulässige Zeichen");
         }
         let status = status_fuer_ics(&teilnehmer.status);
-        // SCHEDULE-AGENT=CLIENT (RFC 6638): Nanomail verschickt die Einladung
-        // selbst per Mail — der CalDAV-Server (Nextcloud) darf keine eigene
-        // Einladungs-Mail mit Web-Link senden, das gäbe doppelte Einladungen.
-        zeilen.push(format!(
-            "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT={status};RSVP=TRUE;SCHEDULE-AGENT=CLIENT;CN={email}:mailto:{email}"
-        ));
+        zeilen.push(match ziel {
+            // SCHEDULE-AGENT=CLIENT (RFC 6638): Nanomail verschickt die
+            // Einladung selbst — Nextcloud darf keine eigene Einladungs-Mail
+            // mit Web-Link senden, das gäbe doppelte Einladungen.
+            IcsZiel::CaldavObjekt => format!(
+                "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT={status};RSVP=TRUE;SCHEDULE-AGENT=CLIENT;CN={email}:mailto:{email}"
+            ),
+            IcsZiel::EinladungsMail => format!(
+                "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT={status};RSVP=TRUE;CN={email}:mailto:{email}"
+            ),
+        });
     }
     zeilen.push("END:VEVENT".to_string());
     zeilen.push("END:VCALENDAR".to_string());
@@ -777,10 +797,10 @@ mod tests {
             ende: utc("2026-07-13T11:00:00Z"),
             ganztags: false,
         };
-        assert!(ics_bauen(&entwurf).is_err());
+        assert!(ics_bauen(&entwurf, IcsZiel::CaldavObjekt).is_err());
         // Ungeeigneter Organisator wird weggelassen statt das ICS zu beschädigen.
         entwurf.teilnehmer.clear();
-        let ics = ics_bauen(&entwurf).unwrap();
+        let ics = ics_bauen(&entwurf, IcsZiel::CaldavObjekt).unwrap();
         assert!(!ics.contains("ORGANIZER"));
     }
 
@@ -801,7 +821,7 @@ mod tests {
             ende: utc("2026-07-13T11:00:00Z"),
             ganztags: false,
         };
-        let ics = ics_bauen(&entwurf).unwrap();
+        let ics = ics_bauen(&entwurf, IcsZiel::CaldavObjekt).unwrap();
         assert!(ics.contains("UID:uid-1\r\n"));
         assert!(ics.contains("SEQUENCE:2\r\n"));
         assert!(!ics.contains("\r\nMETHOD:"));
@@ -815,6 +835,18 @@ mod tests {
         assert!(ist_einfacher_termin(&ics));
         assert_eq!(uid(&ics), Some("uid-1".to_string()));
         assert_eq!(sequence(&ics), 2);
+
+        // Mail-Fassung: ohne ORGANIZER und ohne SCHEDULE-AGENT — exakt das
+        // Format, das Anbieter-Filter nachweislich passieren lassen.
+        // Zeilenfaltung fürs Prüfen auflösen (RFC 5545: "\r\n " = Fortsetzung).
+        let mail_ics = ics_bauen(&entwurf, IcsZiel::EinladungsMail)
+            .unwrap()
+            .replace("\r\n ", "");
+        assert!(!mail_ics.contains("ORGANIZER"));
+        assert!(!mail_ics.contains("SCHEDULE-AGENT"));
+        assert!(mail_ics.contains("PARTSTAT=TENTATIVE"));
+        assert!(mail_ics.contains("RSVP=TRUE"));
+        assert!(mail_ics.contains("mailto:alice@example.com"));
     }
 
     #[test]

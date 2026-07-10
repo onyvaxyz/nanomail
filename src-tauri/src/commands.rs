@@ -1842,7 +1842,7 @@ async fn kalender_termin_speichern_intern(
         ende: formular.ende,
         ganztags: formular.ganztags,
     };
-    let ics = termine::ics_bauen(&entwurf)?;
+    let ics = termine::ics_bauen(&entwurf, termine::IcsZiel::CaldavObjekt)?;
     let etag_neu = verbindung
         .termin_speichern(&href, &ics, etag_alt.as_deref())
         .await?;
@@ -1882,13 +1882,17 @@ async fn kalender_termin_speichern_intern(
                     .to_string(),
             );
         };
+        // Die Mail bekommt eine eigene ICS-Fassung ohne ORGANIZER — mit
+        // ORGANIZER lehnen manche Mail-Anbieter die Einladung pauschal ab
+        // („550 Reject for policy reason“, Schutz vor Kalender-Spoofing).
+        let mail_ics = termine::ics_bauen(&entwurf, termine::IcsZiel::EinladungsMail)?;
         if let Err(fehler) = kalender_einladung_senden(
             app,
             zustand,
             &mail_konto,
             &teilnehmer,
             &entwurf,
-            &objekt.ics,
+            &mail_ics,
             ist_aenderung,
         )
         .await
