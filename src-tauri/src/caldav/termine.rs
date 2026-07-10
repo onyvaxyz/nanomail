@@ -320,8 +320,11 @@ pub fn ics_bauen(entwurf: &TerminEntwurf) -> Result<String> {
             anyhow::bail!("Teilnehmeradresse „{email}“ enthält unzulässige Zeichen");
         }
         let status = status_fuer_ics(&teilnehmer.status);
+        // SCHEDULE-AGENT=CLIENT (RFC 6638): Nanomail verschickt die Einladung
+        // selbst per Mail — der CalDAV-Server (Nextcloud) darf keine eigene
+        // Einladungs-Mail mit Web-Link senden, das gäbe doppelte Einladungen.
         zeilen.push(format!(
-            "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT={status};RSVP=TRUE;CN={email}:mailto:{email}"
+            "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT={status};RSVP=TRUE;SCHEDULE-AGENT=CLIENT;CN={email}:mailto:{email}"
         ));
     }
     zeilen.push("END:VEVENT".to_string());
@@ -807,6 +810,7 @@ mod tests {
         assert!(ics.contains("DESCRIPTION:Zeile 1\\nZeile 2\r\n"));
         assert!(ics.contains("ORGANIZER;CN=ich@example.com:mailto:ich@example.com\r\n"));
         assert!(ics.contains("PARTSTAT=TENTATIVE"));
+        assert!(ics.contains("SCHEDULE-AGENT=CLIENT"));
         assert!(ics.contains(":mailto:alice@example.com\r\n"));
         assert!(ist_einfacher_termin(&ics));
         assert_eq!(uid(&ics), Some("uid-1".to_string()));
