@@ -143,6 +143,9 @@ impl CaldavVerbindung {
             .unwrap_or_default()
             .to_string();
         let text = antwort.text().await.context("Antwort lesen")?;
+        if status == StatusCode::UNAUTHORIZED {
+            return Err(anmeldung_abgelehnt());
+        }
         if status == StatusCode::PRECONDITION_FAILED {
             anyhow::bail!(
                 "NUTZERFEHLER:Der Termin wurde inzwischen an anderer Stelle geändert. \
@@ -171,6 +174,9 @@ impl CaldavVerbindung {
             })?;
         let status = antwort.status();
         let text = antwort.text().await.context("Antwort lesen")?;
+        if status == StatusCode::UNAUTHORIZED {
+            return Err(anmeldung_abgelehnt());
+        }
         if status == StatusCode::PRECONDITION_FAILED {
             anyhow::bail!(
                 "NUTZERFEHLER:Der Termin wurde inzwischen an anderer Stelle geändert. \
@@ -211,12 +217,8 @@ impl CaldavVerbindung {
             })?;
 
         let status = antwort.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED {
-            anyhow::bail!(
-                "NUTZERFEHLER:Der Kalender-Server hat die Anmeldung abgelehnt. Bitte \
-                 Benutzername und App-Passwort prüfen (in Nextcloud unter Einstellungen → \
-                 Sicherheit ein App-Passwort erstellen)."
-            );
+        if status == StatusCode::UNAUTHORIZED {
+            return Err(anmeldung_abgelehnt());
         }
         let text = antwort.text().await.context("Antwort lesen")?;
         if !status.is_success() {
@@ -224,6 +226,14 @@ impl CaldavVerbindung {
         }
         Ok(text)
     }
+}
+
+fn anmeldung_abgelehnt() -> anyhow::Error {
+    anyhow!(
+        "NUTZERFEHLER:Der Kalender-Server hat die Anmeldung abgelehnt. Bitte \
+         Benutzername und App-Passwort prüfen (in Nextcloud unter Einstellungen → \
+         Sicherheit ein App-Passwort erstellen)."
+    )
 }
 
 fn ist_token_fehler(fehler: &anyhow::Error) -> bool {

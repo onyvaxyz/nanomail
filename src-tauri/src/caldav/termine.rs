@@ -206,7 +206,14 @@ fn teilnehmer(ereignis: &Event) -> Vec<Teilnehmer> {
             werte.push(teilnehmer_aus_property(eintrag));
         }
     }
-    werte.sort_by(|a, b| a.email.cmp(&b.email));
+    // Kleinschreibung auch beim Sortieren, sonst überleben Groß-/Klein-
+    // Duplikate, die nicht nebeneinander einsortiert werden (dedup_by
+    // entfernt nur benachbarte Einträge).
+    werte.sort_by(|a, b| {
+        a.email
+            .to_ascii_lowercase()
+            .cmp(&b.email.to_ascii_lowercase())
+    });
     werte.dedup_by(|a, b| a.email.eq_ignore_ascii_case(&b.email));
     werte
 }
@@ -233,11 +240,25 @@ fn teilnehmer_status(eintrag: &Property) -> String {
 }
 
 fn mailto_bereinigen(wert: &str) -> String {
-    wert.trim()
-        .strip_prefix("mailto:")
-        .or_else(|| wert.trim().strip_prefix("MAILTO:"))
-        .unwrap_or_else(|| wert.trim())
-        .to_string()
+    let wert = wert.trim();
+    // URI-Schemata sind laut RFC 3986 case-insensitiv („Mailto:“ ist gültig).
+    match wert.get(..7) {
+        Some(schema) if schema.eq_ignore_ascii_case("mailto:") => &wert[7..],
+        _ => wert,
+    }
+    .to_string()
+}
+
+/// Prüft, ob eine Adresse gefahrlos in ATTENDEE-/ORGANIZER-Zeilen passt.
+/// ICS-Parameterwerte kennen kein Backslash-Escaping; Doppelpunkt, Semikolon
+/// oder Komma würden die Zeilenstruktur aufbrechen.
+pub fn email_fuer_ics_geeignet(email: &str) -> bool {
+    email.contains('@')
+        && !email.chars().any(|zeichen| {
+            zeichen.is_whitespace()
+                || zeichen.is_control()
+                || matches!(zeichen, ':' | ';' | ',' | '"' | '\\' | '<' | '>')
+        })
 }
 
 // ------------------------------------------------------------- Schreiben --
@@ -286,20 +307,21 @@ pub fn ics_bauen(entwurf: &TerminEntwurf) -> Result<String> {
         .organisator
         .as_deref()
         .map(str::trim)
-        .filter(|wert| !wert.is_empty())
+        .filter(|wert| email_fuer_ics_geeignet(wert))
     {
-        let email_escaped = text_escapen(organisator);
-        zeilen.push(format!("ORGANIZER;CN={email_escaped}:mailto:{organisator}"));
+        zeilen.push(format!("ORGANIZER;CN={organisator}:mailto:{organisator}"));
     }
     for teilnehmer in &entwurf.teilnehmer {
         let email = teilnehmer.email.trim();
         if email.is_empty() {
             continue;
         }
+        if !email_fuer_ics_geeignet(email) {
+            anyhow::bail!("Teilnehmeradresse „{email}“ enthält unzulässige Zeichen");
+        }
         let status = status_fuer_ics(&teilnehmer.status);
-        let email_escaped = text_escapen(email);
         zeilen.push(format!(
-            "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT={status};RSVP=TRUE;CN={email_escaped}:mailto:{email}"
+            "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT={status};RSVP=TRUE;CN={email}:mailto:{email}"
         ));
     }
     zeilen.push("END:VEVENT".to_string());
@@ -711,6 +733,52 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn teilnehmer_dedupliziert_gross_klein_und_gemischtes_mailto() {
+        let ics = vevent(
+            "SUMMARY:Termin\r\nDTSTART:20260713T100000Z\r\nDTEND:20260713T110000Z\r\n\
+             ATTENDEE:mailto:Bob@x.com\r\n\
+             ATTENDEE:mailto:apple@x.com\r\n\
+             ATTENDEE:Mailto:bob@x.com",
+        );
+        let termine = expandiere(
+            &ics,
+            utc("2026-07-01T00:00:00Z"),
+            utc("2026-08-01T00:00:00Z"),
+        )
+        .unwrap();
+        let emails: Vec<&str> = termine[0]
+            .teilnehmer
+            .iter()
+            .map(|t| t.email.as_str())
+            .collect();
+        assert_eq!(emails, vec!["apple@x.com", "Bob@x.com"]);
+    }
+
+    #[test]
+    fn ics_bauen_lehnt_teilnehmer_mit_sonderzeichen_ab() {
+        let mut entwurf = TerminEntwurf {
+            uid: "uid-2".into(),
+            sequence: 0,
+            organisator: Some("kein-email-login".into()),
+            titel: "Test".into(),
+            ort: String::new(),
+            beschreibung: String::new(),
+            teilnehmer: vec![Teilnehmer {
+                email: "a:b@x.com".into(),
+                status: "needs_action".into(),
+            }],
+            beginn: utc("2026-07-13T10:00:00Z"),
+            ende: utc("2026-07-13T11:00:00Z"),
+            ganztags: false,
+        };
+        assert!(ics_bauen(&entwurf).is_err());
+        // Ungeeigneter Organisator wird weggelassen statt das ICS zu beschädigen.
+        entwurf.teilnehmer.clear();
+        let ics = ics_bauen(&entwurf).unwrap();
+        assert!(!ics.contains("ORGANIZER"));
     }
 
     #[test]

@@ -1635,6 +1635,8 @@ pub struct TerminAnzeige {
     /// CalDAV-Objektpfad — für Bearbeiten/Löschen mit Konfliktschutz.
     pub href: String,
     pub etag: String,
+    /// Vorkommen gehört zu einer Wiederholungsserie (Löschen trifft alle).
+    pub serie: bool,
     pub kalender_name: String,
     pub farbe: String,
     #[serde(flatten)]
@@ -1670,6 +1672,7 @@ fn kalender_termine_intern(zustand: &AppZustand, von: i64, bis: i64) -> Result<V
                         kalender_id: kal.id,
                         href: quelle.href.clone(),
                         etag: quelle.etag.clone(),
+                        serie: quelle.wiederholung,
                         kalender_name: kal.anzeige_name.clone(),
                         farbe: kal.farbe().to_string(),
                         termin,
@@ -1729,7 +1732,7 @@ async fn kalender_termin_speichern_intern(
     }
     let teilnehmer = adressliste(&formular.teilnehmer);
     for email in &teilnehmer {
-        if !email.contains('@') || email.chars().any(char::is_whitespace) {
+        if !termine::email_fuer_ics_geeignet(email) {
             return Err(nutzerfehler(format!(
                 "„{email}“ sieht nicht wie eine E-Mail-Adresse aus."
             )));
@@ -1743,75 +1746,94 @@ async fn kalender_termin_speichern_intern(
         .as_deref()
         .map(str::trim)
         .filter(|h| !h.is_empty());
-    let (href, uid, sequence, alte_teilnehmer, etag_alt, ist_aenderung) = if let Some(href) =
-        vorhandener_href
-    {
-        let ics_alt = mit_db(zustand, |conn| {
-            db_kalender::termin_ics(conn, kalender.id, href)
-        })?
-        .ok_or_else(|| nutzerfehler("Der Termin ist lokal nicht mehr vorhanden."))?;
-        if !termine::ist_einfacher_termin(&ics_alt) {
-            return Err(nutzerfehler(
-                "Wiederholungstermine können in Nanomail aktuell nicht bearbeitet werden — \
+    let (href, uid, sequence, alte_teilnehmer, etag_alt, ist_aenderung) =
+        if let Some(href) = vorhandener_href {
+            let ics_alt = mit_db(zustand, |conn| {
+                db_kalender::termin_ics(conn, kalender.id, href)
+            })?
+            .ok_or_else(|| nutzerfehler("Der Termin ist lokal nicht mehr vorhanden."))?;
+            if !termine::ist_einfacher_termin(&ics_alt) {
+                return Err(nutzerfehler(
+                    "Wiederholungstermine können in Nanomail aktuell nicht bearbeitet werden — \
                  bitte diesen Termin direkt in Nextcloud ändern.",
-            ));
-        }
-        let uid = termine::uid(&ics_alt).unwrap_or_else(|| neue_termin_uid(kalender.id));
-        let sequence = termine::sequence(&ics_alt).saturating_add(1);
-        let alte_teilnehmer = termine::teilnehmer_grundtermin(&ics_alt);
-        let etag = formular
-            .etag
-            .as_deref()
-            .map(str::trim)
-            .filter(|e| !e.is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                mit_db(zustand, |conn| {
-                    db_kalender::termin_etag(conn, kalender.id, href)
+                ));
+            }
+            let uid = termine::uid(&ics_alt).unwrap_or_else(|| neue_termin_uid(kalender.id));
+            let sequence = termine::sequence(&ics_alt).saturating_add(1);
+            let alte_teilnehmer = termine::teilnehmer_grundtermin(&ics_alt);
+            let etag = formular
+                .etag
+                .as_deref()
+                .map(str::trim)
+                .filter(|e| !e.is_empty())
+                .map(str::to_string)
+                .or_else(|| {
+                    mit_db(zustand, |conn| {
+                        db_kalender::termin_etag(conn, kalender.id, href)
+                    })
+                    .ok()
+                    .flatten()
+                    // Leerer Cache-ETag würde ein leeres If-Match erzeugen.
+                    .filter(|etag| !etag.is_empty())
                 })
-                .ok()
-                .flatten()
-            })
-            .ok_or_else(|| {
-                nutzerfehler("Der Termin kann ohne Server-Version nicht sicher gespeichert werden.")
-            })?;
-        (
-            href.to_string(),
-            uid,
-            sequence,
-            alte_teilnehmer,
-            Some(etag),
-            true,
-        )
-    } else {
-        let uid = neue_termin_uid(kalender.id);
-        let datei = uid
-            .chars()
-            .map(|z| {
-                if z.is_ascii_alphanumeric() || z == '-' {
-                    z
-                } else {
-                    '-'
-                }
-            })
-            .collect::<String>();
-        (
-            format!("{}{}.ics", kalender.href, datei),
-            uid,
-            0,
-            Vec::new(),
-            None,
-            false,
-        )
-    };
+                .ok_or_else(|| {
+                    nutzerfehler(
+                        "Der Termin kann ohne Server-Version nicht sicher gespeichert werden — \
+                     bitte den Kalender aktualisieren und den Termin erneut öffnen.",
+                    )
+                })?;
+            (
+                href.to_string(),
+                uid,
+                sequence,
+                alte_teilnehmer,
+                Some(etag),
+                true,
+            )
+        } else {
+            let uid = neue_termin_uid(kalender.id);
+            let datei = uid
+                .chars()
+                .map(|z| {
+                    if z.is_ascii_alphanumeric() || z == '-' {
+                        z
+                    } else {
+                        '-'
+                    }
+                })
+                .collect::<String>();
+            (
+                format!("{}{}.ics", kalender.href, datei),
+                uid,
+                0,
+                Vec::new(),
+                None,
+                false,
+            )
+        };
 
     let einladung_senden = formular.einladung_senden;
-    let einladung_konto_id = formular.einladung_konto_id;
+    // Das Mailkonto für die Einladung wird vor dem Speichern geladen: Seine
+    // Adresse ist der Organisator im Termin, damit ORGANIZER und Mail-Absender
+    // übereinstimmen — ohne ORGANIZER ist eine iTIP-Einladung ungültig und
+    // Mailprogramme zeigen keine Zusagen-/Absagen-Knöpfe.
+    let einladung_konto = match (
+        einladung_senden && !teilnehmer.is_empty(),
+        formular.einladung_konto_id,
+    ) {
+        (true, Some(id)) => Some(konto_laden(zustand, id)?),
+        _ => None,
+    };
+    let organisator = einladung_konto
+        .as_ref()
+        .map(|mail_konto| mail_konto.email.clone())
+        .or_else(|| konto.benutzer.contains('@').then(|| konto.benutzer.clone()))
+        .filter(|email| termine::email_fuer_ics_geeignet(email));
     let teilnehmer_entwurf = termin_teilnehmer(&teilnehmer, &alte_teilnehmer);
     let entwurf = termine::TerminEntwurf {
         uid,
         sequence,
-        organisator: konto.benutzer.contains('@').then(|| konto.benutzer.clone()),
+        organisator,
         titel,
         ort: formular.ort.trim().to_string(),
         beschreibung: formular.beschreibung.trim().to_string(),
@@ -1824,22 +1846,29 @@ async fn kalender_termin_speichern_intern(
     let etag_neu = verbindung
         .termin_speichern(&href, &ics, etag_alt.as_deref())
         .await?;
+    // Liefert der Server keinen ETag, wird das Objekt nachgeladen. Scheitert
+    // auch das, gilt der Termin trotzdem als gespeichert — er liegt bereits
+    // auf dem Server; den ETag holt der nächste Abgleich nach.
     let objekt = if etag_neu.is_empty() {
         verbindung
             .objekte_laden(&kalender.href, std::slice::from_ref(&href))
-            .await?
+            .await
+            .unwrap_or_else(|fehler| {
+                tracing::warn!("Termin nach dem Speichern nicht nachgeladen: {fehler:#}");
+                Vec::new()
+            })
             .into_iter()
             .next()
-            .unwrap_or(xml::ObjektDaten {
+            .unwrap_or_else(|| xml::ObjektDaten {
                 href: href.clone(),
-                etag: etag_neu,
-                ics,
+                etag: String::new(),
+                ics: ics.clone(),
             })
     } else {
         xml::ObjektDaten {
             href: href.clone(),
             etag: etag_neu,
-            ics,
+            ics: ics.clone(),
         }
     };
     mit_db(zustand, |conn| {
@@ -1847,7 +1876,7 @@ async fn kalender_termin_speichern_intern(
     })?;
     let _ = app.emit("kalender:aktualisiert", ());
     if einladung_senden && !teilnehmer.is_empty() {
-        let Some(konto_id) = einladung_konto_id else {
+        let Some(mail_konto) = einladung_konto else {
             return Ok(
                 "Termin gespeichert — aber es wurde kein Mailkonto für die Einladung ausgewählt."
                     .to_string(),
@@ -1856,7 +1885,7 @@ async fn kalender_termin_speichern_intern(
         if let Err(fehler) = kalender_einladung_senden(
             app,
             zustand,
-            konto_id,
+            &mail_konto,
             &teilnehmer,
             &entwurf,
             &objekt.ics,
@@ -1910,13 +1939,12 @@ fn termin_teilnehmer(
 async fn kalender_einladung_senden(
     app: &AppHandle,
     zustand: &AppZustand,
-    konto_id: i64,
+    konto: &db::Konto,
     teilnehmer: &[String],
     termin: &termine::TerminEntwurf,
     ics: &str,
     ist_aenderung: bool,
 ) -> Result<()> {
-    let konto = konto_laden(zustand, konto_id)?;
     if konto.smtp_host.is_empty() {
         return Err(nutzerfehler(
             "Für das gewählte Mailkonto ist noch kein Versand-Server (SMTP) hinterlegt.",
@@ -1955,7 +1983,7 @@ async fn kalender_einladung_senden(
     }
     let alle_ordner = mit_db(zustand, |conn| db::ordner_liste(conn, konto.id))?;
     if let Some(gesendet) = db::finde_gesendet_ordner(&alle_ordner) {
-        if let Err(fehler) = sent_ablage(app, zustand, &konto, gesendet, &rohbytes).await {
+        if let Err(fehler) = sent_ablage(app, zustand, konto, gesendet, &rohbytes).await {
             tracing::warn!("Gesendet-Ablage der Kalendereinladung fehlgeschlagen: {fehler:#}");
         }
     }

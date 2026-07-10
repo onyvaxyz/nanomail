@@ -58,16 +58,7 @@ pub struct KalenderEinladung {
 /// Baut die versandfertige Nachricht. Liefert zusätzlich die Rohbytes
 /// für das IMAP-APPEND in den „Gesendet“-Ordner.
 pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
-    let von: Mailbox = if eingabe.von_name.trim().is_empty() {
-        eingabe
-            .von_adresse
-            .parse()
-            .context("Absenderadresse ungültig")?
-    } else {
-        format!("{} <{}>", eingabe.von_name.trim(), eingabe.von_adresse)
-            .parse()
-            .context("Absenderadresse ungültig")?
-    };
+    let von = mailbox(&eingabe.von_name, &eingabe.von_adresse)?;
 
     let absender_adresse = von.email.clone();
     let mut builder = Message::builder().from(von);
@@ -159,7 +150,7 @@ pub fn baue_kalender_einladung(eingabe: &KalenderEinladung) -> Result<(Message, 
         .header(ContentType::TEXT_PLAIN)
         .body(eingabe.text.clone());
     let kalender_typ = ContentType::parse("text/calendar; method=REQUEST; charset=utf-8")
-        .unwrap_or(ContentType::parse("text/calendar").expect("gültiger Typ"));
+        .context("Kalender-Inhaltstyp bauen")?;
     let kalender_teil = SinglePart::builder()
         .header(kalender_typ)
         .header(ContentDisposition::inline_with_name("einladung.ics"))
@@ -175,14 +166,18 @@ pub fn baue_kalender_einladung(eingabe: &KalenderEinladung) -> Result<(Message, 
     Ok((nachricht, rohbytes))
 }
 
+/// Baut die Absender-Mailbox strukturiert statt über String-Parsen, damit
+/// Anzeigenamen mit Sonderzeichen (Komma, Klammern) korrekt zitiert werden.
 fn mailbox(name: &str, adresse: &str) -> Result<Mailbox> {
-    if name.trim().is_empty() {
-        adresse.parse().context("Absenderadresse ungültig")
-    } else {
-        format!("{} <{}>", name.trim(), adresse)
-            .parse()
-            .context("Absenderadresse ungültig")
-    }
+    let adresse = adresse
+        .trim()
+        .parse::<lettre::Address>()
+        .context("Absenderadresse ungültig")?;
+    let name = name.trim();
+    Ok(Mailbox::new(
+        (!name.is_empty()).then(|| name.to_string()),
+        adresse,
+    ))
 }
 
 /// Inhaltsteil der Mail vor dem Anfügen der Anhänge.
@@ -400,6 +395,17 @@ mod tests {
         assert!(roh.contains("multipart/mixed"));
         assert!(roh.contains("multipart/alternative"));
         assert!(roh.contains("attachment; filename=\"notiz.txt\""));
+    }
+
+    #[test]
+    fn anzeigename_mit_sonderzeichen_blockiert_versand_nicht() {
+        let mut eingabe = beispiel();
+        eingabe.von_name = "Bremer, Philipp (privat)".into();
+        let (_, roh) = baue_nachricht(&eingabe).unwrap();
+        let roh = String::from_utf8_lossy(&roh);
+        // lettre kodiert Namen mit Sonderzeichen als RFC-2047-Encoded-Word
+        // (Base64 von „Bremer, Philipp (privat)“) — gültig und lesbar.
+        assert!(roh.contains("From: =?utf-8?b?QnJlbWVyLCBQaGlsaXBwIChwcml2YXQp?= <"));
     }
 
     #[test]

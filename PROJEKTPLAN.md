@@ -84,6 +84,7 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 | 2026-07-08 | M4.1: „Löschen“ im Rechtsklick-Menü folgt denselben Regeln wie der Löschen-Knopf (Papierkorb; im Papierkorb endgültig nach Rückfrage) und funktioniert für alle Mails — insbesondere Entwürfe, die sich nicht im Lesebereich öffnen lassen und bisher nicht löschbar waren. |
 | 2026-07-08 | M4.1 von Philipp freigegeben. M5 startet als nächster Schritt; Termine sollen auch Personen per E-Mail einladen können. |
 | 2026-07-08 | M5 umgesetzt: In der Kalenderansicht können einfache Termine erstellt, bearbeitet und gelöscht werden. „Ort“ ist bewusst ein freies Textfeld (Raum, Adresse, Telefon oder Link). Eingeladene Personen werden als E-Mail-Adressen im Termin gespeichert (`ATTENDEE` im Kalenderformat); der Teilnahmestatus aus Nextcloud/Thunderbird wird angezeigt (z. B. bestätigt/nicht bestätigt). Weil Nextcloud in der getesteten Konfiguration keine Einladungs-Mail verschickt, kann Nanomail zusätzlich optional selbst eine Kalender-Einladungs-Mail (`METHOD:REQUEST`, nur in der Mail — nicht im CalDAV-Objekt) über ein auswählbares Mailkonto senden. Bei späteren Änderungen an einem Termin mit Teilnehmern ist die Änderungs-Mail standardmäßig aktiviert, aber abwählbar. Das Teilnehmerfeld nutzt die bekannten Adress-Vorschläge wie beim Mail-Verfassen. Änderungen und Löschungen nutzen den CalDAV-Konfliktschutz (`If-Match`) — wurde der Termin inzwischen anderswo geändert, fordert Nanomail zum Aktualisieren auf statt stumm zu überschreiben. Zusätzlich kann im Mail-Konto ein Anzeigename für ausgehende Mails gepflegt werden. Wiederholungstermine bleiben lesbar und können als ganze Serie gelöscht werden; Bearbeiten von Serien ist noch gesperrt, damit Wiederholungsregeln nicht versehentlich verloren gehen. |
+| 2026-07-10 | M5-Qualitätsprüfung (Code-Review mit mehreren Prüf-Perspektiven, da die Umsetzung extern erfolgte): 10 bestätigte bzw. plausible Probleme gefunden und behoben. Die wichtigsten: (1) Ein Anzeigename mit Komma/Klammern hätte jeden Mailversand des Kontos blockiert — Absender wird jetzt strukturiert gebaut statt als Text geparst. (2) Löschen eines einzelnen Serien-Vorkommens löscht die ganze Serie — die Rückfrage warnt jetzt ausdrücklich davor. (3) Der Organisator in Einladungs-Mails ist jetzt die Adresse des gewählten Versand-Mailkontos (vorher der Nextcloud-Anmeldename, der meist keine E-Mail-Adresse ist — Einladungen wären ohne Organisator formal ungültig gewesen und hätten beim Empfänger keine Zusagen-Knöpfe gezeigt). Außerdem: strengere Prüfung von Teilnehmeradressen (Sonderzeichen hätten das Kalenderformat beschädigt), Kalender-Auswahl beim Bearbeiten gesperrt (Verschieben wird noch nicht unterstützt), verständliche Meldung bei abgelehnter Anmeldung auch beim Speichern/Löschen, mehrere Randfälle bei Server-Versionskennungen (ETags) und Groß-/Kleinschreibung von Teilnehmern. |
 | 2026-07-07 | M3.4: Adress-Vorschläge ohne Adressbuch — beim Senden werden Empfänger gemerkt, zusätzlich zählen Absender aus dem Mail-Cache. Vorschläge erscheinen beim Tippen im An-/CC-Feld. |
 | 2026-07-07 | M3.4: „Als ungelesen markieren“ ändert das Flag sofort in der App und überträgt es im Hintergrund zum Server (wie beim Lesen); klappt das nicht (offline), korrigiert es der nächste Abgleich. |
 | 2026-07-05 | **M3.2: Komplettes Redesign nach eigener Vorlage** (Zed One Dark, Violett-Akzent, Schriften JetBrains Mono/Inter). Löst den Kachel-Fehler bei Absender-Avataren (Ursache: eine CSS-Kurzschreibweise in JS überschrieb versehentlich die Bild-Darstellung). Konto-Icons in der neuen Icon-Leiste nutzen ab jetzt ebenfalls Gravatar → Favicon → Initialen — die bestehende Ausnahme vom „keine externen Ladevorgänge“-Prinzip gilt damit für Absender- **und** Konto-Avatare. Schriften/Symbole werden weiterhin nur lokal mitgeliefert, nicht aus dem Netz geladen. Löschen/Archivieren/Markieren sind als Symbole schon sichtbar, aber noch ohne Funktion (kommt später). |
@@ -121,13 +122,16 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
    „Nicht bestätigt“).
 8. **Mail-Anzeigename:** Mail-Konto bearbeiten → „Anzeigename beim Senden“
    eintragen → speichern. Eine Testmail senden; beim Empfänger sollte der
-   Name vor der Adresse erscheinen.
+   Name vor der Adresse erscheinen. Auch mit Komma testen (z. B.
+   „Nachname, Vorname“) — der Versand muss trotzdem funktionieren.
 9. **Termin bearbeiten ohne Mail:** Soll keine Aktualisierung verschickt
    werden, beim Bearbeiten das Häkchen „Änderungs-Mail …“ entfernen und
    speichern. Die Änderung sollte trotzdem in Nanomail und Nextcloud sichtbar
    werden.
 10. **Termin löschen:** Den Termin anklicken → „Löschen“ und bestätigen.
-   Er sollte aus Nanomail und aus Nextcloud verschwinden.
+   Er sollte aus Nanomail und aus Nextcloud verschwinden. Beim Löschen
+   eines Wiederholungstermins muss die Rückfrage ausdrücklich warnen,
+   dass die gesamte Serie gelöscht wird.
 11. **Konfliktschutz (optional):** Einen Termin in Nanomail öffnen, dann den
    gleichen Termin in Nextcloud ändern und erst danach in Nanomail speichern.
    Nanomail sollte nicht überschreiben, sondern zum Aktualisieren auffordern.

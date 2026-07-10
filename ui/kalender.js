@@ -327,6 +327,9 @@ async function terminDialogOeffnen(termin = null, tag = null) {
     option.textContent = `${kalender.anzeige_name} · ${kalender.konto_name}`;
     auswahl.appendChild(option);
   }
+  // Verschieben zwischen Kalendern wird noch nicht unterstützt — beim
+  // Bearbeiten bleibt die Kalender-Auswahl deshalb gesperrt.
+  auswahl.disabled = Boolean(termin);
   await mailKontenFuerEinladungLaden();
 
   if (termin) {
@@ -486,7 +489,8 @@ function terminFormularDaten(formular) {
   );
   if (ganztags) ende.setDate(ende.getDate() + 1); // CalDAV-Ende ist exklusiv.
   return {
-    kalender_id: Number(daten.get("kalender_id")),
+    // Direkt vom Element lesen: gesperrte Felder fehlen in FormData.
+    kalender_id: Number(formular.elements.kalender_id.value),
     href: String(daten.get("href") || "") || null,
     etag: String(daten.get("etag") || "") || null,
     titel: String(daten.get("titel") || ""),
@@ -510,7 +514,12 @@ function datumZeitAusFormular(datum, zeit) {
 }
 
 async function terminLoeschen(termin) {
-  if (!termin || !confirm(`Termin „${termin.titel}“ wirklich löschen?`)) return;
+  if (!termin) return;
+  const frage = termin.serie
+    ? `„${termin.titel}“ gehört zu einer Wiederholungsserie. Es wird die GESAMTE Serie ` +
+      `mit allen Terminen gelöscht. Wirklich fortfahren?`
+    : `Termin „${termin.titel}“ wirklich löschen?`;
+  if (!confirm(frage)) return;
   try {
     await window.__TAURI__.core.invoke("kalender_termin_loeschen", {
       kalenderId: termin.kalender_id,

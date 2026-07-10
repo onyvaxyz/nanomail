@@ -55,6 +55,8 @@ pub struct TerminQuelle {
     pub kalender_id: i64,
     pub href: String,
     pub etag: String,
+    /// Objekt enthält eine Wiederholungsregel — Löschen trifft die ganze Serie.
+    pub wiederholung: bool,
     pub ics: String,
 }
 
@@ -317,7 +319,7 @@ pub fn termine_leeren(conn: &Connection, kalender_id: i64) -> Result<()> {
 pub fn termine_im_zeitraum(conn: &Connection, von: i64, bis: i64) -> Result<Vec<TerminQuelle>> {
     let mut stmt = conn
         .prepare(
-            "SELECT t.kalender_id, t.href, t.etag, t.ics
+            "SELECT t.kalender_id, t.href, t.etag, t.hat_wiederholung, t.ics
              FROM termine t JOIN kalender k ON k.id = t.kalender_id
              WHERE k.sichtbar = 1
                AND (t.hat_wiederholung = 1
@@ -330,7 +332,8 @@ pub fn termine_im_zeitraum(conn: &Connection, von: i64, bis: i64) -> Result<Vec<
                 kalender_id: z.get(0)?,
                 href: z.get(1)?,
                 etag: z.get(2)?,
-                ics: z.get(3)?,
+                wiederholung: z.get(3)?,
+                ics: z.get(4)?,
             })
         })
         .context("Termine lesen")?
