@@ -953,6 +953,7 @@ function kontoDialogOeffnen(modus, kontoId) {
   if (modus === "bearbeiten" && konto) {
     el("konto-dialog-titel").textContent = "Konto bearbeiten";
     formular.elements.name.value = konto.name;
+    formular.elements.anzeigename.value = konto.anzeigename || "";
     formular.elements.email.value = konto.email;
     formular.elements.benutzer.value = konto.benutzer;
     formular.elements.imap_host.value = konto.imap_host;
@@ -1026,6 +1027,7 @@ el("konto-formular").addEventListener("submit", async (ereignis) => {
   zeige("dialog-fehler", false);
   const formular = {
     name: daten.get("name"),
+    anzeigename: daten.get("anzeigename"),
     email: daten.get("email"),
     benutzer: daten.get("benutzer"),
     passwort: daten.get("passwort"),

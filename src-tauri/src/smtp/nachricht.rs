@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{Local, TimeZone};
-use lettre::message::header::ContentType;
+use lettre::message::header::{ContentDisposition, ContentType};
 use lettre::message::{Attachment, Body, Mailbox, MultiPart, SinglePart};
 use lettre::Message;
 
@@ -41,6 +41,18 @@ pub struct NeueNachricht {
     pub html: Option<String>,
     pub anhaenge: Vec<Anhang>,
     pub antwort: Option<AntwortKontext>,
+}
+
+/// Zutaten für eine Kalender-Einladung per Mail (iTIP REQUEST).
+#[derive(Debug, Clone)]
+pub struct KalenderEinladung {
+    pub von_name: String,
+    pub von_adresse: String,
+    pub an: Vec<String>,
+    pub betreff: String,
+    pub text: String,
+    /// VCALENDAR ohne METHOD (CalDAV-Objekt); für die Mail wird METHOD:REQUEST ergänzt.
+    pub ics: String,
 }
 
 /// Baut die versandfertige Nachricht. Liefert zusätzlich die Rohbytes
@@ -133,6 +145,46 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
     Ok((nachricht, rohbytes))
 }
 
+/// Baut eine iTIP-Einladungs-Mail zu einem bereits gespeicherten Kalendertermin.
+/// Der gespeicherte CalDAV-Termin darf kein METHOD enthalten; in der Mail ist
+/// METHOD:REQUEST dagegen richtig, damit Mailprogramme sie als Einladung erkennen.
+pub fn baue_kalender_einladung(eingabe: &KalenderEinladung) -> Result<(Message, Vec<u8>)> {
+    let von = mailbox(&eingabe.von_name, &eingabe.von_adresse)?;
+    let mut builder = Message::builder().from(von).subject(&eingabe.betreff);
+    for adresse in &eingabe.an {
+        builder = builder.to(parse_adresse(adresse)?);
+    }
+    let ics = ics_mit_methode(&eingabe.ics, "REQUEST");
+    let text_teil = SinglePart::builder()
+        .header(ContentType::TEXT_PLAIN)
+        .body(eingabe.text.clone());
+    let kalender_typ = ContentType::parse("text/calendar; method=REQUEST; charset=utf-8")
+        .unwrap_or(ContentType::parse("text/calendar").expect("gültiger Typ"));
+    let kalender_teil = SinglePart::builder()
+        .header(kalender_typ)
+        .header(ContentDisposition::inline_with_name("einladung.ics"))
+        .body(ics);
+    let nachricht = builder
+        .multipart(
+            MultiPart::alternative()
+                .singlepart(text_teil)
+                .singlepart(kalender_teil),
+        )
+        .context("Kalender-Einladung zusammenbauen")?;
+    let rohbytes = nachricht.formatted();
+    Ok((nachricht, rohbytes))
+}
+
+fn mailbox(name: &str, adresse: &str) -> Result<Mailbox> {
+    if name.trim().is_empty() {
+        adresse.parse().context("Absenderadresse ungültig")
+    } else {
+        format!("{} <{}>", name.trim(), adresse)
+            .parse()
+            .context("Absenderadresse ungültig")
+    }
+}
+
 /// Inhaltsteil der Mail vor dem Anfügen der Anhänge.
 enum Inhalt {
     Einteilig(SinglePart),
@@ -144,6 +196,35 @@ fn parse_adresse(eingabe: &str) -> Result<Mailbox> {
         .trim()
         .parse()
         .with_context(|| format!("Empfängeradresse „{}“ ist ungültig", eingabe.trim()))
+}
+
+fn ics_mit_methode(ics: &str, methode: &str) -> String {
+    let ohne_methode: Vec<&str> = ics
+        .lines()
+        .filter(|zeile| {
+            !zeile
+                .trim_start()
+                .to_ascii_uppercase()
+                .starts_with("METHOD:")
+        })
+        .collect();
+    let mut ergebnis = String::new();
+    let mut eingefuegt = false;
+    for zeile in ohne_methode {
+        let zeile = zeile.trim_end_matches('\r');
+        ergebnis.push_str(zeile);
+        ergebnis.push_str("\r\n");
+        if !eingefuegt && zeile.to_ascii_uppercase().starts_with("VERSION:") {
+            ergebnis.push_str("METHOD:");
+            ergebnis.push_str(methode);
+            ergebnis.push_str("\r\n");
+            eingefuegt = true;
+        }
+    }
+    if !eingefuegt {
+        ergebnis = format!("METHOD:{methode}\r\n{ergebnis}");
+    }
+    ergebnis
 }
 
 /// „Re:“ voranstellen — aber nicht verdoppeln (auch „AW:“ zählt).
@@ -319,6 +400,26 @@ mod tests {
         assert!(roh.contains("multipart/mixed"));
         assert!(roh.contains("multipart/alternative"));
         assert!(roh.contains("attachment; filename=\"notiz.txt\""));
+    }
+
+    #[test]
+    fn kalender_einladung_enthaelt_itip_request() {
+        let eingabe = KalenderEinladung {
+            von_name: "Philipp".into(),
+            von_adresse: "philipp@example.org".into(),
+            an: vec!["anna@example.org".into()],
+            betreff: "Einladung: Planung".into(),
+            text: "Kalendereinladung".into(),
+            ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:PUBLISH\r\nBEGIN:VEVENT\r\nUID:1\r\nSUMMARY:Planung\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n".into(),
+        };
+        let (_, roh) = baue_kalender_einladung(&eingabe).unwrap();
+        let roh = String::from_utf8_lossy(&roh);
+        assert!(roh.contains("From: Philipp <philipp@example.org>"));
+        assert!(roh.contains("To: anna@example.org"));
+        assert!(roh.contains("text/calendar"));
+        assert!(roh.contains("method=REQUEST"));
+        assert!(roh.contains("METHOD:REQUEST"));
+        assert!(!roh.contains("METHOD:PUBLISH"));
     }
 
     #[test]

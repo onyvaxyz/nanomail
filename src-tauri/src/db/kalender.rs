@@ -53,6 +53,8 @@ impl Kalender {
 #[derive(Debug, Clone)]
 pub struct TerminQuelle {
     pub kalender_id: i64,
+    pub href: String,
+    pub etag: String,
     pub ics: String,
 }
 
@@ -86,6 +88,16 @@ pub fn konten_liste(conn: &Connection) -> Result<Vec<KalenderKonto>> {
         .context("Kalender-Konten lesen")?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(konten)
+}
+
+pub fn konto_holen(conn: &Connection, id: i64) -> Result<Option<KalenderKonto>> {
+    conn.query_row(
+        "SELECT id, name, server, benutzer FROM kalender_konten WHERE id = ?1",
+        params![id],
+        zeile_zu_konto,
+    )
+    .optional()
+    .context("Kalender-Konto lesen")
 }
 
 pub fn konto_loeschen(conn: &Connection, id: i64) -> Result<()> {
@@ -171,8 +183,6 @@ pub fn kalender_liste(conn: &Connection) -> Result<Vec<Kalender>> {
     Ok(kalender)
 }
 
-/// Einzelnen Kalender lesen — bisher nur von Tests gebraucht.
-#[cfg(test)]
 pub fn kalender_holen(conn: &Connection, id: i64) -> Result<Option<Kalender>> {
     conn.query_row(
         "SELECT k.id, k.konto_id, o.name, k.href, k.anzeige_name,
@@ -240,6 +250,16 @@ pub fn termin_etag(conn: &Connection, kalender_id: i64, href: &str) -> Result<Op
     .context("Termin-ETag lesen")
 }
 
+pub fn termin_ics(conn: &Connection, kalender_id: i64, href: &str) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT ics FROM termine WHERE kalender_id = ?1 AND href = ?2",
+        params![kalender_id, href],
+        |z| z.get(0),
+    )
+    .optional()
+    .context("Termin-ICS lesen")
+}
+
 /// Legt ein Termin-Objekt an oder ersetzt den alten Stand.
 #[allow(clippy::too_many_arguments)]
 pub fn termin_upsert(
@@ -297,7 +317,7 @@ pub fn termine_leeren(conn: &Connection, kalender_id: i64) -> Result<()> {
 pub fn termine_im_zeitraum(conn: &Connection, von: i64, bis: i64) -> Result<Vec<TerminQuelle>> {
     let mut stmt = conn
         .prepare(
-            "SELECT t.kalender_id, t.ics
+            "SELECT t.kalender_id, t.href, t.etag, t.ics
              FROM termine t JOIN kalender k ON k.id = t.kalender_id
              WHERE k.sichtbar = 1
                AND (t.hat_wiederholung = 1
@@ -308,7 +328,9 @@ pub fn termine_im_zeitraum(conn: &Connection, von: i64, bis: i64) -> Result<Vec<
         .query_map(params![von, bis], |z| {
             Ok(TerminQuelle {
                 kalender_id: z.get(0)?,
-                ics: z.get(1)?,
+                href: z.get(1)?,
+                etag: z.get(2)?,
+                ics: z.get(3)?,
             })
         })
         .context("Termine lesen")?

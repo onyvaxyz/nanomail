@@ -4,7 +4,7 @@
 //! `caldav::xml`, die Sync-Entscheidungen trifft die Command-Schicht.
 
 use anyhow::{anyhow, Context, Result};
-use reqwest::Method;
+use reqwest::{Method, StatusCode};
 
 use super::xml;
 
@@ -109,6 +109,81 @@ impl CaldavVerbindung {
             .anfrage("REPORT", kalender_href, "1", xml::multiget_anfrage(hrefs))
             .await?;
         xml::parse_multiget(&antwort).context("Termin-Daten auswerten")
+    }
+
+    /// Legt ein Termin-Objekt an oder ersetzt es. Bei `etag = None` wird
+    /// nur angelegt, wenn das Objekt noch nicht existiert; sonst schützt
+    /// `If-Match` vor dem Überschreiben fremder Änderungen.
+    pub async fn termin_speichern(
+        &self,
+        href: &str,
+        ics: &str,
+        etag: Option<&str>,
+    ) -> Result<String> {
+        let url = format!("{}{}", self.origin, href);
+        let mut anfrage = self
+            .client
+            .request(Method::PUT, &url)
+            .basic_auth(&self.benutzer, Some(&self.passwort))
+            .header("Content-Type", "text/calendar; charset=utf-8")
+            .body(ics.to_string());
+        anfrage = match etag {
+            Some(etag) => anfrage.header("If-Match", etag),
+            None => anfrage.header("If-None-Match", "*"),
+        };
+        let antwort = anfrage.send().await.map_err(|fehler| {
+            tracing::warn!("CalDAV-PUT fehlgeschlagen: {fehler:#}");
+            anyhow!("Kalender-Server nicht erreichbar — bitte Internetverbindung prüfen.")
+        })?;
+        let status = antwort.status();
+        let etag_neu = antwort
+            .headers()
+            .get("ETag")
+            .and_then(|wert| wert.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        let text = antwort.text().await.context("Antwort lesen")?;
+        if status == StatusCode::PRECONDITION_FAILED {
+            anyhow::bail!(
+                "NUTZERFEHLER:Der Termin wurde inzwischen an anderer Stelle geändert. \
+                 Bitte Kalender aktualisieren und den Termin danach erneut öffnen."
+            );
+        }
+        if !status.is_success() {
+            anyhow::bail!("HTTP-Status {status} von {url}: {text}");
+        }
+        Ok(etag_neu)
+    }
+
+    /// Löscht ein Termin-Objekt mit Konfliktschutz (`If-Match`).
+    pub async fn termin_loeschen(&self, href: &str, etag: &str) -> Result<()> {
+        let url = format!("{}{}", self.origin, href);
+        let antwort = self
+            .client
+            .request(Method::DELETE, &url)
+            .basic_auth(&self.benutzer, Some(&self.passwort))
+            .header("If-Match", etag)
+            .send()
+            .await
+            .map_err(|fehler| {
+                tracing::warn!("CalDAV-DELETE fehlgeschlagen: {fehler:#}");
+                anyhow!("Kalender-Server nicht erreichbar — bitte Internetverbindung prüfen.")
+            })?;
+        let status = antwort.status();
+        let text = antwort.text().await.context("Antwort lesen")?;
+        if status == StatusCode::PRECONDITION_FAILED {
+            anyhow::bail!(
+                "NUTZERFEHLER:Der Termin wurde inzwischen an anderer Stelle geändert. \
+                 Bitte Kalender aktualisieren und den Termin danach erneut öffnen."
+            );
+        }
+        if status == StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        if !status.is_success() {
+            anyhow::bail!("HTTP-Status {status} von {url}: {text}");
+        }
+        Ok(())
     }
 
     /// Führt eine WebDAV-Anfrage aus und liefert den Antwort-Body.

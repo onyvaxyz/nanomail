@@ -114,6 +114,8 @@ pub fn run() {
             commands::kalender_farbe_setzen,
             commands::kalender_sichtbar_setzen,
             commands::kalender_termine,
+            commands::kalender_termin_speichern,
+            commands::kalender_termin_loeschen,
             commands::kalender_sync,
         ])
         .run(tauri::generate_context!())

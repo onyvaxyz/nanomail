@@ -6,11 +6,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
-use serde::Serialize;
+use chrono::{Local, TimeZone};
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::caldav::verbindung::{CaldavVerbindung, SyncAntwort};
@@ -162,6 +163,8 @@ fn melde_sync(app: &AppHandle, konto_id: i64, status: &'static str, meldung: Opt
 #[derive(serde::Deserialize)]
 pub struct KontoFormular {
     pub name: String,
+    #[serde(default)]
+    pub anzeigename: String,
     pub email: String,
     pub benutzer: String,
     /// Beim Bearbeiten leer lassen = Passwort unverändert.
@@ -181,6 +184,7 @@ pub struct KontoFormular {
 impl KontoFormular {
     fn bereinigt(mut self) -> Result<Self> {
         self.name = self.name.trim().to_string();
+        self.anzeigename = self.anzeigename.trim().to_string();
         self.email = self.email.trim().to_string();
         self.benutzer = self.benutzer.trim().to_string();
         self.imap_host = self.imap_host.trim().to_string();
@@ -206,6 +210,7 @@ impl KontoFormular {
     fn als_daten(&self) -> db::KontoDaten {
         db::KontoDaten {
             name: self.name.clone(),
+            anzeigename: self.anzeigename.clone(),
             email: self.email.clone(),
             imap_host: self.imap_host.clone(),
             imap_port: self.imap_port,
@@ -1133,7 +1138,7 @@ async fn mail_senden_intern(
     let html = html_aus_editor(formular.html.as_deref());
 
     let neue = nachricht::NeueNachricht {
-        von_name: String::new(), // M2: schlichte Absenderadresse, Name kommt mit Signaturen
+        von_name: konto.anzeigename.clone(),
         von_adresse: konto.email.clone(),
         an,
         cc,
@@ -1627,6 +1632,9 @@ pub fn kalender_sichtbar_setzen(
 #[derive(Serialize)]
 pub struct TerminAnzeige {
     pub kalender_id: i64,
+    /// CalDAV-Objektpfad — für Bearbeiten/Löschen mit Konfliktschutz.
+    pub href: String,
+    pub etag: String,
     pub kalender_name: String,
     pub farbe: String,
     #[serde(flatten)]
@@ -1660,6 +1668,8 @@ fn kalender_termine_intern(zustand: &AppZustand, von: i64, bis: i64) -> Result<V
                 for termin in vorkommen {
                     anzeige.push(TerminAnzeige {
                         kalender_id: kal.id,
+                        href: quelle.href.clone(),
+                        etag: quelle.etag.clone(),
                         kalender_name: kal.anzeige_name.clone(),
                         farbe: kal.farbe().to_string(),
                         termin,
@@ -1672,6 +1682,379 @@ fn kalender_termine_intern(zustand: &AppZustand, von: i64, bis: i64) -> Result<V
     }
     anzeige.sort_by_key(|t| t.termin.beginn);
     Ok(anzeige)
+}
+
+/// Formular für Termin erstellen/bearbeiten (M5). `href = None` legt neu an;
+/// sonst wird mit `If-Match` gegen fremde Änderungen gespeichert.
+#[derive(Deserialize)]
+pub struct TerminFormular {
+    pub kalender_id: i64,
+    pub href: Option<String>,
+    pub etag: Option<String>,
+    pub titel: String,
+    pub ort: String,
+    pub beschreibung: String,
+    pub teilnehmer: String,
+    pub beginn: i64,
+    pub ende: i64,
+    pub ganztags: bool,
+    #[serde(default)]
+    pub einladung_senden: bool,
+    #[serde(default)]
+    pub einladung_konto_id: Option<i64>,
+}
+
+#[tauri::command]
+pub async fn kalender_termin_speichern(
+    app: AppHandle,
+    zustand: State<'_, AppZustand>,
+    formular: TerminFormular,
+) -> Result<String, String> {
+    kalender_termin_speichern_intern(&app, &zustand, formular)
+        .await
+        .map_err(|f| als_meldung(&f))
+}
+
+async fn kalender_termin_speichern_intern(
+    app: &AppHandle,
+    zustand: &AppZustand,
+    formular: TerminFormular,
+) -> Result<String> {
+    let titel = formular.titel.trim().to_string();
+    if titel.is_empty() {
+        return Err(nutzerfehler("Bitte einen Titel für den Termin eingeben."));
+    }
+    if formular.ende <= formular.beginn {
+        return Err(nutzerfehler("Das Ende muss nach dem Beginn liegen."));
+    }
+    let teilnehmer = adressliste(&formular.teilnehmer);
+    for email in &teilnehmer {
+        if !email.contains('@') || email.chars().any(char::is_whitespace) {
+            return Err(nutzerfehler(format!(
+                "„{email}“ sieht nicht wie eine E-Mail-Adresse aus."
+            )));
+        }
+    }
+
+    let (kalender, konto, verbindung) =
+        caldav_verbindung_zum_kalender(zustand, formular.kalender_id).await?;
+    let vorhandener_href = formular
+        .href
+        .as_deref()
+        .map(str::trim)
+        .filter(|h| !h.is_empty());
+    let (href, uid, sequence, alte_teilnehmer, etag_alt, ist_aenderung) = if let Some(href) =
+        vorhandener_href
+    {
+        let ics_alt = mit_db(zustand, |conn| {
+            db_kalender::termin_ics(conn, kalender.id, href)
+        })?
+        .ok_or_else(|| nutzerfehler("Der Termin ist lokal nicht mehr vorhanden."))?;
+        if !termine::ist_einfacher_termin(&ics_alt) {
+            return Err(nutzerfehler(
+                "Wiederholungstermine können in Nanomail aktuell nicht bearbeitet werden — \
+                 bitte diesen Termin direkt in Nextcloud ändern.",
+            ));
+        }
+        let uid = termine::uid(&ics_alt).unwrap_or_else(|| neue_termin_uid(kalender.id));
+        let sequence = termine::sequence(&ics_alt).saturating_add(1);
+        let alte_teilnehmer = termine::teilnehmer_grundtermin(&ics_alt);
+        let etag = formular
+            .etag
+            .as_deref()
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                mit_db(zustand, |conn| {
+                    db_kalender::termin_etag(conn, kalender.id, href)
+                })
+                .ok()
+                .flatten()
+            })
+            .ok_or_else(|| {
+                nutzerfehler("Der Termin kann ohne Server-Version nicht sicher gespeichert werden.")
+            })?;
+        (
+            href.to_string(),
+            uid,
+            sequence,
+            alte_teilnehmer,
+            Some(etag),
+            true,
+        )
+    } else {
+        let uid = neue_termin_uid(kalender.id);
+        let datei = uid
+            .chars()
+            .map(|z| {
+                if z.is_ascii_alphanumeric() || z == '-' {
+                    z
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>();
+        (
+            format!("{}{}.ics", kalender.href, datei),
+            uid,
+            0,
+            Vec::new(),
+            None,
+            false,
+        )
+    };
+
+    let einladung_senden = formular.einladung_senden;
+    let einladung_konto_id = formular.einladung_konto_id;
+    let teilnehmer_entwurf = termin_teilnehmer(&teilnehmer, &alte_teilnehmer);
+    let entwurf = termine::TerminEntwurf {
+        uid,
+        sequence,
+        organisator: konto.benutzer.contains('@').then(|| konto.benutzer.clone()),
+        titel,
+        ort: formular.ort.trim().to_string(),
+        beschreibung: formular.beschreibung.trim().to_string(),
+        teilnehmer: teilnehmer_entwurf,
+        beginn: formular.beginn,
+        ende: formular.ende,
+        ganztags: formular.ganztags,
+    };
+    let ics = termine::ics_bauen(&entwurf)?;
+    let etag_neu = verbindung
+        .termin_speichern(&href, &ics, etag_alt.as_deref())
+        .await?;
+    let objekt = if etag_neu.is_empty() {
+        verbindung
+            .objekte_laden(&kalender.href, std::slice::from_ref(&href))
+            .await?
+            .into_iter()
+            .next()
+            .unwrap_or(xml::ObjektDaten {
+                href: href.clone(),
+                etag: etag_neu,
+                ics,
+            })
+    } else {
+        xml::ObjektDaten {
+            href: href.clone(),
+            etag: etag_neu,
+            ics,
+        }
+    };
+    mit_db(zustand, |conn| {
+        termin_objekt_speichern(conn, kalender.id, &objekt)
+    })?;
+    let _ = app.emit("kalender:aktualisiert", ());
+    if einladung_senden && !teilnehmer.is_empty() {
+        let Some(konto_id) = einladung_konto_id else {
+            return Ok(
+                "Termin gespeichert — aber es wurde kein Mailkonto für die Einladung ausgewählt."
+                    .to_string(),
+            );
+        };
+        if let Err(fehler) = kalender_einladung_senden(
+            app,
+            zustand,
+            konto_id,
+            &teilnehmer,
+            &entwurf,
+            &objekt.ics,
+            ist_aenderung,
+        )
+        .await
+        {
+            tracing::error!("Kalender-Einladung nicht versendet: {fehler:#}");
+            return Ok(format!(
+                "Termin gespeichert — aber die Einladungs-Mail konnte nicht versendet werden: {}",
+                als_meldung(&fehler)
+            ));
+        }
+    }
+    tracing::info!(
+        konto_id = konto.id,
+        kalender_id = kalender.id,
+        "Termin gespeichert"
+    );
+    Ok(if einladung_senden && !teilnehmer.is_empty() {
+        if ist_aenderung {
+            "Termin gespeichert und Änderungs-Mail versendet.".to_string()
+        } else {
+            "Termin gespeichert und Einladung versendet.".to_string()
+        }
+    } else {
+        "Termin gespeichert.".to_string()
+    })
+}
+
+fn termin_teilnehmer(
+    adressen: &[String],
+    alte_teilnehmer: &[termine::Teilnehmer],
+) -> Vec<termine::Teilnehmer> {
+    adressen
+        .iter()
+        .map(|email| {
+            let status = alte_teilnehmer
+                .iter()
+                .find(|t| t.email.eq_ignore_ascii_case(email))
+                .map(|t| t.status.clone())
+                .unwrap_or_else(|| "needs_action".to_string());
+            termine::Teilnehmer {
+                email: email.clone(),
+                status,
+            }
+        })
+        .collect()
+}
+
+async fn kalender_einladung_senden(
+    app: &AppHandle,
+    zustand: &AppZustand,
+    konto_id: i64,
+    teilnehmer: &[String],
+    termin: &termine::TerminEntwurf,
+    ics: &str,
+    ist_aenderung: bool,
+) -> Result<()> {
+    let konto = konto_laden(zustand, konto_id)?;
+    if konto.smtp_host.is_empty() {
+        return Err(nutzerfehler(
+            "Für das gewählte Mailkonto ist noch kein Versand-Server (SMTP) hinterlegt.",
+        ));
+    }
+    let einladung = nachricht::KalenderEinladung {
+        von_name: konto.anzeigename.clone(),
+        von_adresse: konto.email.clone(),
+        an: teilnehmer.to_vec(),
+        betreff: if ist_aenderung {
+            format!("Aktualisierung: {}", termin.titel)
+        } else {
+            format!("Einladung: {}", termin.titel)
+        },
+        text: einladung_text(termin, ist_aenderung),
+        ics: ics.to_string(),
+    };
+    let (fertig, rohbytes) =
+        nachricht::baue_kalender_einladung(&einladung).map_err(|f| nutzerfehler(f.to_string()))?;
+    let passwort = passwort_holen(konto.id).await?;
+    versand::senden(
+        &konto.smtp_host,
+        konto.smtp_port,
+        &konto.benutzer,
+        &passwort,
+        fertig,
+    )
+    .await?;
+    if let Err(fehler) = mit_db(zustand, |conn| {
+        for adresse in teilnehmer {
+            db::adresse_merken(conn, adresse)?;
+        }
+        Ok(())
+    }) {
+        tracing::warn!("Teilnehmeradressen nicht gemerkt: {fehler:#}");
+    }
+    let alle_ordner = mit_db(zustand, |conn| db::ordner_liste(conn, konto.id))?;
+    if let Some(gesendet) = db::finde_gesendet_ordner(&alle_ordner) {
+        if let Err(fehler) = sent_ablage(app, zustand, &konto, gesendet, &rohbytes).await {
+            tracing::warn!("Gesendet-Ablage der Kalendereinladung fehlgeschlagen: {fehler:#}");
+        }
+    }
+    Ok(())
+}
+
+fn einladung_text(termin: &termine::TerminEntwurf, ist_aenderung: bool) -> String {
+    let beginn = zeit_text(termin.beginn);
+    let ende = zeit_text(termin.ende);
+    let einleitung = if ist_aenderung {
+        "Der folgende Termin wurde aktualisiert:"
+    } else {
+        "Du bist zu folgendem Termin eingeladen:"
+    };
+    let mut text = format!("{einleitung}\n\n{}\n{beginn} – {ende}", termin.titel);
+    if !termin.ort.trim().is_empty() {
+        text.push_str("\nOrt: ");
+        text.push_str(termin.ort.trim());
+    }
+    if !termin.beschreibung.trim().is_empty() {
+        text.push_str("\n\n");
+        text.push_str(termin.beschreibung.trim());
+    }
+    text.push_str("\n\nDiese Einladung wurde mit Nanomail versendet.");
+    text
+}
+
+fn zeit_text(sekunden: i64) -> String {
+    Local
+        .timestamp_opt(sekunden, 0)
+        .single()
+        .map(|zeit| zeit.format("%d.%m.%Y %H:%M").to_string())
+        .unwrap_or_else(|| "unbekannte Zeit".to_string())
+}
+
+#[tauri::command]
+pub async fn kalender_termin_loeschen(
+    app: AppHandle,
+    zustand: State<'_, AppZustand>,
+    kalender_id: i64,
+    href: String,
+    etag: String,
+) -> Result<(), String> {
+    kalender_termin_loeschen_intern(&app, &zustand, kalender_id, href, etag)
+        .await
+        .map_err(|f| als_meldung(&f))
+}
+
+async fn kalender_termin_loeschen_intern(
+    app: &AppHandle,
+    zustand: &AppZustand,
+    kalender_id: i64,
+    href: String,
+    etag: String,
+) -> Result<()> {
+    let (kalender, _konto, verbindung) =
+        caldav_verbindung_zum_kalender(zustand, kalender_id).await?;
+    let href = href.trim().to_string();
+    if href.is_empty() || etag.trim().is_empty() {
+        return Err(nutzerfehler(
+            "Der Termin kann ohne Server-Version nicht sicher gelöscht werden.",
+        ));
+    }
+    verbindung.termin_loeschen(&href, etag.trim()).await?;
+    mit_db(zustand, |conn| {
+        db_kalender::termin_loeschen(conn, kalender.id, &href)
+    })?;
+    let _ = app.emit("kalender:aktualisiert", ());
+    tracing::info!(kalender_id = kalender.id, "Termin gelöscht");
+    Ok(())
+}
+
+async fn caldav_verbindung_zum_kalender(
+    zustand: &AppZustand,
+    kalender_id: i64,
+) -> Result<(
+    db_kalender::Kalender,
+    db_kalender::KalenderKonto,
+    CaldavVerbindung,
+)> {
+    let kalender = mit_db(zustand, |conn| {
+        db_kalender::kalender_holen(conn, kalender_id)
+    })?
+    .ok_or_else(|| nutzerfehler("Der Kalender ist nicht mehr vorhanden."))?;
+    let konto = mit_db(zustand, |conn| {
+        db_kalender::konto_holen(conn, kalender.konto_id)
+    })?
+    .ok_or_else(|| nutzerfehler("Das Kalender-Konto ist nicht mehr vorhanden."))?;
+    let passwort = kalender_passwort_holen(konto.id).await?;
+    let verbindung = CaldavVerbindung::neu(&konto.server, &konto.benutzer, &passwort)?;
+    Ok((kalender, konto, verbindung))
+}
+
+fn neue_termin_uid(kalender_id: i64) -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|dauer| dauer.as_millis())
+        .unwrap_or_default();
+    format!("nanomail-{kalender_id}-{millis}")
 }
 
 #[tauri::command]

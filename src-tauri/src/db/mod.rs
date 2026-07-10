@@ -17,6 +17,8 @@ use serde::Serialize;
 pub struct Konto {
     pub id: i64,
     pub name: String,
+    /// Anzeigename im From:-Header ausgehender Mails (leer = nur Adresse).
+    pub anzeigename: String,
     pub email: String,
     pub imap_host: String,
     pub imap_port: u16,
@@ -327,6 +329,17 @@ fn migrieren(conn: &Connection) -> Result<()> {
         )
         .context("Migration 9 ausführen")?;
     }
+    if version < 10 {
+        conn.execute_batch(
+            r#"
+            -- Anzeigename für ausgehende Mails; Passwörter bleiben weiterhin
+            -- ausschließlich im Schlüsselbund.
+            ALTER TABLE konten ADD COLUMN anzeigename TEXT NOT NULL DEFAULT '';
+            INSERT INTO schema_version (version) VALUES (10);
+            "#,
+        )
+        .context("Migration 10 ausführen")?;
+    }
     Ok(())
 }
 
@@ -336,6 +349,7 @@ fn migrieren(conn: &Connection) -> Result<()> {
 #[derive(Debug, Clone)]
 pub struct KontoDaten {
     pub name: String,
+    pub anzeigename: String,
     pub email: String,
     pub imap_host: String,
     pub imap_port: u16,
@@ -348,11 +362,12 @@ pub struct KontoDaten {
 
 pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
     conn.execute(
-        "INSERT INTO konten (name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port,
-                             signatur, farbe)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO konten (name, anzeigename, email, imap_host, imap_port, benutzer, smtp_host,
+                             smtp_port, signatur, farbe)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             daten.name,
+            daten.anzeigename,
             daten.email,
             daten.imap_host,
             daten.imap_port,
@@ -368,6 +383,7 @@ pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
     Ok(Konto {
         id,
         name: daten.name.clone(),
+        anzeigename: daten.anzeigename.clone(),
         email: daten.email.clone(),
         imap_host: daten.imap_host.clone(),
         imap_port: daten.imap_port,
@@ -381,13 +397,14 @@ pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
 
 pub fn konto_aktualisieren(conn: &Connection, id: i64, daten: &KontoDaten) -> Result<()> {
     conn.execute(
-        "UPDATE konten SET name = ?2, email = ?3, imap_host = ?4, imap_port = ?5,
-                           benutzer = ?6, smtp_host = ?7, smtp_port = ?8,
-                           signatur = ?9, farbe = ?10
+        "UPDATE konten SET name = ?2, anzeigename = ?3, email = ?4, imap_host = ?5,
+                           imap_port = ?6, benutzer = ?7, smtp_host = ?8,
+                           smtp_port = ?9, signatur = ?10, farbe = ?11
          WHERE id = ?1",
         params![
             id,
             daten.name,
+            daten.anzeigename,
             daten.email,
             daten.imap_host,
             daten.imap_port,
@@ -405,8 +422,8 @@ pub fn konto_aktualisieren(conn: &Connection, id: i64, daten: &KontoDaten) -> Re
 pub fn konten_liste(conn: &Connection) -> Result<Vec<Konto>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port,
-                    signatur, farbe
+            "SELECT id, name, anzeigename, email, imap_host, imap_port, benutzer, smtp_host,
+                    smtp_port, signatur, farbe
              FROM konten ORDER BY id",
         )
         .context("Konten abfragen")?;
@@ -419,8 +436,8 @@ pub fn konten_liste(conn: &Connection) -> Result<Vec<Konto>> {
 
 pub fn konto_holen(conn: &Connection, id: i64) -> Result<Option<Konto>> {
     conn.query_row(
-        "SELECT id, name, email, imap_host, imap_port, benutzer, smtp_host, smtp_port,
-                signatur, farbe
+        "SELECT id, name, anzeigename, email, imap_host, imap_port, benutzer, smtp_host,
+                smtp_port, signatur, farbe
          FROM konten WHERE id = ?1",
         params![id],
         zeile_zu_konto,
@@ -433,14 +450,15 @@ fn zeile_zu_konto(zeile: &rusqlite::Row<'_>) -> rusqlite::Result<Konto> {
     Ok(Konto {
         id: zeile.get(0)?,
         name: zeile.get(1)?,
-        email: zeile.get(2)?,
-        imap_host: zeile.get(3)?,
-        imap_port: zeile.get(4)?,
-        benutzer: zeile.get(5)?,
-        smtp_host: zeile.get(6)?,
-        smtp_port: zeile.get(7)?,
-        signatur: zeile.get(8)?,
-        farbe: zeile.get(9)?,
+        anzeigename: zeile.get(2)?,
+        email: zeile.get(3)?,
+        imap_host: zeile.get(4)?,
+        imap_port: zeile.get(5)?,
+        benutzer: zeile.get(6)?,
+        smtp_host: zeile.get(7)?,
+        smtp_port: zeile.get(8)?,
+        signatur: zeile.get(9)?,
+        farbe: zeile.get(10)?,
     })
 }
 
@@ -1097,6 +1115,7 @@ mod tests {
     fn beispiel_daten() -> KontoDaten {
         KontoDaten {
             name: "Test".into(),
+            anzeigename: "Test Nutzer".into(),
             email: "test@example.org".into(),
             imap_host: "imap.example.org".into(),
             imap_port: 993,
@@ -1119,7 +1138,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
     }
 
     #[test]

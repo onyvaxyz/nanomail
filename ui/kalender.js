@@ -10,6 +10,9 @@ const kalZustand = {
   kalender: [],
   /// Kalender-ID, deren Farbe gerade im Farbwähler geändert wird.
   farbwahlKalenderId: null,
+  /// Termin, der gerade im Dialog bearbeitet wird (null = neu).
+  bearbeiteterTermin: null,
+  mailKonten: [],
 };
 
 const kalMonatFormat = new Intl.DateTimeFormat("de-DE", { month: "long", year: "numeric" });
@@ -51,6 +54,7 @@ el("kal-heute-knopf").addEventListener("click", () => {
   kalZustand.monat = new Date(jetzt.getFullYear(), jetzt.getMonth(), 1);
   monatAnzeigen();
 });
+el("kal-termin-neu-knopf").addEventListener("click", () => terminDialogOeffnen());
 
 function monatVerschieben(schritt) {
   kalZustand.monat = new Date(
@@ -159,6 +163,8 @@ function tagesZelle(tag, termine, heuteSchluessel) {
   if (tagSchluessel(tag) === heuteSchluessel) nummer.classList.add("heute");
   nummer.textContent = tag.getDate();
   zelle.appendChild(nummer);
+  zelle.title = "Doppelklick: neuen Termin an diesem Tag erstellen";
+  zelle.addEventListener("dblclick", () => terminDialogOeffnen(null, tag));
 
   // Ganztägige zuerst, danach nach Uhrzeit.
   const sortiert = [...termine].sort(
@@ -249,11 +255,43 @@ function terminPopoverZeigen(ereignis, termin) {
     beschreibung.textContent = termin.beschreibung;
     popover.appendChild(beschreibung);
   }
+  if (termin.teilnehmer && termin.teilnehmer.length > 0) {
+    const teilnehmer = document.createElement("div");
+    teilnehmer.className = "popover-zeile";
+    teilnehmer.appendChild(icon("users"));
+    teilnehmer.append(termin.teilnehmer.map(teilnehmerText).join(", "));
+    popover.appendChild(teilnehmer);
+  }
   const kalender = document.createElement("div");
   kalender.className = "popover-zeile leise";
   kalender.appendChild(icon("calendar-blank"));
   kalender.append(termin.kalender_name);
   popover.appendChild(kalender);
+
+  const aktionen = document.createElement("div");
+  aktionen.className = "popover-aktionen";
+  const bearbeiten = document.createElement("button");
+  bearbeiten.type = "button";
+  bearbeiten.className = "knopf-sekundaer";
+  bearbeiten.appendChild(icon("pencil-simple-line"));
+  bearbeiten.append("Bearbeiten");
+  bearbeiten.addEventListener("click", (event) => {
+    event.stopPropagation();
+    terminPopoverSchliessen();
+    terminDialogOeffnen(termin);
+  });
+  const loeschen = document.createElement("button");
+  loeschen.type = "button";
+  loeschen.className = "knopf-gefahr";
+  loeschen.appendChild(icon("trash"));
+  loeschen.append("Löschen");
+  loeschen.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    terminPopoverSchliessen();
+    await terminLoeschen(termin);
+  });
+  aktionen.append(bearbeiten, loeschen);
+  popover.appendChild(aktionen);
 
   // Am Klickpunkt öffnen, ohne über den Fensterrand zu ragen.
   popover.classList.remove("versteckt");
@@ -261,6 +299,328 @@ function terminPopoverZeigen(ereignis, termin) {
   popover.style.left = `${Math.min(ereignis.clientX, window.innerWidth - kasten.width - 12)}px`;
   popover.style.top = `${Math.min(ereignis.clientY, window.innerHeight - kasten.height - 12)}px`;
 }
+
+// ------------------------------------------------------- Termin-Dialog --
+
+function sichtbareKalender() {
+  const sichtbare = kalZustand.kalender.filter((kalender) => kalender.sichtbar);
+  return sichtbare.length > 0 ? sichtbare : kalZustand.kalender;
+}
+
+async function terminDialogOeffnen(termin = null, tag = null) {
+  if (kalZustand.kalender.length === 0) {
+    status("Bitte zuerst ein Kalender-Konto hinzufügen.", "fehler");
+    return;
+  }
+  kalZustand.bearbeiteterTermin = termin;
+  const formular = el("termin-formular");
+  formular.reset();
+  zeige("termin-dialog-fehler", false);
+  zeige("termin-loeschen-dialog-knopf", Boolean(termin));
+  el("termin-dialog-titel").textContent = termin ? "Termin bearbeiten" : "Termin erstellen";
+
+  const auswahl = formular.elements.kalender_id;
+  auswahl.innerHTML = "";
+  for (const kalender of kalZustand.kalender) {
+    const option = document.createElement("option");
+    option.value = kalender.id;
+    option.textContent = `${kalender.anzeige_name} · ${kalender.konto_name}`;
+    auswahl.appendChild(option);
+  }
+  await mailKontenFuerEinladungLaden();
+
+  if (termin) {
+    formular.elements.href.value = termin.href || "";
+    formular.elements.etag.value = termin.etag || "";
+    formular.elements.kalender_id.value = termin.kalender_id;
+    formular.elements.titel.value = termin.titel || "";
+    formular.elements.ort.value = termin.ort || "";
+    formular.elements.teilnehmer.value = teilnehmerAdressen(termin).join(", ");
+    formular.elements.einladung_senden.checked =
+      teilnehmerAdressen(termin).length > 0 && kalZustand.mailKonten.length > 0;
+    el("termin-einladung-text").textContent = "Änderungs-Mail mit Nanomail senden";
+    formular.elements.beschreibung.value = termin.beschreibung || "";
+    formular.elements.ganztags.checked = Boolean(termin.ganztags);
+    zeitfelderSetzen(new Date(termin.beginn * 1000), new Date(termin.ende * 1000), termin.ganztags);
+  } else {
+    const kalender = sichtbareKalender()[0];
+    formular.elements.kalender_id.value = kalender.id;
+    const beginn = tag ? new Date(tag) : new Date();
+    beginn.setMinutes(0, 0, 0);
+    if (!tag) beginn.setHours(beginn.getHours() + 1);
+    const ende = new Date(beginn);
+    ende.setHours(ende.getHours() + 1);
+    zeitfelderSetzen(beginn, ende, false);
+    formular.elements.einladung_senden.checked = false;
+    el("termin-einladung-text").textContent = "Einladungs-Mail mit Nanomail senden";
+  }
+  einladungsFelderAktualisieren();
+  ganztagsFelderAktualisieren();
+  el("termin-dialog").showModal();
+}
+
+async function mailKontenFuerEinladungLaden() {
+  const formular = el("termin-formular");
+  const auswahl = formular.elements.einladung_konto_id;
+  auswahl.innerHTML = "";
+  try {
+    kalZustand.mailKonten = await window.__TAURI__.core.invoke("konten_liste");
+  } catch {
+    kalZustand.mailKonten = [];
+  }
+  for (const konto of kalZustand.mailKonten) {
+    const option = document.createElement("option");
+    option.value = konto.id;
+    option.textContent = `${konto.name} <${konto.email}>`;
+    auswahl.appendChild(option);
+  }
+  formular.elements.einladung_senden.disabled = kalZustand.mailKonten.length === 0;
+  zeige("termin-einladung-konto-label", false);
+}
+
+function teilnehmerAdressen(termin) {
+  return (termin.teilnehmer || []).map((eintrag) => {
+    if (typeof eintrag === "string") return eintrag;
+    return eintrag.email || "";
+  }).filter(Boolean);
+}
+
+function teilnehmerText(eintrag) {
+  if (typeof eintrag === "string") return `${eintrag} (Nicht bestätigt)`;
+  return `${eintrag.email} (${teilnehmerStatusText(eintrag.status)})`;
+}
+
+function teilnehmerStatusText(status) {
+  switch (status) {
+    case "accepted": return "Bestätigt";
+    case "declined": return "Abgelehnt";
+    case "tentative": return "Vorläufig";
+    case "needs_action": return "Nicht bestätigt";
+    default: return "Unbekannt";
+  }
+}
+
+function zwei(zahl) {
+  return String(zahl).padStart(2, "0");
+}
+
+function datumInput(datum) {
+  return `${datum.getFullYear()}-${zwei(datum.getMonth() + 1)}-${zwei(datum.getDate())}`;
+}
+
+function zeitInput(datum) {
+  return `${zwei(datum.getHours())}:${zwei(datum.getMinutes())}`;
+}
+
+function zeitfelderSetzen(beginn, ende, ganztags) {
+  const formular = el("termin-formular");
+  formular.elements.beginn_datum.value = datumInput(beginn);
+  formular.elements.ende_datum.value = datumInput(ganztags ? endeMinusEinTag(ende) : ende);
+  formular.elements.beginn_zeit.value = zeitInput(beginn);
+  formular.elements.ende_zeit.value = zeitInput(ende);
+}
+
+function endeMinusEinTag(ende) {
+  const datum = new Date(ende);
+  datum.setDate(datum.getDate() - 1);
+  return datum;
+}
+
+function ganztagsFelderAktualisieren() {
+  const formular = el("termin-formular");
+  const ganztags = formular.elements.ganztags.checked;
+  formular.elements.beginn_zeit.disabled = ganztags;
+  formular.elements.ende_zeit.disabled = ganztags;
+}
+
+function einladungsFelderAktualisieren() {
+  const formular = el("termin-formular");
+  const sichtbar = formular.elements.einladung_senden.checked && kalZustand.mailKonten.length > 0;
+  zeige("termin-einladung-konto-label", sichtbar);
+  formular.elements.einladung_konto_id.disabled = !sichtbar;
+}
+
+el("termin-formular").elements.ganztags.addEventListener("change", ganztagsFelderAktualisieren);
+el("termin-formular").elements.einladung_senden.addEventListener(
+  "change",
+  einladungsFelderAktualisieren,
+);
+el("termin-abbrechen-knopf").addEventListener("click", () => el("termin-dialog").close());
+el("termin-loeschen-dialog-knopf").addEventListener("click", async () => {
+  if (kalZustand.bearbeiteterTermin) await terminLoeschen(kalZustand.bearbeiteterTermin);
+});
+
+el("termin-formular").addEventListener("submit", async (ereignis) => {
+  ereignis.preventDefault();
+  const formular = ereignis.target;
+  const fehlerfeld = el("termin-dialog-fehler");
+  const knopf = el("termin-speichern-knopf");
+  knopf.disabled = true;
+  zeige("termin-dialog-fehler", false);
+  try {
+    const meldung = await window.__TAURI__.core.invoke("kalender_termin_speichern", {
+      formular: terminFormularDaten(formular),
+    });
+    el("termin-dialog").close();
+    status(`✓ ${meldung}`, String(meldung).includes("aber") ? "fehler" : "ok");
+    await kalenderLaden();
+  } catch (fehler) {
+    fehlerfeld.textContent = String(fehler);
+    zeige("termin-dialog-fehler", true);
+  } finally {
+    knopf.disabled = false;
+  }
+});
+
+function terminFormularDaten(formular) {
+  const daten = new FormData(formular);
+  const ganztags = daten.get("ganztags") === "on";
+  const einladungSenden = daten.get("einladung_senden") === "on";
+  const beginn = datumZeitAusFormular(
+    String(daten.get("beginn_datum") || ""),
+    ganztags ? "00:00" : String(daten.get("beginn_zeit") || ""),
+  );
+  let ende = datumZeitAusFormular(
+    String(daten.get("ende_datum") || ""),
+    ganztags ? "00:00" : String(daten.get("ende_zeit") || ""),
+  );
+  if (ganztags) ende.setDate(ende.getDate() + 1); // CalDAV-Ende ist exklusiv.
+  return {
+    kalender_id: Number(daten.get("kalender_id")),
+    href: String(daten.get("href") || "") || null,
+    etag: String(daten.get("etag") || "") || null,
+    titel: String(daten.get("titel") || ""),
+    ort: String(daten.get("ort") || ""),
+    beschreibung: String(daten.get("beschreibung") || ""),
+    teilnehmer: String(daten.get("teilnehmer") || ""),
+    beginn: Math.floor(beginn.getTime() / 1000),
+    ende: Math.floor(ende.getTime() / 1000),
+    ganztags,
+    einladung_senden: einladungSenden,
+    einladung_konto_id: einladungSenden
+      ? Number(daten.get("einladung_konto_id"))
+      : null,
+  };
+}
+
+function datumZeitAusFormular(datum, zeit) {
+  const [jahr, monat, tag] = datum.split("-").map(Number);
+  const [stunde, minute] = zeit.split(":").map(Number);
+  return new Date(jahr, monat - 1, tag, stunde, minute, 0, 0);
+}
+
+async function terminLoeschen(termin) {
+  if (!termin || !confirm(`Termin „${termin.titel}“ wirklich löschen?`)) return;
+  try {
+    await window.__TAURI__.core.invoke("kalender_termin_loeschen", {
+      kalenderId: termin.kalender_id,
+      href: termin.href,
+      etag: termin.etag,
+    });
+    el("termin-dialog").close();
+    status("✓ Termin gelöscht.", "ok");
+    await kalenderLaden();
+  } catch (fehler) {
+    status(`✗ ${fehler}`, "fehler");
+  }
+}
+
+// ------------------------------------------ Teilnehmer-Adressvorschläge --
+
+const kalAdressVorschlaege = { feld: null, eintraege: [], index: -1 };
+let kalAdressAnfrage = 0;
+
+function kalAdressvorschlaegeVerbergen() {
+  el("kal-adress-vorschlaege").classList.add("versteckt");
+  kalAdressVorschlaege.eintraege = [];
+  kalAdressVorschlaege.index = -1;
+}
+
+function kalLetzterAdressteil(wert) {
+  const teile = wert.split(/[,;]/);
+  return teile[teile.length - 1].trim();
+}
+
+function kalAdressvorschlagUebernehmen(email) {
+  const feld = kalAdressVorschlaege.feld;
+  const teile = feld.value.split(/[,;]/);
+  teile[teile.length - 1] = " " + email;
+  feld.value = teile.join(",").trimStart();
+  kalAdressvorschlaegeVerbergen();
+  feld.focus();
+}
+
+function kalAdressvorschlaegeZeichnen() {
+  const liste = el("kal-adress-vorschlaege");
+  liste.innerHTML = "";
+  kalAdressVorschlaege.eintraege.forEach((eintrag, index) => {
+    const zeile = document.createElement("button");
+    zeile.type = "button";
+    zeile.className = "vorschlag" + (index === kalAdressVorschlaege.index ? " aktiv" : "");
+    if (eintrag.name) {
+      const name = document.createElement("span");
+      name.className = "vorschlag-name";
+      name.textContent = eintrag.name;
+      zeile.appendChild(name);
+    }
+    const adresse = document.createElement("span");
+    adresse.className = "vorschlag-adresse";
+    adresse.textContent = eintrag.email;
+    zeile.appendChild(adresse);
+    zeile.addEventListener("mousedown", (ereignis) => {
+      ereignis.preventDefault();
+      kalAdressvorschlagUebernehmen(eintrag.email);
+    });
+    liste.appendChild(zeile);
+  });
+  const kasten = kalAdressVorschlaege.feld.getBoundingClientRect();
+  const dialogKasten = el("termin-dialog").getBoundingClientRect();
+  liste.style.left = `${kasten.left - dialogKasten.left}px`;
+  liste.style.top = `${kasten.bottom - dialogKasten.top + 4}px`;
+  liste.style.width = `${kasten.width}px`;
+  liste.classList.toggle("versteckt", kalAdressVorschlaege.eintraege.length === 0);
+}
+
+async function kalAdressvorschlaegeAktualisieren(feld) {
+  const eingabe = kalLetzterAdressteil(feld.value);
+  if (eingabe.length < 2) {
+    kalAdressvorschlaegeVerbergen();
+    return;
+  }
+  const anfrage = ++kalAdressAnfrage;
+  try {
+    const treffer = await window.__TAURI__.core.invoke("adress_vorschlaege", { eingabe });
+    if (anfrage !== kalAdressAnfrage || document.activeElement !== feld) return;
+    kalAdressVorschlaege.feld = feld;
+    kalAdressVorschlaege.eintraege = treffer;
+    kalAdressVorschlaege.index = -1;
+    kalAdressvorschlaegeZeichnen();
+  } catch {
+    kalAdressvorschlaegeVerbergen();
+  }
+}
+
+function kalAdressvorschlaegeAnbinden(feld) {
+  feld.addEventListener("input", () => kalAdressvorschlaegeAktualisieren(feld));
+  feld.addEventListener("blur", kalAdressvorschlaegeVerbergen);
+  feld.addEventListener("keydown", (ereignis) => {
+    if (kalAdressVorschlaege.eintraege.length === 0) return;
+    if (ereignis.key === "ArrowDown" || ereignis.key === "ArrowUp") {
+      ereignis.preventDefault();
+      const schritt = ereignis.key === "ArrowDown" ? 1 : -1;
+      const anzahl = kalAdressVorschlaege.eintraege.length;
+      kalAdressVorschlaege.index = (kalAdressVorschlaege.index + schritt + anzahl) % anzahl;
+      kalAdressvorschlaegeZeichnen();
+    } else if (ereignis.key === "Enter" && kalAdressVorschlaege.index >= 0) {
+      ereignis.preventDefault();
+      kalAdressvorschlagUebernehmen(kalAdressVorschlaege.eintraege[kalAdressVorschlaege.index].email);
+    } else if (ereignis.key === "Escape") {
+      kalAdressvorschlaegeVerbergen();
+    }
+  });
+}
+
+kalAdressvorschlaegeAnbinden(el("termin-formular").elements.teilnehmer);
 
 function terminPopoverSchliessen() {
   el("termin-popover").classList.add("versteckt");

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Nanomail</title>
     <link rel="stylesheet" href="phosphor/style.css" />
-    <link rel="stylesheet" href="styles.css?v=10" />
+    <link rel="stylesheet" href="styles.css?v=11" />
   </head>
   <body>
     <!-- Eigene Fensterleiste im App-Design (Systemrahmen ist abgeschaltet) -->
@@ -220,6 +220,14 @@
              den Farbwähler, Rechtsklick bietet Standardfarbe & Konto entfernen. -->
           <div id="kal-kalender-leiste" class="kal-kalender-leiste"></div>
           <button
+            id="kal-termin-neu-knopf"
+            class="knopf-primaer kal-neu"
+            type="button"
+            title="Neuen Termin erstellen"
+          >
+            <i class="ph-regular ph-plus"></i> Termin
+          </button>
+          <button
             id="kal-sync-knopf"
             class="icon-knopf"
             type="button"
@@ -255,6 +263,84 @@
     <!-- Termin-Details (per JS befüllt und am Klickpunkt positioniert) -->
     <div id="termin-popover" class="termin-popover versteckt"></div>
 
+    <dialog id="termin-dialog">
+      <form id="termin-formular" method="dialog">
+        <h2 id="termin-dialog-titel">Termin erstellen</h2>
+        <p class="dialog-untertitel">
+          Ort ist ein freies Textfeld — du kannst z. B. einen Raum, eine Adresse
+          oder einen Link eintragen. Teilnehmer werden per E-Mail-Adresse als
+          eingeladene Personen in den Kalendertermin geschrieben.
+        </p>
+
+        <input name="href" type="hidden" />
+        <input name="etag" type="hidden" />
+
+        <label
+          >Kalender
+          <select name="kalender_id" required></select>
+        </label>
+        <label
+          >Titel
+          <input name="titel" required placeholder="z. B. Besprechung" />
+        </label>
+        <label
+          >Ort / Link
+          <input name="ort" placeholder="z. B. Büro, Telefon oder https://…" />
+        </label>
+        <label
+          >Teilnehmer (E-Mail-Adressen, mit Komma oder Semikolon getrennt)
+          <input name="teilnehmer" type="text" placeholder="name@example.com" />
+        </label>
+        <div id="kal-adress-vorschlaege" class="vorschlagsliste versteckt"></div>
+        <label class="kal-checkbox">
+          <input name="einladung_senden" type="checkbox" />
+          <span id="termin-einladung-text">Einladungs-Mail mit Nanomail senden</span>
+        </label>
+        <label id="termin-einladung-konto-label"
+          >Einladung senden über
+          <select name="einladung_konto_id"></select>
+        </label>
+        <label class="kal-checkbox">
+          <input name="ganztags" type="checkbox" /> Ganztägig
+        </label>
+        <div class="feld-reihe">
+          <label class="feld-breit"
+            >Beginn
+            <input name="beginn_datum" type="date" required />
+            <input name="beginn_zeit" type="time" required />
+          </label>
+          <label class="feld-breit"
+            >Ende
+            <input name="ende_datum" type="date" required />
+            <input name="ende_zeit" type="time" required />
+          </label>
+        </div>
+        <label
+          >Beschreibung
+          <textarea name="beschreibung" rows="4"></textarea>
+        </label>
+
+        <p id="termin-dialog-fehler" class="fehler-text versteckt"></p>
+
+        <div class="dialog-knoepfe">
+          <button
+            id="termin-loeschen-dialog-knopf"
+            class="knopf-gefahr versteckt"
+            type="button"
+          >
+            Termin löschen
+          </button>
+          <span class="fueller"></span>
+          <button id="termin-abbrechen-knopf" class="knopf-sekundaer" type="button">
+            Abbrechen
+          </button>
+          <button id="termin-speichern-knopf" class="knopf-primaer" type="submit">
+            Speichern
+          </button>
+        </div>
+      </form>
+    </dialog>
+
     <!-- Unsichtbarer Farbwähler für die Kalender-Farbe -->
     <input
       type="color"
@@ -283,6 +369,10 @@
         <label
           >Kontoname (frei wählbar)
           <input name="name" required placeholder="z. B. Infomaniak privat" />
+        </label>
+        <label
+          >Anzeigename beim Senden
+          <input name="anzeigename" placeholder="z. B. Philipp Bremer" />
         </label>
         <label
           >E-Mail-Adresse

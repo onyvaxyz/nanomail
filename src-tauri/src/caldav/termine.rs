@@ -14,9 +14,9 @@
 use std::str::FromStr;
 
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone, Utc};
 use icalendar::{
-    Calendar, CalendarDateTime, Component, DatePerhapsTime, Event, EventLike, EventStatus,
+    Calendar, CalendarDateTime, Component, DatePerhapsTime, Event, EventLike, EventStatus, Property,
 };
 use serde::Serialize;
 
@@ -30,9 +30,33 @@ pub struct Termin {
     pub titel: String,
     pub ort: String,
     pub beschreibung: String,
+    pub teilnehmer: Vec<Teilnehmer>,
     /// UTC-Sekunden; bei Ganztags-Terminen die lokale Mitternacht.
     pub beginn: i64,
     /// UTC-Sekunden, exklusiv (Ganztags: Mitternacht nach dem letzten Tag).
+    pub ende: i64,
+    pub ganztags: bool,
+}
+
+/// Teilnehmer eines Termins mit CalDAV-Teilnahmestatus (`PARTSTAT`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Teilnehmer {
+    pub email: String,
+    /// `needs_action`, `accepted`, `declined`, `tentative` oder `unknown`.
+    pub status: String,
+}
+
+/// Eingabe für ein schreibbares, einfaches Termin-Objekt (M5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminEntwurf {
+    pub uid: String,
+    pub sequence: u32,
+    pub organisator: Option<String>,
+    pub titel: String,
+    pub ort: String,
+    pub beschreibung: String,
+    pub teilnehmer: Vec<Teilnehmer>,
+    pub beginn: i64,
     pub ende: i64,
     pub ganztags: bool,
 }
@@ -165,10 +189,239 @@ fn als_termin(ereignis: &Event, zeiten: &Zeiten) -> Termin {
         titel: ereignis.get_summary().unwrap_or("(ohne Titel)").to_string(),
         ort: ereignis.get_location().unwrap_or_default().to_string(),
         beschreibung: ereignis.get_description().unwrap_or_default().to_string(),
+        teilnehmer: teilnehmer(ereignis),
         beginn: zeiten.beginn,
         ende: zeiten.ende,
         ganztags: zeiten.ganztags,
     }
+}
+
+fn teilnehmer(ereignis: &Event) -> Vec<Teilnehmer> {
+    let mut werte = Vec::new();
+    if let Some(eintrag) = ereignis.properties().get("ATTENDEE") {
+        werte.push(teilnehmer_aus_property(eintrag));
+    }
+    if let Some(eintraege) = ereignis.multi_properties().get("ATTENDEE") {
+        for eintrag in eintraege {
+            werte.push(teilnehmer_aus_property(eintrag));
+        }
+    }
+    werte.sort_by(|a, b| a.email.cmp(&b.email));
+    werte.dedup_by(|a, b| a.email.eq_ignore_ascii_case(&b.email));
+    werte
+}
+
+fn teilnehmer_aus_property(eintrag: &Property) -> Teilnehmer {
+    Teilnehmer {
+        email: mailto_bereinigen(eintrag.value()),
+        status: teilnehmer_status(eintrag),
+    }
+}
+
+fn teilnehmer_status(eintrag: &Property) -> String {
+    let status = eintrag
+        .get_param_as("PARTSTAT", |wert| Some(wert.to_ascii_uppercase()))
+        .unwrap_or_else(|| "NEEDS-ACTION".to_string());
+    match status.as_str() {
+        "ACCEPTED" => "accepted",
+        "DECLINED" => "declined",
+        "TENTATIVE" => "tentative",
+        "NEEDS-ACTION" => "needs_action",
+        _ => "unknown",
+    }
+    .to_string()
+}
+
+fn mailto_bereinigen(wert: &str) -> String {
+    wert.trim()
+        .strip_prefix("mailto:")
+        .or_else(|| wert.trim().strip_prefix("MAILTO:"))
+        .unwrap_or_else(|| wert.trim())
+        .to_string()
+}
+
+// ------------------------------------------------------------- Schreiben --
+
+/// Baut ein neues VCALENDAR-Objekt für einfache Termine. Wiederholungen
+/// werden in M5 bewusst nicht geschrieben; bestehende Serien bleiben lesbar.
+pub fn ics_bauen(entwurf: &TerminEntwurf) -> Result<String> {
+    if entwurf.titel.trim().is_empty() {
+        anyhow::bail!("Termin ohne Titel");
+    }
+    if entwurf.ende <= entwurf.beginn {
+        anyhow::bail!("Termin-Ende liegt nicht nach dem Beginn");
+    }
+
+    let mut zeilen = vec![
+        "BEGIN:VCALENDAR".to_string(),
+        "VERSION:2.0".to_string(),
+        "PRODID:-//Nanomail//DE".to_string(),
+        "CALSCALE:GREGORIAN".to_string(),
+        "BEGIN:VEVENT".to_string(),
+        format!("UID:{}", text_escapen(&entwurf.uid)),
+        format!("SEQUENCE:{}", entwurf.sequence),
+        format!("DTSTAMP:{}", utc_format(Utc::now().timestamp())?),
+        format!("SUMMARY:{}", text_escapen(entwurf.titel.trim())),
+    ];
+    if entwurf.ganztags {
+        zeilen.push(format!(
+            "DTSTART;VALUE=DATE:{}",
+            datum_format(entwurf.beginn)?
+        ));
+        zeilen.push(format!("DTEND;VALUE=DATE:{}", datum_format(entwurf.ende)?));
+    } else {
+        zeilen.push(format!("DTSTART:{}", utc_format(entwurf.beginn)?));
+        zeilen.push(format!("DTEND:{}", utc_format(entwurf.ende)?));
+    }
+    if !entwurf.ort.trim().is_empty() {
+        zeilen.push(format!("LOCATION:{}", text_escapen(entwurf.ort.trim())));
+    }
+    if !entwurf.beschreibung.trim().is_empty() {
+        zeilen.push(format!(
+            "DESCRIPTION:{}",
+            text_escapen(entwurf.beschreibung.trim())
+        ));
+    }
+    if let Some(organisator) = entwurf
+        .organisator
+        .as_deref()
+        .map(str::trim)
+        .filter(|wert| !wert.is_empty())
+    {
+        let email_escaped = text_escapen(organisator);
+        zeilen.push(format!("ORGANIZER;CN={email_escaped}:mailto:{organisator}"));
+    }
+    for teilnehmer in &entwurf.teilnehmer {
+        let email = teilnehmer.email.trim();
+        if email.is_empty() {
+            continue;
+        }
+        let status = status_fuer_ics(&teilnehmer.status);
+        let email_escaped = text_escapen(email);
+        zeilen.push(format!(
+            "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT={status};RSVP=TRUE;CN={email_escaped}:mailto:{email}"
+        ));
+    }
+    zeilen.push("END:VEVENT".to_string());
+    zeilen.push("END:VCALENDAR".to_string());
+
+    let mut ics = String::new();
+    for zeile in zeilen {
+        ics.push_str(&zeile_falten(&zeile));
+        ics.push_str("\r\n");
+    }
+    Ok(ics)
+}
+
+fn status_fuer_ics(status: &str) -> &'static str {
+    match status {
+        "accepted" => "ACCEPTED",
+        "declined" => "DECLINED",
+        "tentative" => "TENTATIVE",
+        "needs_action" => "NEEDS-ACTION",
+        _ => "NEEDS-ACTION",
+    }
+}
+
+/// UID des ersten Grundtermins (ohne RECURRENCE-ID) aus einem Objekt.
+pub fn uid(ics: &str) -> Option<String> {
+    kalender_lesen(ics).ok().and_then(|kalender| {
+        ereignisse(&kalender)
+            .find(|e| !ist_ueberschreibung(e))
+            .and_then(|e| e.get_uid().map(str::to_string))
+    })
+}
+
+/// Teilnehmer des ersten Grundtermins, ohne Wiederholungen zu expandieren.
+pub fn teilnehmer_grundtermin(ics: &str) -> Vec<Teilnehmer> {
+    kalender_lesen(ics)
+        .ok()
+        .and_then(|kalender| {
+            ereignisse(&kalender)
+                .find(|e| !ist_ueberschreibung(e))
+                .map(teilnehmer)
+        })
+        .unwrap_or_default()
+}
+
+/// SEQUENCE des ersten Grundtermins. Für iTIP-Änderungs-Mails wird der Wert
+/// beim Speichern erhöht, damit Mailprogramme Updates zuordnen.
+pub fn sequence(ics: &str) -> u32 {
+    kalender_lesen(ics)
+        .ok()
+        .and_then(|kalender| {
+            ereignisse(&kalender)
+                .find(|e| !ist_ueberschreibung(e))
+                .and_then(|e| e.property_value("SEQUENCE"))
+                .and_then(|wert| wert.trim().parse::<u32>().ok())
+        })
+        .unwrap_or(0)
+}
+
+/// Einfache Sicherheitsgrenze für M5: Serien/Ausnahmen nicht bearbeiten,
+/// damit beim Speichern keine Wiederholungslogik verloren geht.
+pub fn ist_einfacher_termin(ics: &str) -> bool {
+    let Ok(kalender) = kalender_lesen(ics) else {
+        return false;
+    };
+    let ereignisse: Vec<&Event> = ereignisse(&kalender).collect();
+    ereignisse.len() == 1
+        && ereignisse[0].property_value("RRULE").is_none()
+        && !ereignisse[0].properties().contains_key("RDATE")
+        && !ereignisse[0].multi_properties().contains_key("RDATE")
+        && !ereignisse[0].properties().contains_key("RECURRENCE-ID")
+}
+
+fn utc_format(sekunden: i64) -> Result<String> {
+    Ok(DateTime::<Utc>::from_timestamp(sekunden, 0)
+        .context("Zeitpunkt außerhalb des darstellbaren Bereichs")?
+        .format("%Y%m%dT%H%M%SZ")
+        .to_string())
+}
+
+fn datum_format(sekunden: i64) -> Result<String> {
+    let datum = Local
+        .timestamp_opt(sekunden, 0)
+        .single()
+        .context("Datum außerhalb des darstellbaren Bereichs")?
+        .date_naive();
+    Ok(format!(
+        "{:04}{:02}{:02}",
+        datum.year(),
+        datum.month(),
+        datum.day()
+    ))
+}
+
+fn text_escapen(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace(';', "\\;")
+        .replace(',', "\\,")
+        .replace('\n', "\\n")
+        .replace('\r', "")
+}
+
+fn zeile_falten(zeile: &str) -> String {
+    const MAX: usize = 75;
+    if zeile.len() <= MAX {
+        return zeile.to_string();
+    }
+    let mut ergebnis = String::new();
+    let mut start = 0;
+    let mut erste = true;
+    while start < zeile.len() {
+        let mut ende = (start + MAX).min(zeile.len());
+        while !zeile.is_char_boundary(ende) {
+            ende -= 1;
+        }
+        if !erste {
+            ergebnis.push_str("\r\n ");
+        }
+        ergebnis.push_str(&zeile[start..ende]);
+        start = ende;
+        erste = false;
+    }
+    ergebnis
 }
 
 /// Beginn/Ende/Ganztags eines VEVENTs. Ende-Reihenfolge laut RFC 5545:
@@ -417,6 +670,7 @@ mod tests {
         assert_eq!(t.titel, "Zahnarzt");
         assert_eq!(t.ort, "Praxis");
         assert_eq!(t.beschreibung, "Kontrolle");
+        assert!(t.teilnehmer.is_empty());
         assert_eq!(t.beginn, utc("2026-01-19T09:00:00Z"));
         assert_eq!(t.ende, utc("2026-01-19T09:30:00Z"));
         assert!(!t.ganztags);
@@ -429,6 +683,66 @@ mod tests {
         )
         .unwrap()
         .is_empty());
+    }
+
+    #[test]
+    fn teilnehmer_werden_aus_mailto_gelesen() {
+        let ics = vevent(
+            "SUMMARY:Termin\r\nDTSTART:20260713T100000Z\r\nDTEND:20260713T110000Z\r\n\
+             ATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@example.com\r\n\
+             ATTENDEE:MAILTO:bob@example.com",
+        );
+        let termine = expandiere(
+            &ics,
+            utc("2026-07-01T00:00:00Z"),
+            utc("2026-08-01T00:00:00Z"),
+        )
+        .unwrap();
+        assert_eq!(
+            termine[0].teilnehmer,
+            vec![
+                Teilnehmer {
+                    email: "alice@example.com".to_string(),
+                    status: "accepted".to_string()
+                },
+                Teilnehmer {
+                    email: "bob@example.com".to_string(),
+                    status: "needs_action".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn ics_bauen_schreibt_ort_und_teilnehmer() {
+        let entwurf = TerminEntwurf {
+            uid: "uid-1".into(),
+            sequence: 2,
+            organisator: Some("ich@example.com".into()),
+            titel: "Planung, Q3".into(),
+            ort: "https://meet.example.com/raum".into(),
+            beschreibung: "Zeile 1\nZeile 2".into(),
+            teilnehmer: vec![Teilnehmer {
+                email: "alice@example.com".into(),
+                status: "tentative".into(),
+            }],
+            beginn: utc("2026-07-13T10:00:00Z"),
+            ende: utc("2026-07-13T11:00:00Z"),
+            ganztags: false,
+        };
+        let ics = ics_bauen(&entwurf).unwrap();
+        assert!(ics.contains("UID:uid-1\r\n"));
+        assert!(ics.contains("SEQUENCE:2\r\n"));
+        assert!(!ics.contains("\r\nMETHOD:"));
+        assert!(ics.contains("SUMMARY:Planung\\, Q3\r\n"));
+        assert!(ics.contains("LOCATION:https://meet.example.com/raum\r\n"));
+        assert!(ics.contains("DESCRIPTION:Zeile 1\\nZeile 2\r\n"));
+        assert!(ics.contains("ORGANIZER;CN=ich@example.com:mailto:ich@example.com\r\n"));
+        assert!(ics.contains("PARTSTAT=TENTATIVE"));
+        assert!(ics.contains(":mailto:alice@example.com\r\n"));
+        assert!(ist_einfacher_termin(&ics));
+        assert_eq!(uid(&ics), Some("uid-1".to_string()));
+        assert_eq!(sequence(&ics), 2);
     }
 
     #[test]

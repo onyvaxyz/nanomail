@@ -1017,7 +1017,9 @@ textarea:focus-visible {
 /* ---------------------------------------------------------- Dialoge -- */
 
 #konto-dialog,
-#kalender-dialog {
+#kalender-dialog,
+#termin-dialog {
+  position: relative;
   margin: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1028,11 +1030,13 @@ textarea:focus-visible {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 #konto-dialog::backdrop,
-#kalender-dialog::backdrop {
+#kalender-dialog::backdrop,
+#termin-dialog::backdrop {
   background: rgba(0, 0, 0, 0.6);
 }
 #konto-dialog h2,
-#kalender-dialog h2 {
+#kalender-dialog h2,
+#termin-dialog h2 {
   font-family: var(--schrift-sans);
   font-weight: 500;
   font-size: 22px;
@@ -1046,14 +1050,17 @@ textarea:focus-visible {
   line-height: 1.6;
 }
 #konto-formular label,
-#kalender-formular label {
+#kalender-formular label,
+#termin-formular label {
   display: block;
   font-size: 13px;
   color: var(--text-muted);
   margin-bottom: 16px;
 }
 #konto-formular input,
-#kalender-formular input {
+#kalender-formular input,
+#termin-formular input,
+#termin-formular select {
   display: block;
   width: 100%;
   font-family: var(--schrift-sans);
@@ -1069,10 +1076,14 @@ textarea:focus-visible {
   transition: border-color 0.12s;
 }
 #konto-formular input:focus,
-#kalender-formular input:focus {
+#kalender-formular input:focus,
+#termin-formular input:focus,
+#termin-formular select:focus,
+#termin-formular textarea:focus {
   border-color: var(--akzent);
 }
-#konto-formular textarea {
+#konto-formular textarea,
+#termin-formular textarea {
   display: block;
   width: 100%;
   font-family: var(--schrift-sans);
@@ -1086,6 +1097,14 @@ textarea:focus-visible {
   outline: none;
   resize: vertical;
   transition: border-color 0.12s;
+}
+#termin-formular select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg fill='%23abb2bf' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 36px;
 }
 #konto-formular textarea:focus {
   border-color: var(--akzent);
@@ -1437,6 +1456,13 @@ body.fenster-verfassen {
   font-size: 13px;
 }
 
+.kal-neu {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .kal-monat-titel {
   margin-left: 10px;
   font-family: var(--schrift-sans);
@@ -1677,6 +1703,39 @@ body.fenster-verfassen {
   overflow-wrap: anywhere;
   max-height: 180px;
   overflow-y: auto;
+}
+
+.popover-aktionen {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.popover-aktionen .knopf-sekundaer,
+.popover-aktionen .knopf-gefahr {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.kal-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+}
+.kal-checkbox input {
+  width: auto !important;
+  min-height: auto !important;
+  margin: 0 !important;
+}
+
+#termin-formular input[type="time"]:disabled {
+  opacity: 0.45;
+}
+
+#kal-adress-vorschlaege {
+  position: absolute;
+  z-index: 10;
 }
 
 /* Konten-Liste im Kalender-Dialog. */
