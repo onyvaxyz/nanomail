@@ -20,7 +20,7 @@ use crate::db::{self, kalender as db_kalender, Konto, MailKopf, NeuerMailKopf, O
 use crate::imap::verbindung::ImapVerbindung;
 use crate::imap::{idle, parsen, sync};
 use crate::smtp::{nachricht, versand};
-use crate::{anzeige, avatar, schluesselbund};
+use crate::{anzeige, avatar, pfade, schluesselbund};
 
 /// Kopfzeilen-Batchgröße beim Sync — klein genug, dass die UI früh
 /// etwas anzeigen kann.
@@ -1968,6 +1968,16 @@ async fn kalender_einladung_senden(
     };
     let (fertig, rohbytes) =
         nachricht::baue_kalender_einladung(&einladung).map_err(|f| nutzerfehler(f.to_string()))?;
+    // TEMPORÄR für die Anbieter-Eskalation (550 Reject bei Kalender-Einladungen):
+    // Rohbytes vor dem Versand als .eml sichern, damit bei Ablehnung eine
+    // echte Beispiel-Mail für den Anbieter vorliegt. Nach Klärung entfernen.
+    if let Some(verzeichnis) = pfade::log_verzeichnis() {
+        if let Err(fehler) =
+            std::fs::write(verzeichnis.join("letzte-einladung-debug.eml"), &rohbytes)
+        {
+            tracing::warn!("Debug-eml der Einladung konnte nicht geschrieben werden: {fehler:#}");
+        }
+    }
     let passwort = passwort_holen(konto.id).await?;
     versand::senden(
         &konto.smtp_host,
