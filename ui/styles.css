@@ -1,5 +1,7 @@
 /* Nanomail — Zed One Dark Extended (M3.2).
-   Zed-Farbwerte mit bewusst luftigerer Dichte für bessere Lesbarkeit. */
+   Zed-Farbwerte mit bewusst luftigerer Dichte für bessere Lesbarkeit.
+   Dunkel ist die Basis (:root); das helle Design überschreibt nur die
+   Farbvariablen (siehe Block „Helles Design“ und ui/thema.js). */
 
 @font-face {
   font-family: "JetBrains Mono";
@@ -52,6 +54,10 @@
   --grun: #a5e075;
   --blau: #61afef;
 
+  --scroll: #4e5666;
+  --scroll-hover: #5a6375;
+  --eingabe-fokus: #2b3039;
+
   --schrift-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
   --schrift-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 
@@ -59,6 +65,49 @@
   --breite-mailliste: 380px;
   --radius: 8px;
   --radius-klein: 6px;
+}
+
+/* ------------------------------------------------------ Helles Design -- */
+/* Aktiv, wenn thema.js data-thema="hell" ans <html>-Element schreibt
+   (Umschalter unten in der Icon-Leiste: dunkel → hell → System).
+   Hintergrund bewusst #EBEBEC statt Weiß (Wunsch des Projektinhabers). */
+
+:root[data-thema="hell"] {
+  --bg-window: #dedee0;
+  --bg-editor: #ebebec;
+  --bg-panel: #e4e4e6;
+  --bg-surface: #f3f3f4;
+  --bg-hover: #d9d9dc;
+  --bg-aktiv: #d1d1d6;
+  --bg-auswahl: #dcdce1;
+
+  --border: #c6c6cc;
+  --border-weich: #d7d7db;
+
+  --text: #23272e;
+  --text-hell: #101216;
+  --text-muted: #4b5058;
+  --text-leise: #6e7480;
+  --text-subtil: #9096a2;
+
+  /* Auf hellem Grund braucht der Akzent-Text Abdunklung statt Aufhellung. */
+  --akzent-hell: color-mix(in srgb, var(--akzent) 65%, black);
+
+  --rot: #c5303c;
+  --gelb: #a67c00;
+  --grun: #448f43;
+  --blau: #3468c7;
+
+  --scroll: #b9b9c0;
+  --scroll-hover: #a2a2ac;
+  --eingabe-fokus: #f7f7f8;
+}
+
+/* Der Aufklapp-Pfeil der <select>-Felder ist ein eingebettetes Bild und
+   kennt keine Variablen — im Hellen eine dunkle Fassung verwenden. */
+:root[data-thema="hell"] #termin-formular select,
+:root[data-thema="hell"] .verfassen-kopf select {
+  background-image: url("data:image/svg+xml;utf8,<svg fill='%234b5058' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
 }
 
 * {
@@ -177,7 +226,7 @@ textarea:focus-visible {
 }
 .fenster-knopf.schliessen:hover {
   background: var(--bg-window);
-  color: #fff;
+  color: var(--text-hell);
 }
 
 /* --------------------------------------------- Fenster-Anfasser -- */
@@ -255,11 +304,11 @@ textarea:focus-visible {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #4e5666;
+  background: var(--scroll);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #5a6375;
+  background: var(--scroll-hover);
 }
 
 /* ------------------------------------------------------- Icon-Leiste -- */
@@ -407,7 +456,7 @@ textarea:focus-visible {
 }
 .mailliste-suche:focus {
   border-color: var(--akzent);
-  background: #2b3039;
+  background: var(--eingabe-fokus);
 }
 .mailliste-suche::placeholder {
   color: var(--text-leise);
@@ -735,7 +784,7 @@ textarea:focus-visible {
   padding: 9px 18px;
   font-size: 12px;
   color: var(--gelb);
-  background: rgba(229, 192, 123, 0.09);
+  background: color-mix(in srgb, var(--gelb) 9%, transparent);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -963,7 +1012,7 @@ textarea:focus-visible {
   border: 1px solid var(--rot);
 }
 .knopf-gefahr:hover {
-  background: rgba(224, 108, 117, 0.12);
+  background: color-mix(in srgb, var(--rot) 12%, transparent);
 }
 
 .knopf-primaer:disabled,

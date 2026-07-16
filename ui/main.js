@@ -629,21 +629,30 @@ async function mailOeffnen(mailId) {
   }
 }
 
-// Stile fürs Sandbox-iframe: Standard ist die App-Ansicht (dunkel, im
-// Design der App), per Umschalter gibt es die Originalansicht des
-// Absenders (hell). Die Inter-Schrift lädt relativ — srcdoc-Dokumente
-// erben die Basis-URL der App; schlägt das fehl, greift system-ui.
-const LESE_STIL_APP =
-  '@font-face{font-family:Inter;font-style:normal;font-weight:100 900;' +
-  'src:url("fonts/inter-latin-wght-normal.woff2") format("woff2-variations")}' +
-  "body{background:#282c34;color:#fff;font-family:Inter,system-ui,sans-serif;" +
-  "font-size:15px;line-height:1.75;max-width:72ch;margin:0 auto;" +
-  "padding:40px 36px;overflow-wrap:break-word}" +
-  "a{color:#61afef}img{max-width:100%;height:auto}" +
-  "blockquote{border-left:3px solid #3e4452;margin:10px 0;padding:2px 14px;color:#abb2bf}" +
-  "hr{border:none;border-top:1px solid #3e4452}" +
-  "pre{white-space:pre-wrap}" +
-  "table{border-collapse:collapse;max-width:100%}td,th{padding:2px 8px;vertical-align:top}";
+// Stile fürs Sandbox-iframe: Standard ist die App-Ansicht (folgt dem
+// gewählten Design, siehe thema.js), per Umschalter gibt es die
+// Originalansicht des Absenders (immer hell). Die Inter-Schrift lädt
+// relativ — srcdoc-Dokumente erben die Basis-URL der App; schlägt das
+// fehl, greift system-ui. CSS-Variablen erreichen das iframe nicht,
+// deshalb stehen die Farbwerte beider Designs hier noch einmal.
+function leseStilApp() {
+  const hell = document.documentElement.dataset.thema === "hell";
+  const [hintergrund, text, link, linie, zitat] = hell
+    ? ["#ebebec", "#23272e", "#3468c7", "#c6c6cc", "#4b5058"]
+    : ["#282c34", "#fff", "#61afef", "#3e4452", "#abb2bf"];
+  return (
+    "@font-face{font-family:Inter;font-style:normal;font-weight:100 900;" +
+    'src:url("fonts/inter-latin-wght-normal.woff2") format("woff2-variations")}' +
+    `body{background:${hintergrund};color:${text};font-family:Inter,system-ui,sans-serif;` +
+    "font-size:15px;line-height:1.75;max-width:72ch;margin:0 auto;" +
+    "padding:40px 36px;overflow-wrap:break-word}" +
+    `a{color:${link}}img{max-width:100%;height:auto}` +
+    `blockquote{border-left:3px solid ${linie};margin:10px 0;padding:2px 14px;color:${zitat}}` +
+    `hr{border:none;border-top:1px solid ${linie}}` +
+    "pre{white-space:pre-wrap}" +
+    "table{border-collapse:collapse;max-width:100%}td,th{padding:2px 8px;vertical-align:top}"
+  );
+}
 const LESE_STIL_ORIGINAL =
   "body{font-family:system-ui,sans-serif;font-size:14px;margin:16px;" +
   "line-height:1.5;overflow-wrap:break-word;background:#ffffff;color:#1a1a1a}" +
@@ -657,9 +666,14 @@ function htmlAnzeigen() {
   rahmen.classList.toggle("original", original);
   const inhalt = original ? zustand.lese.html : zustand.lese.schlicht || zustand.lese.html;
   rahmen.srcdoc =
-    `<style>${original ? LESE_STIL_ORIGINAL : LESE_STIL_APP}</style>` + inhalt;
+    `<style>${original ? LESE_STIL_ORIGINAL : leseStilApp()}</style>` + inhalt;
   zeige("mail-html", true);
 }
+
+// Beim Designwechsel die offene Mail in der App-Ansicht neu einfärben.
+window.addEventListener("thema:gewechselt", () => {
+  if (zustand.lese.html && zustand.lese.modus === "app") htmlAnzeigen();
+});
 
 /// Blendet den Ansicht-Umschalter ein/aus und spiegelt den Modus wider.
 function ansichtKnopfAktualisieren(sichtbar) {

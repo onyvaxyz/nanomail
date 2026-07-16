@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Nanomail</title>
     <link rel="stylesheet" href="phosphor/style.css" />
-    <link rel="stylesheet" href="styles.css?v=11" />
+    <link rel="stylesheet" href="styles.css?v=12" />
   </head>
   <body>
     <!-- Eigene Fensterleiste im App-Design (Systemrahmen ist abgeschaltet) -->
@@ -51,6 +51,16 @@
           title="Kalender"
         >
           <i class="ph-regular ph-calendar-dots"></i>
+        </button>
+        <!-- Design-Umschalter (thema.js): Mond = dunkel, Sonne = hell,
+           Bildschirm = Systemeinstellung; Icon zeigt den nächsten Schritt -->
+        <button
+          id="thema-knopf"
+          class="ansicht-knopf"
+          type="button"
+          title="Design umschalten"
+        >
+          <i class="ph-regular ph-moon"></i>
         </button>
         <div class="sidebar-fuss">
           <button
@@ -531,6 +541,7 @@
       </form>
     </dialog>
 
+    <script src="thema.js"></script>
     <script src="fenster.js"></script>
     <script src="main.js"></script>
     <script src="kalender.js"></script>
