@@ -54,7 +54,15 @@ impl ImapVerbindung {
     /// Baut eine TLS-Verbindung auf und meldet sich an.
     pub async fn verbinden(host: &str, port: u16, benutzer: &str, passwort: &str) -> Result<Self> {
         let tls = tls_verbinden(host, port).await?;
-        let client = async_imap::Client::new(tls);
+        let mut client = async_imap::Client::new(tls);
+        // Erst die Server-Begrüßung („* OK …“) abwarten: manche Provider
+        // (z. B. Infomaniak) verwerfen Kommandos, die vorher eintreffen,
+        // und kappen die Verbindung dann kommentarlos.
+        client
+            .read_response()
+            .await
+            .context("Server-Begrüßung lesen")?
+            .ok_or_else(|| anyhow!("Server {host} hat die Verbindung sofort beendet"))?;
         let session = client
             .login(benutzer, passwort)
             .await
