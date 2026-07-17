@@ -1433,7 +1433,12 @@ async fn absender_avatar_intern(zustand: &AppZustand, email: String) -> Result<O
     }
     // 2) Extern laden (blockiert die UI nicht — eigener Task).
     let client = avatar::client()?;
-    let bild = avatar::hole_avatar(&client, &email).await;
+    let bild = match avatar::hole_avatar(&client, &email).await {
+        Ok(bild) => bild,
+        // Vorübergehender Fehler (Netz/Server): nichts cachen —
+        // beim nächsten Anzeigen wird erneut versucht.
+        Err(_) => return Ok(None),
+    };
     mit_db(zustand, |conn| {
         db::avatar_speichern(conn, &email, bild.as_deref())
     })?;

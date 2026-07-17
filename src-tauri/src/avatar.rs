@@ -44,31 +44,42 @@ pub fn favicon_url(domain: &str) -> String {
 }
 
 /// Lädt einen Avatar: erst Gravatar, sonst Favicon der Absender-Domain.
-/// Liefert eine `data:`-URI oder `None` (dann zeigt das Frontend Initialen).
-pub async fn hole_avatar(client: &reqwest::Client, email: &str) -> Option<String> {
-    if let Some(uri) = bild_als_data_uri(client, &gravatar_url(email)).await {
-        return Some(uri);
+/// `Ok(Some(uri))` = Bild, `Ok(None)` = sicher kein Bild vorhanden (cachebar),
+/// `Err` = vorübergehender Fehler (Netz/Server) — darf **nicht** als
+/// „kein Bild“ gecacht werden, sonst fehlen Avatare 30 Tage lang.
+pub async fn hole_avatar(client: &reqwest::Client, email: &str) -> Result<Option<String>> {
+    let mut voruebergehend_gescheitert = false;
+    match lade_bild(client, &gravatar_url(email)).await {
+        Ok(Some(uri)) => return Ok(Some(uri)),
+        Ok(None) => {}
+        Err(fehler) => {
+            tracing::debug!("Gravatar nicht geladen: {fehler:#}");
+            voruebergehend_gescheitert = true;
+        }
     }
     if let Some(domain) = domain(email) {
-        if let Some(uri) = bild_als_data_uri(client, &favicon_url(&domain)).await {
-            return Some(uri);
+        match lade_bild(client, &favicon_url(&domain)).await {
+            Ok(Some(uri)) => return Ok(Some(uri)),
+            Ok(None) => {}
+            Err(fehler) => {
+                tracing::debug!("Favicon ({domain}) nicht geladen: {fehler:#}");
+                voruebergehend_gescheitert = true;
+            }
         }
     }
-    None
-}
-
-async fn bild_als_data_uri(client: &reqwest::Client, url: &str) -> Option<String> {
-    match lade_bild(client, url).await {
-        Ok(uri) => Some(uri),
-        Err(fehler) => {
-            tracing::debug!("Avatar nicht geladen ({url}): {fehler:#}");
-            None
-        }
+    if voruebergehend_gescheitert {
+        anyhow::bail!("Avatar-Quelle vorübergehend nicht erreichbar");
     }
+    Ok(None)
 }
 
-async fn lade_bild(client: &reqwest::Client, url: &str) -> Result<String> {
+/// `Ok(None)` nur bei eindeutigem „kein Bild“ (404, kein Bildinhalt,
+/// unpassende Größe); alle anderen Fehler sind vorübergehend (`Err`).
+async fn lade_bild(client: &reqwest::Client, url: &str) -> Result<Option<String>> {
     let antwort = client.get(url).send().await.context("Avatar anfragen")?;
+    if antwort.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
     if !antwort.status().is_success() {
         anyhow::bail!("HTTP-Status {}", antwort.status());
     }
@@ -83,14 +94,16 @@ async fn lade_bild(client: &reqwest::Client, url: &str) -> Result<String> {
         .trim()
         .to_lowercase();
     if !mime.starts_with("image/") {
-        anyhow::bail!("Kein Bild (Content-Type {mime:?})");
+        tracing::debug!("Avatar-Antwort ist kein Bild (Content-Type {mime:?})");
+        return Ok(None);
     }
     let bytes = antwort.bytes().await.context("Avatar herunterladen")?;
     if bytes.is_empty() || bytes.len() > MAX_AVATAR_BYTES {
-        anyhow::bail!("Avatar-Größe unpassend ({} Bytes)", bytes.len());
+        tracing::debug!("Avatar-Größe unpassend ({} Bytes)", bytes.len());
+        return Ok(None);
     }
     let daten = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    Ok(format!("data:{mime};base64,{daten}"))
+    Ok(Some(format!("data:{mime};base64,{daten}")))
 }
 
 /// Gemeinsamer HTTP-Client für Avatar-Abrufe (kurzer Timeout).
