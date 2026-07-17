@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verfassen — Nanomail</title>
   <link rel="stylesheet" href="phosphor/style.css" />
-  <link rel="stylesheet" href="styles.css?v=12" />
+  <link rel="stylesheet" href="styles.css?v=13" />
 </head>
 <body class="fenster-verfassen">
   <!-- Eigene Fensterleiste im App-Design (Systemrahmen ist abgeschaltet) -->
@@ -30,11 +30,11 @@
         <select name="von" id="von-auswahl"></select>
       </label>
       <label class="feld">
-        <span class="feld-titel">An <span class="label-hinweis">(mehrere durch Komma trennen)</span></span>
+        <span class="feld-titel">An</span>
         <input name="an" required placeholder="empfaenger@example.com" autocomplete="off" />
       </label>
       <label class="feld">
-        <span class="feld-titel">Kopie (CC) <span class="label-hinweis">optional</span></span>
+        <span class="feld-titel">Kopie (CC)</span>
         <input name="cc" autocomplete="off" />
       </label>
       <label class="feld">
@@ -78,12 +78,11 @@
 
     <footer class="verfassen-fuss">
       <button id="anhang-knopf" class="knopf-sekundaer" type="button">
-        <i class="ph-light ph-paperclip"></i> Datei anhängen
+        <i class="ph-light ph-paperclip"></i> Datei
       </button>
-      <span class="label-hinweis">… oder Dateien einfach ins Fenster ziehen</span>
       <span class="fueller"></span>
       <button id="entwurf-knopf" class="knopf-sekundaer" type="button">
-        <i class="ph-light ph-note-pencil"></i> Entwurf speichern
+        <i class="ph-light ph-note-pencil"></i> Entwurf
       </button>
       <button id="abbrechen-knopf" class="knopf-sekundaer" type="button">Abbrechen</button>
       <button id="senden-knopf" class="knopf-primaer" type="submit">

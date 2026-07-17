@@ -418,7 +418,7 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--bg-panel);
+  background: var(--bg-editor);
 }
 
 .mailliste-kopf {
@@ -562,16 +562,24 @@ textarea:focus-visible {
 
 #mail-eintraege {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 3px;
 }
 
+/* Jede Mail als eigene Karte, leicht abgesetzt vom Feed-Hintergrund. */
 .mail-eintrag {
   display: flex;
   gap: 14px;
   align-items: flex-start;
   min-height: 84px;
+  flex-shrink: 0;
   padding: 16px 16px;
-  border-bottom: 1px solid var(--border-weich);
+  border: 1px solid var(--border-weich);
   border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
   cursor: pointer;
   transition: background 0.1s;
 }
@@ -582,8 +590,10 @@ textarea:focus-visible {
   background: var(--bg-auswahl);
   border-left-color: var(--akzent);
 }
+/* Ungelesen: kräftige Akzent-Tönung + gleiche Linie wie beim aktiven Eintrag. */
 .mail-eintrag.ungelesen {
-  background: color-mix(in srgb, var(--akzent) 4%, transparent);
+  background: color-mix(in srgb, var(--akzent) 14%, var(--bg-surface));
+  border-left-color: var(--akzent);
 }
 .mail-eintrag.ungelesen:hover,
 .mail-eintrag.ungelesen.aktiv {
@@ -696,17 +706,6 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
-.ungelesen-punkt {
-  position: absolute;
-  left: -5px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--akzent);
-}
-
 .mail-eintrag.ungelesen .mail-von {
   color: var(--text-hell);
   font-weight: 650;
@@ -728,7 +727,7 @@ textarea:focus-visible {
   display: flex;
   gap: 20px;
   align-items: flex-start;
-  padding: 32px 36px 24px;
+  padding: 16px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -741,7 +740,7 @@ textarea:focus-visible {
 #mail-titel {
   font-family: var(--schrift-sans);
   font-weight: 500;
-  font-size: 26px;
+  font-size: 20px;
   line-height: 1.3;
   margin-bottom: 12px;
   word-wrap: break-word;
@@ -1209,7 +1208,8 @@ body.fenster-verfassen {
 }
 
 .verfassen-kopf {
-  padding: 24px 28px 8px;
+  padding: 16px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-surface);
 }
@@ -1217,8 +1217,8 @@ body.fenster-verfassen {
 .verfassen-kopf .feld {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 8px;
+  padding-bottom: 8px;
 }
 
 .feld-titel {
@@ -1237,12 +1237,12 @@ body.fenster-verfassen {
 .verfassen-kopf input,
 .verfassen-kopf select {
   flex: 1;
-  min-height: 36px;
+  min-height: 20px;
   font-family: var(--schrift-sans);
   font-size: 14px;
   color: var(--text-hell);
   background: var(--bg-editor);
-  padding: 8px 12px;
+  padding: 4px 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   outline: none;
@@ -1269,7 +1269,6 @@ body.fenster-verfassen {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 8px 16px;
   border-bottom: 1px solid var(--border-weich);
   background: var(--bg-surface);
   flex-shrink: 0;
@@ -1438,9 +1437,13 @@ body.fenster-verfassen {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 28px;
+  padding: 8px 16px;
   border-top: 1px solid var(--border);
   background: var(--bg-surface);
+}
+/* Alles bleibt auf einer Zeile — Knopftexte brechen nie um. */
+.verfassen-fuss button {
+  white-space: nowrap;
 }
 
 /* --------------------------------------------------- Kalender (M4) -- */

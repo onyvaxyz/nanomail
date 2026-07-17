@@ -355,11 +355,6 @@ function mailEintrag(mail, ordnerName = null) {
   const avatarWrap = document.createElement("div");
   avatarWrap.className = "mail-avatar-wrap";
   avatarWrap.appendChild(avatarElement(mail.von, mail.von_email));
-  if (!mail.gelesen) {
-    const punkt = document.createElement("span");
-    punkt.className = "ungelesen-punkt";
-    avatarWrap.appendChild(punkt);
-  }
   eintrag.appendChild(avatarWrap);
 
   const text = document.createElement("div");
@@ -620,7 +615,6 @@ async function mailOeffnen(mailId) {
     if (eintrag) {
       eintrag.classList.remove("ungelesen");
       eintrag.dataset.gelesen = "1";
-      eintrag.querySelector(".ungelesen-punkt")?.remove();
     }
     kontenAnzeigen();
     status("Bereit.");
@@ -932,7 +926,7 @@ function verfassenFensterOeffnen(query, titel) {
     url: `verfassen.html${query}`,
     title: titel,
     width: 680,
-    height: 620,
+    height: 780,
     minWidth: 480,
     minHeight: 420,
     decorations: false,
