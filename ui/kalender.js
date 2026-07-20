@@ -346,6 +346,11 @@ async function terminDialogOeffnen(termin = null, tag = null) {
     formular.elements.ganztags.checked = Boolean(termin.ganztags);
     zeitfelderSetzen(new Date(termin.beginn * 1000), new Date(termin.ende * 1000), termin.ganztags);
   } else {
+    // reset() leert die versteckten Felder nicht zuverlässig — sonst bleibt
+    // nach dem Öffnen eines vorhandenen Termins ein href hängen und der neue
+    // Termin gilt beim Speichern als „lokal nicht mehr vorhanden".
+    formular.elements.href.value = "";
+    formular.elements.etag.value = "";
     const kalender = sichtbareKalender()[0];
     formular.elements.kalender_id.value = kalender.id;
     const beginn = tag ? new Date(tag) : new Date();

@@ -79,6 +79,22 @@ el("fenster-schliessen").addEventListener("click", () => aktuellesFenster.close(
 // doppelt umgeschaltet und das Fenster springt sofort zurück.
 // Größenändern per Rand-Ziehen: siehe fenster.js.
 
+// Strg + Mausrad zoomt das ganze Fenster (die Mail wird mit vergrößert).
+// Hinweis: Direkt über dem Mail-Inhalt fängt das abgeschottete Sicherheits-
+// Fenster das Rad ab — dort zoomt zusätzlich Strg + Plus/Minus (nativ).
+let zoomFaktor = 1;
+document.addEventListener(
+  "wheel",
+  (ereignis) => {
+    if (!ereignis.ctrlKey) return;
+    ereignis.preventDefault();
+    const schritt = ereignis.deltaY < 0 ? 0.1 : -0.1;
+    zoomFaktor = Math.min(3, Math.max(0.3, Math.round((zoomFaktor + schritt) * 10) / 10));
+    aktuellesFenster.setZoom(zoomFaktor).catch(() => {});
+  },
+  { passive: false },
+);
+
 // ------------------------------------------------------- Konto-Farben --
 
 const STANDARD_FARBE = "#c678dd";
@@ -149,6 +165,9 @@ function bildSetzen(kreis, uri) {
   const bild = document.createElement("img");
   bild.src = uri;
   bild.alt = "";
+  // Echtes Bild (Gravatar/Favicon) steht ohne farbigen Kreis; die
+  // Hintergrundfarbe bleibt nur unter den Initialen.
+  kreis.style.background = "transparent";
   kreis.replaceChildren(bild);
 }
 
@@ -225,10 +244,12 @@ function kontenLeisteAnzeigen() {
     knopf.title = `${konto.name} · ${konto.email}`;
     knopf.appendChild(avatarElement(konto.name, konto.email, "avatar-konto"));
 
-    const ungelesenGesamt = (zustand.ordnerJeKonto.get(konto.id) || []).reduce(
-      (summe, ordner) => summe + (ordner.ungelesen || 0),
-      0,
+    // Abzeichen zeigt nur die ungelesenen Mails im Posteingang — nicht die
+    // Summe aller Ordner (Spam/Papierkorb würden die Zahl aufblähen).
+    const eingang = (zustand.ordnerJeKonto.get(konto.id) || []).find(
+      (ordner) => ordner.name.toUpperCase() === "INBOX",
     );
+    const ungelesenGesamt = eingang ? eingang.ungelesen || 0 : 0;
     if (ungelesenGesamt > 0) {
       const abzeichen = document.createElement("span");
       abzeichen.className = "konto-icon-abzeichen";
@@ -344,6 +365,38 @@ async function naechsteSeiteLaden() {
   }
 }
 
+/// Eine Empfängerzeile („An: …" / „Cc: …") für den Lesekopf.
+function empfaengerZeile(feld, adressen) {
+  const zeile = document.createElement("span");
+  zeile.className = "meta-empfaenger";
+  const name = document.createElement("span");
+  name.className = "meta-feldname";
+  name.textContent = `${feld}:`;
+  zeile.append(name, document.createTextNode(" " + adressen));
+  return zeile;
+}
+
+/// Ordner (über alle Konten) zu einer Ordner-ID — auch für Suchtreffer.
+function ordnerZuId(ordnerId) {
+  for (const liste of zustand.ordnerJeKonto.values()) {
+    const treffer = liste.find((o) => o.id === ordnerId);
+    if (treffer) return treffer;
+  }
+  return null;
+}
+
+/// Erste Adresse einer kommagetrennten Empfängerliste (für Avatare).
+function ersteAdresse(liste) {
+  return (liste || "").split(",")[0].trim();
+}
+
+/// Kurzform einer Empfängerliste: erste Adresse, sonst „ + N".
+function empfaengerKurz(liste) {
+  const teile = (liste || "").split(",").map((t) => t.trim()).filter(Boolean);
+  if (teile.length === 0) return "(kein Empfänger)";
+  return teile.length === 1 ? teile[0] : `${teile[0]} +${teile.length - 1}`;
+}
+
 function mailEintrag(mail, ordnerName = null) {
   const eintrag = document.createElement("div");
   eintrag.className = "mail-eintrag";
@@ -352,9 +405,15 @@ function mailEintrag(mail, ordnerName = null) {
   eintrag.dataset.mailId = mail.id;
   eintrag.dataset.gelesen = mail.gelesen ? "1" : "0";
 
+  // Im Gesendet-Ordner zeigt die Liste den Empfänger statt des Absenders
+  // (der bin ja immer ich).
+  const istGesendet = ordnerZuId(mail.ordner_id)?.rolle === "gesendet";
+  const anzeigeName = istGesendet ? empfaengerKurz(mail.an) : mail.von || mail.von_email || "(unbekannt)";
+  const avatarEmail = istGesendet ? ersteAdresse(mail.an) : mail.von_email;
+
   const avatarWrap = document.createElement("div");
   avatarWrap.className = "mail-avatar-wrap";
-  avatarWrap.appendChild(avatarElement(mail.von, mail.von_email));
+  avatarWrap.appendChild(avatarElement(anzeigeName, avatarEmail));
   eintrag.appendChild(avatarWrap);
 
   const text = document.createElement("div");
@@ -364,7 +423,7 @@ function mailEintrag(mail, ordnerName = null) {
   zeile1.className = "mail-zeile-oben";
   const von = document.createElement("span");
   von.className = "mail-von";
-  von.textContent = mail.von || mail.von_email || "(unbekannt)";
+  von.textContent = istGesendet ? `An: ${anzeigeName}` : anzeigeName;
   const zeit = document.createElement("span");
   zeit.className = "mail-zeit";
   zeit.textContent = zeitKompakt(mail.datum);
@@ -589,12 +648,15 @@ async function mailOeffnen(mailId) {
     const adresse = document.createElement("span");
     adresse.className = "meta-adresse";
     adresse.textContent = ansicht.kopf.von_email ? `<${ansicht.kopf.von_email}>` : "";
-    const datum = document.createElement("span");
-    datum.className = "meta-datum";
-    datum.textContent = ansicht.kopf.datum
+    meta.append(von, adresse);
+    // Empfänger: An immer, Cc nur wenn vorhanden (damit man sieht, ob jemand
+    // in Kopie stand).
+    if (ansicht.kopf.an) meta.appendChild(empfaengerZeile("An", ansicht.kopf.an));
+    if (ansicht.kopf.cc) meta.appendChild(empfaengerZeile("Cc", ansicht.kopf.cc));
+    // Datum steht unter den Buttons (verhindert Kopf-Umbrüche).
+    el("lese-datum").textContent = ansicht.kopf.datum
       ? datumFormat.format(new Date(ansicht.kopf.datum * 1000))
       : "";
-    meta.append(von, adresse, datum);
 
     zeige("bilder-leiste", ansicht.hatte_externe_bilder);
 
@@ -940,13 +1002,16 @@ el("verfassen-knopf").addEventListener("click", () => {
 
 el("antworten-knopf").addEventListener("click", () => {
   if (zustand.aktiveMailId) {
-    verfassenFensterOeffnen(`?antwortAuf=${zustand.aktiveMailId}&weiterleiten=0`, "Antworten");
+    // Als Absender das Konto des gerade geöffneten Ordners vorwählen.
+    const konto = zustand.aktivesKontoId ? `&kontoId=${zustand.aktivesKontoId}` : "";
+    verfassenFensterOeffnen(`?antwortAuf=${zustand.aktiveMailId}&weiterleiten=0${konto}`, "Antworten");
   }
 });
 
 el("weiterleiten-knopf").addEventListener("click", () => {
   if (zustand.aktiveMailId) {
-    verfassenFensterOeffnen(`?antwortAuf=${zustand.aktiveMailId}&weiterleiten=1`, "Weiterleiten");
+    const konto = zustand.aktivesKontoId ? `&kontoId=${zustand.aktivesKontoId}` : "";
+    verfassenFensterOeffnen(`?antwortAuf=${zustand.aktiveMailId}&weiterleiten=1${konto}`, "Weiterleiten");
   }
 });
 

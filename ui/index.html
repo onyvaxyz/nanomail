@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Nanomail</title>
     <link rel="stylesheet" href="phosphor/style.css" />
-    <link rel="stylesheet" href="styles.css?v=13" />
+    <link rel="stylesheet" href="styles.css?v=15" />
   </head>
   <body>
     <!-- Eigene Fensterleiste im App-Design (Systemrahmen ist abgeschaltet) -->
@@ -143,38 +143,43 @@
             <div id="mail-meta" class="mail-meta"></div>
           </div>
           <div class="lese-aktionen">
-            <button
-              id="ansicht-knopf"
-              class="icon-knopf versteckt"
-              type="button"
-              title="Originalansicht des Absenders"
-            >
-              <i class="ph-regular ph-palette"></i>
-            </button>
-            <button
-              id="antworten-knopf"
-              class="icon-knopf"
-              type="button"
-              title="Antworten"
-            >
-              <i class="ph-regular ph-arrow-bend-up-left"></i>
-            </button>
-            <button
-              id="weiterleiten-knopf"
-              class="icon-knopf"
-              type="button"
-              title="Weiterleiten"
-            >
-              <i class="ph-regular ph-arrow-bend-up-right"></i>
-            </button>
-            <button
-              id="loeschen-knopf"
-              class="icon-knopf"
-              type="button"
-              title="Löschen"
-            >
-              <i class="ph-regular ph-trash"></i>
-            </button>
+            <div class="lese-aktionen-knoepfe">
+              <button
+                id="ansicht-knopf"
+                class="icon-knopf versteckt"
+                type="button"
+                title="Originalansicht des Absenders"
+              >
+                <i class="ph-regular ph-palette"></i>
+              </button>
+              <button
+                id="antworten-knopf"
+                class="icon-knopf"
+                type="button"
+                title="Antworten"
+              >
+                <i class="ph-regular ph-arrow-bend-up-left"></i>
+              </button>
+              <button
+                id="weiterleiten-knopf"
+                class="icon-knopf"
+                type="button"
+                title="Weiterleiten"
+              >
+                <i class="ph-regular ph-arrow-bend-up-right"></i>
+              </button>
+              <button
+                id="loeschen-knopf"
+                class="icon-knopf"
+                type="button"
+                title="Löschen"
+              >
+                <i class="ph-regular ph-trash"></i>
+              </button>
+            </div>
+            <!-- Datum unter den Buttons: verhindert Umbrüche bei langem
+                 Absender im Kopf. -->
+            <span id="lese-datum" class="lese-datum"></span>
           </div>
         </div>
         <div id="bilder-leiste" class="hinweis-leiste versteckt">
@@ -186,9 +191,12 @@
             Bilder laden
           </button>
         </div>
-        <!-- Bereinigtes HTML wird ausschließlich hier angezeigt:
-           sandbox ohne Rechte = keine Skripte, kein Zugriff auf die App. -->
-        <iframe id="mail-html" class="versteckt" sandbox=""></iframe>
+        <!-- Bereinigtes HTML wird ausschließlich hier angezeigt: keine
+           Skripte, kein Zugriff auf die App. Einzige erlaubte Aktion ist die
+           durch einen Klick ausgelöste Navigation (target=_top an den Links);
+           das Backend fängt sie ab und öffnet den Link im Standard-Browser. -->
+        <iframe id="mail-html" class="versteckt"
+                sandbox="allow-top-navigation-by-user-activation"></iframe>
         <div id="mail-text" class="scrollbereich versteckt"></div>
         <!-- Anhang-Leiste: ein Knopf je Anhang, Klick speichert die Datei -->
         <div id="anhang-leiste" class="versteckt"></div>

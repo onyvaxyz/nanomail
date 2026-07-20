@@ -59,6 +59,10 @@ pub struct MailKopf {
     pub von: String,
     /// Reine Absenderadresse (für Avatare); kann leer sein.
     pub von_email: String,
+    /// An-Empfänger (Adressen, kommagetrennt) — für Gesendet-Liste & Lesen.
+    pub an: String,
+    /// Cc-Empfänger (Adressen, kommagetrennt).
+    pub cc: String,
     /// Unix-Sekunden (UTC); `None`, wenn die Mail kein lesbares Datum hat.
     pub datum: Option<i64>,
     pub gelesen: bool,
@@ -74,6 +78,8 @@ pub struct NeuerMailKopf {
     pub betreff: String,
     pub von: String,
     pub von_email: String,
+    pub an: String,
+    pub cc: String,
     pub datum: Option<i64>,
     pub gelesen: bool,
     pub beantwortet: bool,
@@ -339,6 +345,34 @@ fn migrieren(conn: &Connection) -> Result<()> {
             "#,
         )
         .context("Migration 10 ausführen")?;
+    }
+    if version < 11 {
+        conn.execute_batch(
+            r#"
+            -- „Kein Bild"-Einträge einmalig verwerfen: Sie stammten teils aus
+            -- vorübergehenden Ladefehlern oder wurden nur für die Absender-
+            -- Subdomain geprüft. Nach dem Löschen werden Avatare mit dem
+            -- verbesserten Favicon-Fallback (Basis-Domain) neu ermittelt.
+            DELETE FROM absender_avatar WHERE data_uri IS NULL;
+            INSERT INTO schema_version (version) VALUES (11);
+            "#,
+        )
+        .context("Migration 11 ausführen")?;
+    }
+    if version < 12 {
+        conn.execute_batch(
+            r#"
+            -- Empfänger (An/Cc) je Mail: für die Gesendet-Liste (an wen ging
+            -- die Mail?) und die Cc-Anzeige beim Lesen. Der Cache wird einmalig
+            -- geleert, damit der nächste Abgleich die Kopfzeilen mit den neuen
+            -- Feldern neu lädt (Konten/Einstellungen bleiben erhalten).
+            ALTER TABLE mails ADD COLUMN an TEXT NOT NULL DEFAULT '';
+            ALTER TABLE mails ADD COLUMN cc TEXT NOT NULL DEFAULT '';
+            DELETE FROM mails;
+            INSERT INTO schema_version (version) VALUES (12);
+            "#,
+        )
+        .context("Migration 12 ausführen")?;
     }
     Ok(())
 }
@@ -640,8 +674,8 @@ pub fn ordner_setze_uidvalidity(conn: &Connection, ordner_id: i64, uidvalidity: 
 pub fn mails_einfuegen(conn: &Connection, ordner_id: i64, koepfe: &[NeuerMailKopf]) -> Result<()> {
     let mut stmt = conn
         .prepare(
-            "INSERT INTO mails (ordner_id, uid, betreff, von, von_email, datum, gelesen, beantwortet, hat_anhang)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO mails (ordner_id, uid, betreff, von, von_email, an, cc, datum, gelesen, beantwortet, hat_anhang)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(ordner_id, uid) DO UPDATE
                  SET gelesen = excluded.gelesen, beantwortet = excluded.beantwortet",
         )
@@ -653,6 +687,8 @@ pub fn mails_einfuegen(conn: &Connection, ordner_id: i64, koepfe: &[NeuerMailKop
             kopf.betreff,
             kopf.von,
             kopf.von_email,
+            kopf.an,
+            kopf.cc,
             kopf.datum,
             kopf.gelesen,
             kopf.beantwortet,
@@ -714,7 +750,7 @@ pub fn mails_liste(
 ) -> Result<Vec<MailKopf>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, ordner_id, uid, betreff, von, von_email, datum, gelesen, beantwortet, hat_anhang
+            "SELECT id, ordner_id, uid, betreff, von, von_email, an, cc, datum, gelesen, beantwortet, hat_anhang
              FROM mails WHERE ordner_id = ?1 AND (?2 = 0 OR gelesen = 0)
              ORDER BY datum IS NULL, datum DESC, uid DESC
              LIMIT ?3 OFFSET ?4",
@@ -731,7 +767,7 @@ pub fn mails_liste(
 
 pub fn mail_holen(conn: &Connection, mail_id: i64) -> Result<Option<MailKopf>> {
     conn.query_row(
-        "SELECT id, ordner_id, uid, betreff, von, von_email, datum, gelesen, beantwortet, hat_anhang
+        "SELECT id, ordner_id, uid, betreff, von, von_email, an, cc, datum, gelesen, beantwortet, hat_anhang
          FROM mails WHERE id = ?1",
         params![mail_id],
         zeile_zu_mailkopf,
@@ -748,10 +784,12 @@ fn zeile_zu_mailkopf(zeile: &rusqlite::Row<'_>) -> rusqlite::Result<MailKopf> {
         betreff: zeile.get(3)?,
         von: zeile.get(4)?,
         von_email: zeile.get(5)?,
-        datum: zeile.get(6)?,
-        gelesen: zeile.get(7)?,
-        beantwortet: zeile.get(8)?,
-        hat_anhang: zeile.get(9)?,
+        an: zeile.get(6)?,
+        cc: zeile.get(7)?,
+        datum: zeile.get(8)?,
+        gelesen: zeile.get(9)?,
+        beantwortet: zeile.get(10)?,
+        hat_anhang: zeile.get(11)?,
     })
 }
 
@@ -927,7 +965,7 @@ pub fn mails_suchen(
     };
     let mut stmt = conn
         .prepare(
-            "SELECT m.id, m.ordner_id, m.uid, m.betreff, m.von, m.von_email, m.datum,
+            "SELECT m.id, m.ordner_id, m.uid, m.betreff, m.von, m.von_email, m.an, m.cc, m.datum,
                     m.gelesen, m.beantwortet, m.hat_anhang, o.anzeige_name
              FROM mails_fts
              JOIN mails m ON m.id = mails_fts.rowid
@@ -941,7 +979,7 @@ pub fn mails_suchen(
         .query_map(params![abfrage, konto_id, limit], |zeile| {
             Ok(SuchTreffer {
                 kopf: zeile_zu_mailkopf(zeile)?,
-                ordner_name: zeile.get(10)?,
+                ordner_name: zeile.get(12)?,
             })
         })
         .context("Suche ausführen")?
@@ -1138,7 +1176,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 12);
     }
 
     #[test]
@@ -1296,6 +1334,8 @@ mod tests {
                 betreff: format!("Mail {i}"),
                 von: String::new(),
                 von_email: String::new(),
+                an: String::new(),
+                cc: String::new(),
                 datum: None,
                 gelesen: false,
                 beantwortet: false,
@@ -1363,6 +1403,8 @@ mod tests {
                 betreff: "Hallo".into(),
                 von: "a@b.c".into(),
                 von_email: String::new(),
+                an: String::new(),
+                cc: String::new(),
                 datum: Some(1_000),
                 gelesen: false,
                 beantwortet: false,
@@ -1387,6 +1429,8 @@ mod tests {
                 betreff: format!("Mail {i}"),
                 von: "a@b.c".into(),
                 von_email: "a@b.c".into(),
+                an: String::new(),
+                cc: String::new(),
                 datum: Some(i64::from(i) * 100),
                 gelesen: i % 2 == 0,
                 beantwortet: false,
@@ -1420,6 +1464,8 @@ mod tests {
                     betreff: "eins".into(),
                     von: String::new(),
                     von_email: String::new(),
+                    an: String::new(),
+                    cc: String::new(),
                     datum: None,
                     gelesen: false,
                     beantwortet: false,
@@ -1430,6 +1476,8 @@ mod tests {
                     betreff: "zwei".into(),
                     von: String::new(),
                     von_email: String::new(),
+                    an: String::new(),
+                    cc: String::new(),
                     datum: None,
                     gelesen: false,
                     beantwortet: false,
@@ -1457,6 +1505,8 @@ mod tests {
                 betreff: "eins".into(),
                 von: String::new(),
                 von_email: String::new(),
+                an: String::new(),
+                cc: String::new(),
                 datum: None,
                 gelesen: false,
                 beantwortet: false,
@@ -1494,6 +1544,8 @@ mod tests {
                 betreff: "Mit Anhang".into(),
                 von: String::new(),
                 von_email: String::new(),
+                an: String::new(),
+                cc: String::new(),
                 datum: None,
                 gelesen: false,
                 beantwortet: false,
@@ -1566,6 +1618,8 @@ mod tests {
                     betreff: "Rechnung Oktober".into(),
                     von: "Buchhaltung".into(),
                     von_email: "rechnung@example.org".into(),
+                    an: String::new(),
+                    cc: String::new(),
                     datum: Some(1_000),
                     gelesen: true,
                     beantwortet: false,
@@ -1576,6 +1630,8 @@ mod tests {
                     betreff: "Urlaubsfotos".into(),
                     von: "Anna Muster".into(),
                     von_email: "anna@example.org".into(),
+                    an: String::new(),
+                    cc: String::new(),
                     datum: Some(2_000),
                     gelesen: true,
                     beantwortet: false,
@@ -1642,6 +1698,8 @@ mod tests {
                 betreff: "Geheimprojekt".into(),
                 von: String::new(),
                 von_email: String::new(),
+                an: String::new(),
+                cc: String::new(),
                 datum: Some(1_000),
                 gelesen: true,
                 beantwortet: false,
@@ -1678,6 +1736,8 @@ mod tests {
                 betreff: format!("Mail {i}"),
                 von: String::new(),
                 von_email: String::new(),
+                an: String::new(),
+                cc: String::new(),
                 datum: Some(i64::from(i)),
                 gelesen: i % 2 == 0,
                 beantwortet: false,
@@ -1706,6 +1766,8 @@ mod tests {
                 betreff: "eins".into(),
                 von: String::new(),
                 von_email: String::new(),
+                an: String::new(),
+                cc: String::new(),
                 datum: None,
                 gelesen: false,
                 beantwortet: false,
@@ -1757,6 +1819,8 @@ mod tests {
                 betreff: "Hallo".into(),
                 von: "Bert Beispiel".into(),
                 von_email: "bert@example.org".into(),
+                an: String::new(),
+                cc: String::new(),
                 datum: Some(1_000),
                 gelesen: true,
                 beantwortet: false,

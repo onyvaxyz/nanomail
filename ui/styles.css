@@ -762,17 +762,34 @@ textarea:focus-visible {
 .meta-adresse {
   color: var(--text-muted);
 }
-.meta-datum {
+/* An-/Cc-Empfängerzeilen im Lesekopf. */
+.meta-empfaenger {
+  flex-basis: 100%;
+  color: var(--text-muted);
+  font-size: 13px;
+  word-break: break-word;
+}
+.meta-empfaenger .meta-feldname {
   color: var(--text-leise);
-  margin-left: auto;
-  font-family: var(--schrift-mono);
-  font-size: 12px;
+  margin-right: 4px;
 }
 
 .lese-aktionen {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
   flex-shrink: 0;
+}
+.lese-aktionen-knoepfe {
+  display: flex;
+  gap: 4px;
+}
+.lese-datum {
+  color: var(--text-leise);
+  font-family: var(--schrift-mono);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .hinweis-leiste {
@@ -1298,6 +1315,38 @@ body.fenster-verfassen {
   height: 18px;
   background: var(--border);
   margin: 0 6px;
+}
+
+/* Eigene Emoji-Auswahl (frei positioniert per JS). */
+.emoji-auswahl {
+  position: fixed;
+  z-index: 50;
+  width: 264px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  background: var(--panel, #21252b);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.emoji-auswahl.versteckt {
+  display: none;
+}
+.emoji-zelle {
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 4px 0;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.emoji-zelle:hover {
+  background: var(--hover, rgba(255, 255, 255, 0.08));
 }
 
 /* Der eigentliche Schreibbereich (contenteditable). */

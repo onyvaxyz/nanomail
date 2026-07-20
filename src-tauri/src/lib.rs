@@ -60,6 +60,37 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        // Links aus Mail-Inhalten (im Sandbox-iframe) navigieren das Fenster;
+        // externe Ziele (http/https/mailto) fangen wir hier ab und öffnen sie
+        // im Standard-Programm des Systems, statt in der App zu navigieren.
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("externe-links")
+                .on_navigation(|window, url| {
+                    let schema = url.scheme();
+                    let ist_extern = matches!(schema, "http" | "https" | "mailto");
+                    // Eigene App-Seiten laufen im Release unter dem
+                    // tauri-Protokoll, im Dev-Modus über den lokalen Server
+                    // (localhost bzw. 127.0.0.1) — die dürfen ganz normal
+                    // navigieren und werden nicht nach außen umgeleitet.
+                    let ist_app = url
+                        .host_str()
+                        .is_some_and(|h| h == "localhost" || h == "127.0.0.1");
+                    if ist_extern && !ist_app {
+                        use tauri_plugin_opener::OpenerExt;
+                        if let Err(fehler) = window
+                            .app_handle()
+                            .opener()
+                            .open_url(url.as_str(), None::<&str>)
+                        {
+                            tracing::warn!("Externen Link öffnen: {fehler:#}");
+                        }
+                        return false; // In-App-Navigation abbrechen.
+                    }
+                    true
+                })
+                .build(),
+        )
         .setup(|app| {
             let pfad = pfade::db_pfad().ok_or("Datenverzeichnis nicht bestimmbar")?;
             let conn = db::oeffnen(&pfad).map_err(|fehler| format!("{fehler:#}"))?;

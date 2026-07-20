@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verfassen — Nanomail</title>
   <link rel="stylesheet" href="phosphor/style.css" />
-  <link rel="stylesheet" href="styles.css?v=13" />
+  <link rel="stylesheet" href="styles.css?v=15" />
 </head>
 <body class="fenster-verfassen">
   <!-- Eigene Fensterleiste im App-Design (Systemrahmen ist abgeschaltet) -->
@@ -43,31 +43,38 @@
       </label>
     </div>
 
+    <!-- tabindex=-1: beim Tabben von den Empfängern springt der Fokus direkt
+         in den Mailinhalt, die Formatier-Knöpfe werden übersprungen. -->
     <div class="editor-leiste">
-      <button type="button" data-befehl="bold" title="Fett (Strg+B)">
+      <button type="button" tabindex="-1" data-befehl="bold" title="Fett (Strg+B)">
         <i class="ph-light ph-text-b"></i>
       </button>
-      <button type="button" data-befehl="italic" title="Kursiv (Strg+I)">
+      <button type="button" tabindex="-1" data-befehl="italic" title="Kursiv (Strg+I)">
         <i class="ph-light ph-text-italic"></i>
       </button>
-      <button type="button" data-befehl="underline" title="Unterstrichen (Strg+U)">
+      <button type="button" tabindex="-1" data-befehl="underline" title="Unterstrichen (Strg+U)">
         <i class="ph-light ph-text-underline"></i>
       </button>
       <span class="editor-trenner"></span>
-      <button type="button" data-befehl="insertUnorderedList" title="Aufzählung">
+      <button type="button" tabindex="-1" data-befehl="insertUnorderedList" title="Aufzählung">
         <i class="ph-light ph-list-bullets"></i>
       </button>
-      <button type="button" data-befehl="insertOrderedList" title="Nummerierte Liste">
+      <button type="button" tabindex="-1" data-befehl="insertOrderedList" title="Nummerierte Liste">
         <i class="ph-light ph-list-numbers"></i>
       </button>
       <span class="editor-trenner"></span>
-      <button id="link-knopf" type="button" title="Link einfügen">
+      <button id="link-knopf" type="button" tabindex="-1" title="Link einfügen">
         <i class="ph-light ph-link"></i>
       </button>
-      <button type="button" data-befehl="removeFormat" title="Formatierung entfernen">
+      <button type="button" tabindex="-1" data-befehl="removeFormat" title="Formatierung entfernen">
         <i class="ph-light ph-eraser"></i>
       </button>
+      <span class="editor-trenner"></span>
+      <button id="emoji-knopf" type="button" tabindex="-1" title="Emoji einfügen (Super + .)">
+        <i class="ph-light ph-smiley"></i>
+      </button>
     </div>
+    <div id="emoji-auswahl" class="emoji-auswahl versteckt"></div>
 
     <div id="verfassen-editor" contenteditable="true"
          data-platzhalter="Nachricht schreiben …"></div>

@@ -562,6 +562,8 @@ async fn ordner_synchronisieren(
                         betreff: geparst.betreff,
                         von: geparst.von,
                         von_email: geparst.von_email,
+                        an: geparst.an,
+                        cc: geparst.cc,
                         datum: geparst.datum,
                         gelesen: kopf.gelesen,
                         beantwortet: kopf.beantwortet,

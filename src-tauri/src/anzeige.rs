@@ -137,6 +137,9 @@ pub fn stil_entfernen(html_bereinigt: &str) -> String {
         .copied()
         .collect();
     builder.url_schemes(schemata);
+    // Auch in der App-Ansicht öffnen Links im Standard-Browser (siehe
+    // `sanitisieren`).
+    builder.set_tag_attribute_value("a", "target", "_top");
     builder.clean(html_bereinigt).to_string()
 }
 
@@ -208,6 +211,9 @@ fn sanitisieren(
         .collect();
     builder
         .url_schemes(schemata)
+        // Links im _top-Ziel öffnen: Der Klick navigiert das Fenster, das
+        // Backend fängt das ab und öffnet den Link im Standard-Browser.
+        .set_tag_attribute_value("a", "target", "_top")
         // `style` für lesbare Newsletter — abgesichert durch iframe-Sandbox
         // + App-CSP (blockiert externe Nachladungen auch aus CSS).
         .add_generic_attributes(["style"])

@@ -84,6 +84,12 @@ function signaturSetzen(konto) {
   // Ein geladener Entwurf bringt seinen Text (samt ggf. Signatur) schon
   // mit — nichts doppelt einfügen.
   if (zustand.entwurfVon) return;
+  // Signatur nur bei einer neuen Erstnachricht, nicht beim Antworten oder
+  // Weiterleiten.
+  if (zustand.antwortAuf) {
+    document.getElementById("signatur-block")?.remove();
+    return;
+  }
   const editor = el("verfassen-editor");
   let block = document.getElementById("signatur-block");
   if (!konto || !konto.signatur || !konto.signatur.trim()) {
@@ -130,6 +136,87 @@ el("link-knopf").addEventListener("click", () => {
     document.execCommand("insertHTML", false, a.outerHTML);
   } else {
     document.execCommand("createLink", false, url);
+  }
+});
+
+// ------------------------------------------------------------- Emoji --
+// Kleine eigene Emoji-Auswahl: per Knopf oder Tastenkürzel „Super + ." (die
+// Windows-Taste) zu öffnen, Klick fügt das Emoji an der Schreibmarke ein.
+
+const EMOJIS =
+  "😀 😃 😄 😁 😆 😅 😂 🙂 🙃 😉 😊 😍 😘 😗 😎 🤩 🥳 🤗 🤔 😐 😴 😪 " +
+  "😑 🙄 😳 😢 😭 😤 😠 😡 🥺 😱 😬 🤯 😇 🤠 🤓 🥰 😋 😜 🤪 😏 😌 " +
+  "👍 👎 👌 🙏 👏 🙌 💪 👀 🎉 🎊 ✨ ⭐ 🔥 💯 ✅ ❌ ❓ ❗ ⚠️ 💡 " +
+  "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 💕 🌟 ☀️ 🌈 ☕ 🍀 🎁 📅 📌 📎 ✉️"
+    .split(/\s+/)
+    .filter(Boolean);
+
+let emojiAufgebaut = false;
+
+function emojiAuswahlAufbauen() {
+  if (emojiAufgebaut) return;
+  emojiAufgebaut = true;
+  const auswahl = el("emoji-auswahl");
+  for (const emoji of EMOJIS) {
+    const knopf = document.createElement("button");
+    knopf.type = "button";
+    knopf.tabIndex = -1;
+    knopf.className = "emoji-zelle";
+    knopf.textContent = emoji;
+    // mousedown abfangen: die Schreibmarke im Editor bleibt erhalten.
+    knopf.addEventListener("mousedown", (ereignis) => ereignis.preventDefault());
+    knopf.addEventListener("click", () => {
+      document.execCommand("insertText", false, emoji);
+      emojiAuswahlSchliessen();
+      el("verfassen-editor").focus();
+    });
+    auswahl.appendChild(knopf);
+  }
+}
+
+function emojiAuswahlSichtbar() {
+  return !el("emoji-auswahl").classList.contains("versteckt");
+}
+
+function emojiAuswahlSchliessen() {
+  el("emoji-auswahl").classList.add("versteckt");
+}
+
+function emojiAuswahlUmschalten() {
+  const auswahl = el("emoji-auswahl");
+  if (emojiAuswahlSichtbar()) {
+    emojiAuswahlSchliessen();
+    return;
+  }
+  emojiAuswahlAufbauen();
+  // Über dem Emoji-Knopf ausrichten.
+  const kasten = el("emoji-knopf").getBoundingClientRect();
+  auswahl.classList.remove("versteckt");
+  auswahl.style.left = `${Math.max(8, kasten.left)}px`;
+  auswahl.style.top = `${kasten.bottom + 4}px`;
+}
+
+el("emoji-knopf").addEventListener("mousedown", (ereignis) => ereignis.preventDefault());
+el("emoji-knopf").addEventListener("click", emojiAuswahlUmschalten);
+
+// „Super + ." (Windows-Taste + Punkt) öffnet die Auswahl.
+document.addEventListener("keydown", (ereignis) => {
+  if (ereignis.key === "." && (ereignis.metaKey || ereignis.getModifierState?.("Super"))) {
+    ereignis.preventDefault();
+    emojiAuswahlUmschalten();
+  } else if (ereignis.key === "Escape" && emojiAuswahlSichtbar()) {
+    emojiAuswahlSchliessen();
+  }
+});
+
+// Klick außerhalb schließt die Auswahl.
+document.addEventListener("mousedown", (ereignis) => {
+  if (
+    emojiAuswahlSichtbar() &&
+    !el("emoji-auswahl").contains(ereignis.target) &&
+    ereignis.target.closest("#emoji-knopf") === null
+  ) {
+    emojiAuswahlSchliessen();
   }
 });
 
@@ -294,6 +381,12 @@ function vorschlaegeAnbinden(feld) {
     } else if (ereignis.key === "Enter" && vorschlaege.index >= 0) {
       ereignis.preventDefault(); // Enter übernimmt, statt zu senden
       vorschlagUebernehmen(vorschlaege.eintraege[vorschlaege.index].email);
+    } else if (ereignis.key === "Tab" && !ereignis.shiftKey) {
+      // Tab übernimmt den markierten Vorschlag (sonst den ersten), statt
+      // zum nächsten Feld zu springen.
+      ereignis.preventDefault();
+      const wahl = vorschlaege.index >= 0 ? vorschlaege.index : 0;
+      vorschlagUebernehmen(vorschlaege.eintraege[wahl].email);
     } else if (ereignis.key === "Escape") {
       vorschlaegeVerbergen();
     }

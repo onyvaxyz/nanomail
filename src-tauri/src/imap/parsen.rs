@@ -12,8 +12,26 @@ pub struct GeparsterKopf {
     pub von: String,
     /// Reine Absenderadresse (für Avatare); kann leer sein.
     pub von_email: String,
+    /// An-Empfänger, Adressen durch Komma getrennt (für die Gesendet-Liste
+    /// und die Lese-Ansicht). Kann leer sein.
+    pub an: String,
+    /// Cc-Empfänger, Adressen durch Komma getrennt. Kann leer sein.
+    pub cc: String,
     /// Unix-Sekunden aus dem Date-Header, falls vorhanden und lesbar.
     pub datum: Option<i64>,
+}
+
+/// Adressliste (nur Adressen, durch Komma getrennt) aus einem Header-Feld.
+pub fn adressliste(adressen: Option<&mail_parser::Address>) -> String {
+    adressen
+        .map(|liste| {
+            liste
+                .iter()
+                .filter_map(|a| a.address())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default()
 }
 
 pub fn parse_kopf(header: &[u8]) -> GeparsterKopf {
@@ -22,6 +40,8 @@ pub fn parse_kopf(header: &[u8]) -> GeparsterKopf {
             betreff: String::new(),
             von: String::new(),
             von_email: String::new(),
+            an: String::new(),
+            cc: String::new(),
             datum: None,
         };
     };
@@ -45,6 +65,8 @@ pub fn parse_kopf(header: &[u8]) -> GeparsterKopf {
         betreff,
         von,
         von_email,
+        an: adressliste(nachricht.to()),
+        cc: adressliste(nachricht.cc()),
         datum,
     }
 }
@@ -128,18 +150,6 @@ pub fn parse_fuer_entwurf(roh: &[u8]) -> EntwurfDaten {
         return EntwurfDaten::default();
     };
 
-    let adressliste = |adressen: Option<&mail_parser::Address>| -> String {
-        adressen
-            .map(|liste| {
-                liste
-                    .iter()
-                    .filter_map(|a| a.address())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default()
-    };
-
     EntwurfDaten {
         an: adressliste(nachricht.to()),
         cc: adressliste(nachricht.cc()),
@@ -168,6 +178,18 @@ mod tests {
         assert_eq!(kopf.von_email, "anna@example.org");
         // 2026-07-03 10:00 +0200 = 08:00 UTC
         assert_eq!(kopf.datum, Some(1_783_065_600));
+    }
+
+    #[test]
+    fn an_und_cc_werden_als_adressliste_geparst() {
+        let kopf = parse_kopf(
+            b"From: a@example.org\r\n\
+              To: Bob <bob@example.org>, carla@example.org\r\n\
+              Cc: dora@example.org\r\n\
+              Subject: Test\r\n\r\n",
+        );
+        assert_eq!(kopf.an, "bob@example.org, carla@example.org");
+        assert_eq!(kopf.cc, "dora@example.org");
     }
 
     #[test]

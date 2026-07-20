@@ -43,6 +43,17 @@ pub fn favicon_url(domain: &str) -> String {
     format!("https://icons.duckduckgo.com/ip3/{domain}.ico")
 }
 
+/// Basis-Domain (letzte zwei Namensteile) — z. B. `mail.tutti.ch` → `tutti.ch`.
+/// Der Favicon-Dienst kennt oft nur die Basis-Domain, nicht jede Absender-
+/// Subdomain; `None`, wenn `domain` schon nur zwei Teile hat.
+pub fn basis_domain(domain: &str) -> Option<String> {
+    let teile: Vec<&str> = domain.split('.').filter(|t| !t.is_empty()).collect();
+    if teile.len() <= 2 {
+        return None;
+    }
+    Some(teile[teile.len() - 2..].join("."))
+}
+
 /// Lädt einen Avatar: erst Gravatar, sonst Favicon der Absender-Domain.
 /// `Ok(Some(uri))` = Bild, `Ok(None)` = sicher kein Bild vorhanden (cachebar),
 /// `Err` = vorübergehender Fehler (Netz/Server) — darf **nicht** als
@@ -58,12 +69,17 @@ pub async fn hole_avatar(client: &reqwest::Client, email: &str) -> Result<Option
         }
     }
     if let Some(domain) = domain(email) {
-        match lade_bild(client, &favicon_url(&domain)).await {
-            Ok(Some(uri)) => return Ok(Some(uri)),
-            Ok(None) => {}
-            Err(fehler) => {
-                tracing::debug!("Favicon ({domain}) nicht geladen: {fehler:#}");
-                voruebergehend_gescheitert = true;
+        // Erst die volle (Sub-)Domain, sonst die Basis-Domain — der Dienst
+        // kennt z. B. `docker.com`, aber nicht `notify.docker.com`.
+        let kandidaten = std::iter::once(domain.clone()).chain(basis_domain(&domain));
+        for kandidat in kandidaten {
+            match lade_bild(client, &favicon_url(&kandidat)).await {
+                Ok(Some(uri)) => return Ok(Some(uri)),
+                Ok(None) => {}
+                Err(fehler) => {
+                    tracing::debug!("Favicon ({kandidat}) nicht geladen: {fehler:#}");
+                    voruebergehend_gescheitert = true;
+                }
             }
         }
     }
@@ -147,5 +163,16 @@ mod tests {
             favicon_url("shop.example"),
             "https://icons.duckduckgo.com/ip3/shop.example.ico"
         );
+    }
+
+    #[test]
+    fn basis_domain_kuerzt_nur_subdomains() {
+        assert_eq!(basis_domain("notify.docker.com"), Some("docker.com".into()));
+        assert_eq!(
+            basis_domain("order.info.sbb.ch"),
+            Some("sbb.ch".to_string())
+        );
+        assert_eq!(basis_domain("docker.com"), None);
+        assert_eq!(basis_domain("localhost"), None);
     }
 }
