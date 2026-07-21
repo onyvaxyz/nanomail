@@ -61,7 +61,9 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
     let von = mailbox(&eingabe.von_name, &eingabe.von_adresse)?;
 
     let absender_adresse = von.email.clone();
-    let mut builder = Message::builder().from(von);
+    let mut builder = Message::builder()
+        .from(von)
+        .message_id(Some(neue_message_id(&absender_adresse)));
     for adresse in &eingabe.an {
         builder = builder.to(parse_adresse(adresse)?);
     }
@@ -141,7 +143,11 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
 /// METHOD:REQUEST dagegen richtig, damit Mailprogramme sie als Einladung erkennen.
 pub fn baue_kalender_einladung(eingabe: &KalenderEinladung) -> Result<(Message, Vec<u8>)> {
     let von = mailbox(&eingabe.von_name, &eingabe.von_adresse)?;
-    let mut builder = Message::builder().from(von).subject(&eingabe.betreff);
+    let message_id = neue_message_id(&von.email);
+    let mut builder = Message::builder()
+        .from(von)
+        .message_id(Some(message_id))
+        .subject(&eingabe.betreff);
     for adresse in &eingabe.an {
         builder = builder.to(parse_adresse(adresse)?);
     }
@@ -178,6 +184,13 @@ fn mailbox(name: &str, adresse: &str) -> Result<Mailbox> {
         (!name.is_empty()).then(|| name.to_string()),
         adresse,
     ))
+}
+
+/// Erzeugt eine weltweit eindeutige Nachrichten-ID, ohne den lokalen
+/// Rechnernamen preiszugeben. Die Domain des Absenders macht die ID
+/// zugleich eindeutig Nanomails Absender zuordenbar.
+fn neue_message_id(absender: &lettre::Address) -> String {
+    format!("<{}@{}>", uuid::Uuid::new_v4(), absender.domain())
 }
 
 /// Inhaltsteil der Mail vor dem Anfügen der Anhänge.
@@ -338,8 +351,27 @@ mod tests {
         let roh = String::from_utf8_lossy(&roh);
         assert!(roh.contains("From: Philipp <philipp@example.org>"));
         assert!(roh.contains("To: anna@example.org"));
+        assert!(roh.contains("Message-ID: <"));
+        assert!(roh.contains("@example.org>"));
         assert!(roh.contains("Subject: Testbetreff"));
         assert!(roh.contains("Hallo Anna!"));
+    }
+
+    #[test]
+    fn jede_nachricht_bekommt_eine_eigene_message_id() {
+        let (_, erste) = baue_nachricht(&beispiel()).unwrap();
+        let (_, zweite) = baue_nachricht(&beispiel()).unwrap();
+        let erste_id = String::from_utf8_lossy(&erste)
+            .lines()
+            .find(|zeile| zeile.starts_with("Message-ID:"))
+            .unwrap()
+            .to_string();
+        let zweite_id = String::from_utf8_lossy(&zweite)
+            .lines()
+            .find(|zeile| zeile.starts_with("Message-ID:"))
+            .unwrap()
+            .to_string();
+        assert_ne!(erste_id, zweite_id);
     }
 
     #[test]
@@ -422,6 +454,8 @@ mod tests {
         let roh = String::from_utf8_lossy(&roh);
         assert!(roh.contains("From: Philipp <philipp@example.org>"));
         assert!(roh.contains("To: anna@example.org"));
+        assert!(roh.contains("Message-ID: <"));
+        assert!(roh.contains("@example.org>"));
         assert!(roh.contains("text/calendar"));
         assert!(roh.contains("method=REQUEST"));
         assert!(roh.contains("METHOD:REQUEST"));

@@ -232,6 +232,31 @@ impl ImapVerbindung {
         Ok(body.to_vec())
     }
 
+    /// Sucht im gewählten Ordner direkt auf dem Server. `TEXT` umfasst
+    /// Kopfzeilen und Nachrichtentext, ohne dass Nanomail dafür alle Mails
+    /// und insbesondere deren Anhänge lokal herunterladen muss.
+    pub async fn volltext_suchen(&mut self, eingabe: &str) -> Result<Vec<u32>> {
+        let suchbegriffe = eingabe
+            .split_whitespace()
+            .map(|wort| {
+                let sicher = wort
+                    .replace(['\r', '\n'], " ")
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"");
+                format!("TEXT \"{sicher}\"")
+            })
+            .collect::<Vec<_>>();
+        if suchbegriffe.is_empty() {
+            return Ok(Vec::new());
+        }
+        let uids = self
+            .session
+            .uid_search(suchbegriffe.join(" "))
+            .await
+            .context("Volltextsuche auf dem Mailserver")?;
+        Ok(uids.into_iter().collect())
+    }
+
     /// Setzt das \Seen-Flag auf dem Server (Quelle der Wahrheit).
     pub async fn als_gelesen_markieren(&mut self, uid: u32) -> Result<()> {
         let _antworten: Vec<_> = self

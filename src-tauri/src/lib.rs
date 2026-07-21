@@ -61,6 +61,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         // Links aus Mail-Inhalten (im Sandbox-iframe) navigieren das Fenster;
         // externe Ziele (http/https/mailto) fangen wir hier ab und öffnen sie
         // im Standard-Programm des Systems, statt in der App zu navigieren.
@@ -107,6 +108,7 @@ pub fn run() {
                 commands::idle_starten(handle, konto.id);
             }
             tauri::async_runtime::spawn(commands::periodischer_sync(handle.clone()));
+            tauri::async_runtime::spawn(commands::periodische_termin_erinnerungen(handle.clone()));
             // Kalender beim Start einmal abgleichen (Fehler zeigt die UI
             // beim manuellen Abgleich — hier nur ins Protokoll).
             let kalender_handle = handle.clone();

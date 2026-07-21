@@ -79,20 +79,22 @@ el("fenster-schliessen").addEventListener("click", () => aktuellesFenster.close(
 // doppelt umgeschaltet und das Fenster springt sofort zurück.
 // Größenändern per Rand-Ziehen: siehe fenster.js.
 
-// Strg + Mausrad zoomt das ganze Fenster (die Mail wird mit vergrößert).
+// Strg oder Umschalt + Mausrad zoomt das ganze Fenster (die Mail wird mit
+// vergrößert). Beide Varianten bleiben aktiv, damit die Bedienung unabhängig
+// von der gewohnten Desktop-Konvention funktioniert.
 // Hinweis: Direkt über dem Mail-Inhalt fängt das abgeschottete Sicherheits-
 // Fenster das Rad ab — dort zoomt zusätzlich Strg + Plus/Minus (nativ).
 let zoomFaktor = 1;
 document.addEventListener(
   "wheel",
   (ereignis) => {
-    if (!ereignis.ctrlKey) return;
+    if (!ereignis.ctrlKey && !ereignis.shiftKey) return;
     ereignis.preventDefault();
     const schritt = ereignis.deltaY < 0 ? 0.1 : -0.1;
     zoomFaktor = Math.min(3, Math.max(0.3, Math.round((zoomFaktor + schritt) * 10) / 10));
     aktuellesFenster.setZoom(zoomFaktor).catch(() => {});
   },
-  { passive: false },
+  { passive: false, capture: true },
 );
 
 // ------------------------------------------------------- Konto-Farben --
@@ -472,7 +474,7 @@ function mailAnklicken(mail) {
 }
 
 // --------------------------------------------------------------- Suche --
-// Volltextsuche über alle Ordner des aktiven Kontos (Betreff, Absender
+// Volltextsuche im aktiven Ordner (Betreff, Absender
 // und — soweit lokal vorhanden — Mailtext). Tippen startet die Suche
 // leicht verzögert; Leeren oder Escape kehrt zur Ordneransicht zurück.
 
@@ -506,12 +508,17 @@ function sucheBeenden() {
 }
 
 async function sucheAusfuehren() {
-  if (!zustand.suchbegriff || !zustand.aktivesKontoId) return;
+  if (!zustand.suchbegriff || !zustand.aktiverOrdnerId) return;
+  const suchbegriff = zustand.suchbegriff;
+  const ordnerId = zustand.aktiverOrdnerId;
   try {
     const treffer = await invoke("mails_suchen", {
-      kontoId: zustand.aktivesKontoId,
-      eingabe: zustand.suchbegriff,
+      ordnerId,
+      eingabe: suchbegriff,
     });
+    // Eine ältere, langsamere Server-Suche darf neuere Ergebnisse nicht
+    // überschreiben, wenn inzwischen weitergetippt/umgeschaltet wurde.
+    if (suchbegriff !== zustand.suchbegriff || ordnerId !== zustand.aktiverOrdnerId) return;
     const behaelter = el("mail-eintraege");
     behaelter.innerHTML = "";
     if (treffer.length === 0) {

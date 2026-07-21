@@ -341,6 +341,54 @@ pub fn termine_im_zeitraum(conn: &Connection, von: i64, bis: i64) -> Result<Vec<
     Ok(termine)
 }
 
+/// Reserviert eine Erinnerung atomar. `true` bedeutet, dass dieses
+/// Termin-Vorkommen bisher noch nicht erinnert wurde.
+pub fn erinnerung_vormerken(
+    conn: &Connection,
+    kalender_id: i64,
+    href: &str,
+    vorkommen_beginn: i64,
+    jetzt: i64,
+) -> Result<bool> {
+    let eingefuegt = conn
+        .execute(
+            "INSERT OR IGNORE INTO termin_erinnerungen
+                (kalender_id, href, vorkommen_beginn, erinnert_am)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![kalender_id, href, vorkommen_beginn, jetzt],
+        )
+        .context("Termin-Erinnerung vormerken")?;
+    Ok(eingefuegt == 1)
+}
+
+/// Gibt eine Reservierung wieder frei, wenn das System-Popup nicht gezeigt
+/// werden konnte. Die nächste Prüfung darf es dann erneut versuchen.
+pub fn erinnerung_zuruecknehmen(
+    conn: &Connection,
+    kalender_id: i64,
+    href: &str,
+    vorkommen_beginn: i64,
+) -> Result<()> {
+    conn.execute(
+        "DELETE FROM termin_erinnerungen
+         WHERE kalender_id = ?1 AND href = ?2 AND vorkommen_beginn = ?3",
+        params![kalender_id, href, vorkommen_beginn],
+    )
+    .context("Termin-Erinnerung zurücknehmen")?;
+    Ok(())
+}
+
+/// Alte Einträge werden nicht dauerhaft angesammelt. Ein Tag Abstand lässt
+/// genügend Reserve für Uhrzeitänderungen und verspätete Prüfungen.
+pub fn alte_erinnerungen_loeschen(conn: &Connection, vor: i64) -> Result<()> {
+    conn.execute(
+        "DELETE FROM termin_erinnerungen WHERE vorkommen_beginn < ?1",
+        params![vor],
+    )
+    .context("Alte Termin-Erinnerungen aufräumen")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,5 +514,24 @@ mod tests {
         termine_leeren(&conn, id).unwrap();
         assert!(termine_im_zeitraum(&conn, 0, 100).unwrap().is_empty());
         assert_eq!(kalender_holen(&conn, id).unwrap().unwrap().sync_token, "");
+    }
+
+    #[test]
+    fn termin_erinnerung_wird_nur_einmal_vorgemerkt() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let kalender = kalender_upsert(&conn, konto.id, "/cal/a/", "A", "").unwrap();
+
+        assert!(erinnerung_vormerken(&conn, kalender, "a.ics", 2_000, 100).unwrap());
+        assert!(!erinnerung_vormerken(&conn, kalender, "a.ics", 2_000, 101).unwrap());
+        // Ein anderes Serien-Vorkommen wird unabhängig erinnert.
+        assert!(erinnerung_vormerken(&conn, kalender, "a.ics", 3_000, 102).unwrap());
+
+        erinnerung_zuruecknehmen(&conn, kalender, "a.ics", 2_000).unwrap();
+        assert!(erinnerung_vormerken(&conn, kalender, "a.ics", 2_000, 103).unwrap());
+
+        alte_erinnerungen_loeschen(&conn, 2_500).unwrap();
+        assert!(erinnerung_vormerken(&conn, kalender, "a.ics", 2_000, 104).unwrap());
+        assert!(!erinnerung_vormerken(&conn, kalender, "a.ics", 3_000, 104).unwrap());
     }
 }

@@ -44,6 +44,21 @@ el("fenster-schliessen").addEventListener("click", () => aktuellesFenster.close(
 // doppelt umgeschaltet und das Fenster springt sofort zurück.
 // Größenändern per Rand-Ziehen: siehe fenster.js.
 
+// Derselbe Fensterzoom wie im Hauptfenster. Das frühe Abfangen verhindert,
+// dass der Editor bei gedrückter Strg-/Umschalt-Taste stattdessen scrollt.
+let zoomFaktor = 1;
+document.addEventListener(
+  "wheel",
+  (ereignis) => {
+    if (!ereignis.ctrlKey && !ereignis.shiftKey) return;
+    ereignis.preventDefault();
+    const schritt = ereignis.deltaY < 0 ? 0.1 : -0.1;
+    zoomFaktor = Math.min(3, Math.max(0.3, Math.round((zoomFaktor + schritt) * 10) / 10));
+    aktuellesFenster.setZoom(zoomFaktor).catch(() => {});
+  },
+  { passive: false, capture: true },
+);
+
 const fensterTitel = zustand.entwurfVon
   ? "Entwurf bearbeiten"
   : zustand.antwortAuf
@@ -137,6 +152,17 @@ el("link-knopf").addEventListener("click", () => {
   } else {
     document.execCommand("createLink", false, url);
   }
+});
+
+// Einheitliches Schreibverhalten unabhängig von WebKitGTK-Version:
+// Enter beginnt einen neuen Absatz, Umschalt + Enter nur eine neue Zeile.
+// `p` statt des WebKit-Standards `div` ermöglicht den sichtbaren
+// Absatzabstand aus styles.css.
+document.execCommand("defaultParagraphSeparator", false, "p");
+el("verfassen-editor").addEventListener("keydown", (ereignis) => {
+  if (ereignis.key !== "Enter") return;
+  ereignis.preventDefault();
+  document.execCommand(ereignis.shiftKey ? "insertLineBreak" : "insertParagraph", false, null);
 });
 
 // ------------------------------------------------------------- Emoji --

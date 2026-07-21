@@ -374,6 +374,24 @@ fn migrieren(conn: &Connection) -> Result<()> {
         )
         .context("Migration 12 ausführen")?;
     }
+    if version < 13 {
+        conn.execute_batch(
+            r#"
+            -- Bereits gezeigte Termin-Erinnerungen. Der konkrete Beginn ist
+            -- Teil des Schlüssels, damit jedes Vorkommen einer Serie genau
+            -- einmal erinnert wird.
+            CREATE TABLE termin_erinnerungen (
+                kalender_id      INTEGER NOT NULL REFERENCES kalender(id) ON DELETE CASCADE,
+                href             TEXT NOT NULL,
+                vorkommen_beginn INTEGER NOT NULL,
+                erinnert_am      INTEGER NOT NULL,
+                PRIMARY KEY (kalender_id, href, vorkommen_beginn)
+            );
+            INSERT INTO schema_version (version) VALUES (13);
+            "#,
+        )
+        .context("Migration 13 ausführen")?;
+    }
     Ok(())
 }
 
@@ -952,11 +970,11 @@ fn fts_abfrage(eingabe: &str) -> Option<String> {
     }
 }
 
-/// Volltextsuche über alle Ordner eines Kontos: Betreff, Absender und —
+/// Volltextsuche in einem Ordner: Betreff, Absender und —
 /// soweit im Cache — Mailtext. Neueste Treffer zuerst.
 pub fn mails_suchen(
     conn: &Connection,
-    konto_id: i64,
+    ordner_id: i64,
     eingabe: &str,
     limit: i64,
 ) -> Result<Vec<SuchTreffer>> {
@@ -970,19 +988,62 @@ pub fn mails_suchen(
              FROM mails_fts
              JOIN mails m ON m.id = mails_fts.rowid
              JOIN ordner o ON o.id = m.ordner_id
-             WHERE mails_fts MATCH ?1 AND o.konto_id = ?2
+             WHERE mails_fts MATCH ?1 AND o.id = ?2
              ORDER BY m.datum IS NULL, m.datum DESC, m.uid DESC
              LIMIT ?3",
         )
         .context("Suche vorbereiten")?;
     let treffer = stmt
-        .query_map(params![abfrage, konto_id, limit], |zeile| {
+        .query_map(params![abfrage, ordner_id, limit], |zeile| {
             Ok(SuchTreffer {
                 kopf: zeile_zu_mailkopf(zeile)?,
                 ordner_name: zeile.get(12)?,
             })
         })
         .context("Suche ausführen")?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(treffer)
+}
+
+/// Liefert die lokal bekannten Köpfe zu UIDs, die der IMAP-Server bei einer
+/// Volltextsuche gefunden hat.
+pub fn mails_zu_uids(
+    conn: &Connection,
+    ordner_id: i64,
+    uids: &[u32],
+    limit: i64,
+) -> Result<Vec<SuchTreffer>> {
+    if uids.is_empty() {
+        return Ok(Vec::new());
+    }
+    // UIDs sind vom Server gelieferte Zahlen und können deshalb sicher als
+    // Liste eingesetzt werden. So greift auch bei großen Ordnern nicht
+    // SQLites Grenze für die Anzahl gebundener Parameter.
+    let uid_liste = uids
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT m.id, m.ordner_id, m.uid, m.betreff, m.von, m.von_email, m.an, m.cc, m.datum,
+                m.gelesen, m.beantwortet, m.hat_anhang, o.anzeige_name
+         FROM mails m
+         JOIN ordner o ON o.id = m.ordner_id
+         WHERE o.id = ?1 AND m.uid IN ({uid_liste})
+         ORDER BY m.datum IS NULL, m.datum DESC, m.uid DESC
+         LIMIT ?2"
+    );
+    let mut stmt = conn
+        .prepare(&sql)
+        .context("Server-Suchtreffer vorbereiten")?;
+    let treffer = stmt
+        .query_map(params![ordner_id, limit], |zeile| {
+            Ok(SuchTreffer {
+                kopf: zeile_zu_mailkopf(zeile)?,
+                ordner_name: zeile.get(12)?,
+            })
+        })
+        .context("Server-Suchtreffer lesen")?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(treffer)
 }
@@ -1176,7 +1237,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 12);
+        assert_eq!(version, 13);
     }
 
     #[test]
@@ -1642,13 +1703,13 @@ mod tests {
         .unwrap();
 
         // Präfix im Betreff.
-        let treffer = mails_suchen(&conn, konto.id, "rechn", 50).unwrap();
+        let treffer = mails_suchen(&conn, id, "rechn", 50).unwrap();
         assert_eq!(treffer.len(), 1);
         assert_eq!(treffer[0].kopf.betreff, "Rechnung Oktober");
         assert_eq!(treffer[0].ordner_name, "Posteingang");
 
         // Absendername.
-        let treffer = mails_suchen(&conn, konto.id, "anna", 50).unwrap();
+        let treffer = mails_suchen(&conn, id, "anna", 50).unwrap();
         assert_eq!(treffer.len(), 1);
         assert_eq!(treffer[0].kopf.betreff, "Urlaubsfotos");
 
@@ -1664,32 +1725,29 @@ mod tests {
             },
         )
         .unwrap();
-        let treffer = mails_suchen(&conn, konto.id, "überweisung", 50).unwrap();
+        let treffer = mails_suchen(&conn, id, "überweisung", 50).unwrap();
         assert_eq!(treffer.len(), 1);
         assert_eq!(treffer[0].kopf.betreff, "Rechnung Oktober");
 
         // Mehrere Wörter = alle müssen vorkommen.
         assert_eq!(
-            mails_suchen(&conn, konto.id, "rechnung urlaubsfotos", 50)
+            mails_suchen(&conn, id, "rechnung urlaubsfotos", 50)
                 .unwrap()
                 .len(),
             0
         );
         // Anführungszeichen in der Eingabe stören die Abfrage nicht.
-        assert_eq!(
-            mails_suchen(&conn, konto.id, "\"rechn", 50).unwrap().len(),
-            1
-        );
+        assert_eq!(mails_suchen(&conn, id, "\"rechn", 50).unwrap().len(), 1);
         // Leere Eingabe liefert nichts.
-        assert!(mails_suchen(&conn, konto.id, "   ", 50).unwrap().is_empty());
+        assert!(mails_suchen(&conn, id, "   ", 50).unwrap().is_empty());
     }
 
     #[test]
-    fn suche_trennt_konten_und_folgt_loeschungen() {
+    fn suche_trennt_ordner_und_folgt_loeschungen() {
         let conn = oeffnen_im_speicher().unwrap();
         let konto_a = beispiel_konto(&conn);
-        let konto_b = konto_anlegen(&conn, &beispiel_daten()).unwrap();
         let ordner_a = ordner_upsert(&conn, konto_a.id, "INBOX", "Posteingang", None).unwrap();
+        let ordner_b = ordner_upsert(&conn, konto_a.id, "Sent", "Gesendet", None).unwrap();
         mails_einfuegen(
             &conn,
             ordner_a,
@@ -1708,21 +1766,54 @@ mod tests {
         )
         .unwrap();
 
-        // Nur das eigene Konto findet die Mail.
+        // Nur der geöffnete Ordner findet die Mail.
         assert_eq!(
-            mails_suchen(&conn, konto_a.id, "geheim", 50).unwrap().len(),
+            mails_suchen(&conn, ordner_a, "geheim", 50).unwrap().len(),
             1
         );
-        assert!(mails_suchen(&conn, konto_b.id, "geheim", 50)
+        assert!(mails_suchen(&conn, ordner_b, "geheim", 50)
             .unwrap()
             .is_empty());
 
         // Nach dem Löschen verschwindet sie auch aus dem Suchindex.
         let mail_id = mails_liste(&conn, ordner_a, false, 0, 10).unwrap()[0].id;
         mail_entfernen(&conn, mail_id).unwrap();
-        assert!(mails_suchen(&conn, konto_a.id, "geheim", 50)
+        assert!(mails_suchen(&conn, ordner_a, "geheim", 50)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn server_suchtreffer_werden_nach_uid_und_ordner_zugeordnet() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let inbox = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        let gesendet = ordner_upsert(&conn, konto.id, "Sent", "Gesendet", None).unwrap();
+        for ordner in [inbox, gesendet] {
+            mails_einfuegen(
+                &conn,
+                ordner,
+                &[NeuerMailKopf {
+                    uid: 7,
+                    betreff: format!("Mail in {ordner}"),
+                    von: String::new(),
+                    von_email: String::new(),
+                    an: String::new(),
+                    cc: String::new(),
+                    datum: Some(ordner),
+                    gelesen: true,
+                    beantwortet: false,
+                    hat_anhang: false,
+                }],
+            )
+            .unwrap();
+        }
+
+        let treffer = mails_zu_uids(&conn, gesendet, &[7], 100).unwrap();
+        assert_eq!(treffer.len(), 1);
+        assert_eq!(treffer[0].kopf.ordner_id, gesendet);
+        assert_eq!(treffer[0].ordner_name, "Gesendet");
+        assert!(mails_zu_uids(&conn, gesendet, &[], 100).unwrap().is_empty());
     }
 
     #[test]

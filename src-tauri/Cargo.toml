@@ -40,8 +40,10 @@ zbus-secret-service-keyring-store = { version = "1.0.0", features = ["rt-tokio-c
 mime_guess = "2.0.5"
 tauri-plugin-dialog = "2.7.1"
 tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 lettre = { version = "0.11.22", default-features = false, features = ["builder", "smtp-transport", "hostname", "tokio1", "tokio1-rustls", "rustls-no-provider", "webpki-roots"] }
+uuid = { version = "1.23.4", features = ["v4"] }
 md5 = "0.8.0"
 quick-xml = "0.41.0"
 icalendar = { version = "0.17.12", default-features = false, features = ["parser"] }

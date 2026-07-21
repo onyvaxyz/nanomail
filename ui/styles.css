@@ -1369,6 +1369,11 @@ body.fenster-verfassen {
   color: var(--text-leise);
   pointer-events: none;
 }
+/* Enter erzeugt einen Absatz mit sichtbarem Abstand; Umschalt+Enter setzt
+   nur ein <br> und bleibt deshalb im normalen Zeilenabstand. */
+#verfassen-editor > p {
+  margin: 0.65em 0 0;
+}
 #verfassen-editor a {
   color: var(--blau);
 }

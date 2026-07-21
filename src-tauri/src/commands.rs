@@ -13,6 +13,7 @@ use base64::Engine;
 use chrono::{Local, TimeZone};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::caldav::verbindung::{CaldavVerbindung, SyncAntwort};
 use crate::caldav::{termine, xml};
@@ -20,7 +21,7 @@ use crate::db::{self, kalender as db_kalender, Konto, MailKopf, NeuerMailKopf, O
 use crate::imap::verbindung::ImapVerbindung;
 use crate::imap::{idle, parsen, sync};
 use crate::smtp::{nachricht, versand};
-use crate::{anzeige, avatar, pfade, schluesselbund};
+use crate::{anzeige, avatar, schluesselbund};
 
 /// Kopfzeilen-Batchgröße beim Sync — klein genug, dass die UI früh
 /// etwas anzeigen kann.
@@ -28,6 +29,8 @@ const KOEPFE_BATCH: usize = 200;
 /// Obergrenzen für „Bilder laden“.
 const MAX_BILDER: usize = 30;
 const MAX_BILD_BYTES: usize = 10 * 1024 * 1024;
+/// Fester Erinnerungszeitpunkt vor Kalenderterminen.
+const TERMIN_ERINNERUNG_SEKUNDEN: i64 = 30 * 60;
 
 pub struct AppZustand {
     pub db: Mutex<rusqlite::Connection>,
@@ -409,6 +412,84 @@ pub async fn periodischer_sync(app: AppHandle) {
     }
 }
 
+/// Prüft einmal pro Minute, ob ein Termin in den nächsten 30 Minuten
+/// beginnt. Nanomail muss dafür laufen; der Kalender-Cache genügt offline.
+pub async fn periodische_termin_erinnerungen(app: AppHandle) {
+    loop {
+        if let Err(fehler) = termin_erinnerungen_pruefen(&app) {
+            tracing::warn!("Termin-Erinnerungen prüfen: {fehler:#}");
+        }
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    }
+}
+
+fn liegt_im_erinnerungsfenster(beginn: i64, jetzt: i64) -> bool {
+    beginn > jetzt && beginn <= jetzt + TERMIN_ERINNERUNG_SEKUNDEN
+}
+
+fn termin_erinnerungen_pruefen(app: &AppHandle) -> Result<()> {
+    let jetzt = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("Systemzeit für Termin-Erinnerung")?
+        .as_secs() as i64;
+    let zustand = app.state::<AppZustand>();
+    mit_db(&zustand, |conn| {
+        db_kalender::alte_erinnerungen_loeschen(conn, jetzt - 24 * 60 * 60)
+    })?;
+    let termine = kalender_termine_intern(&zustand, jetzt, jetzt + TERMIN_ERINNERUNG_SEKUNDEN + 1)?;
+
+    for termin in termine
+        .into_iter()
+        .filter(|t| liegt_im_erinnerungsfenster(t.termin.beginn, jetzt))
+    {
+        let neu = mit_db(&zustand, |conn| {
+            db_kalender::erinnerung_vormerken(
+                conn,
+                termin.kalender_id,
+                &termin.href,
+                termin.termin.beginn,
+                jetzt,
+            )
+        })?;
+        if !neu {
+            continue;
+        }
+
+        let uhrzeit = Local
+            .timestamp_opt(termin.termin.beginn, 0)
+            .single()
+            .map(|zeit| zeit.format("%H:%M").to_string())
+            .unwrap_or_else(|| "bald".to_string());
+        let titel = if termin.termin.titel.trim().is_empty() {
+            "Termin".to_string()
+        } else {
+            termin.termin.titel.clone()
+        };
+        let mut text = format!("Beginn: {uhrzeit} Uhr");
+        if !termin.termin.ort.trim().is_empty() {
+            text.push_str(&format!(" · {}", termin.termin.ort.trim()));
+        }
+        if let Err(fehler) = app
+            .notification()
+            .builder()
+            .title(format!("Terminerinnerung: {titel}"))
+            .body(text)
+            .show()
+        {
+            mit_db(&zustand, |conn| {
+                db_kalender::erinnerung_zuruecknehmen(
+                    conn,
+                    termin.kalender_id,
+                    &termin.href,
+                    termin.termin.beginn,
+                )
+            })?;
+            tracing::warn!("Systembenachrichtigung konnte nicht angezeigt werden: {fehler:#}");
+        }
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------- Live-Update --
 
 /// Startet (bzw. ersetzt) den Live-Update-Task eines Kontos.
@@ -649,18 +730,69 @@ fn mail_gelesen_setzen_intern(zustand: &AppZustand, mail_id: i64, gelesen: bool)
     Ok(())
 }
 
-/// Volltextsuche über alle Ordner des Kontos (Betreff, Absender und —
-/// soweit lokal im Cache — Mailtext). Neueste Treffer zuerst.
+/// Volltextsuche im geöffneten Ordner. Der lokale Index wird online durch
+/// die Server-Suche ergänzt, damit auch ungeöffnete Mailtexte zählen.
+/// Neueste Treffer zuerst.
 #[tauri::command]
-pub fn mails_suchen(
+pub async fn mails_suchen(
     zustand: State<'_, AppZustand>,
-    konto_id: i64,
+    ordner_id: i64,
     eingabe: String,
 ) -> Result<Vec<db::SuchTreffer>, String> {
-    mit_db(&zustand, |conn| {
-        db::mails_suchen(conn, konto_id, &eingabe, 100)
+    let mut treffer = mit_db(&zustand, |conn| {
+        db::mails_suchen(conn, ordner_id, &eingabe, 100)
     })
-    .map_err(|f| als_meldung(&f))
+    .map_err(|f| als_meldung(&f))?;
+
+    // Der lokale Index kann nur bereits geöffnete Mailtexte kennen. Die
+    // ergänzende IMAP-Suche findet online auch noch nicht geladene Inhalte,
+    // ohne sämtliche Nachrichten samt Anhängen herunterzuladen.
+    let kontext = mit_db(&zustand, |conn| {
+        let ordner = db::ordner_holen(conn, ordner_id)?
+            .ok_or_else(|| anyhow!("Der ausgewählte Ordner ist nicht mehr vorhanden"))?;
+        let konto = db::konto_holen(conn, ordner.konto_id)?
+            .ok_or_else(|| anyhow!("Das Mail-Konto ist nicht mehr vorhanden"))?;
+        Ok((ordner, konto))
+    })
+    .map_err(|f| als_meldung(&f))?;
+
+    match verbindung_zum_konto(&kontext.1).await {
+        Ok(mut verbindung) => {
+            let server_treffer = async {
+                verbindung.ordner_waehlen(&kontext.0.name).await?;
+                verbindung.volltext_suchen(&eingabe).await
+            }
+            .await;
+            verbindung.abmelden().await;
+            match server_treffer {
+                Ok(uids) => {
+                    let weitere = mit_db(&zustand, |conn| {
+                        db::mails_zu_uids(conn, ordner_id, &uids, 100)
+                    })
+                    .map_err(|f| als_meldung(&f))?;
+                    for mail in weitere {
+                        if !treffer
+                            .iter()
+                            .any(|vorhanden| vorhanden.kopf.id == mail.kopf.id)
+                        {
+                            treffer.push(mail);
+                        }
+                    }
+                    treffer.sort_by(|a, b| {
+                        b.kopf
+                            .datum
+                            .cmp(&a.kopf.datum)
+                            .then_with(|| b.kopf.uid.cmp(&a.kopf.uid))
+                    });
+                    treffer.truncate(100);
+                }
+                Err(fehler) => tracing::warn!("Server-Volltextsuche fehlgeschlagen: {fehler:#}"),
+            }
+        }
+        Err(fehler) => tracing::warn!("Server-Volltextsuche nicht verfügbar: {fehler:#}"),
+    }
+
+    Ok(treffer)
 }
 
 /// Vorschläge fürs Empfänger-Feld beim Verfassen (bekannte Empfänger
@@ -1975,16 +2107,6 @@ async fn kalender_einladung_senden(
     };
     let (fertig, rohbytes) =
         nachricht::baue_kalender_einladung(&einladung).map_err(|f| nutzerfehler(f.to_string()))?;
-    // TEMPORÄR für die Anbieter-Eskalation (550 Reject bei Kalender-Einladungen):
-    // Rohbytes vor dem Versand als .eml sichern, damit bei Ablehnung eine
-    // echte Beispiel-Mail für den Anbieter vorliegt. Nach Klärung entfernen.
-    if let Some(verzeichnis) = pfade::log_verzeichnis() {
-        if let Err(fehler) =
-            std::fs::write(verzeichnis.join("letzte-einladung-debug.eml"), &rohbytes)
-        {
-            tracing::warn!("Debug-eml der Einladung konnte nicht geschrieben werden: {fehler:#}");
-        }
-    }
     let passwort = passwort_holen(konto.id).await?;
     versand::senden(
         &konto.smtp_host,
@@ -2280,4 +2402,24 @@ fn termin_objekt_speichern(
         eckdaten.ende,
         eckdaten.hat_wiederholung,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn erinnerungsfenster_umfasst_die_naechsten_dreissig_minuten() {
+        let jetzt = 10_000;
+        assert!(!liegt_im_erinnerungsfenster(jetzt, jetzt));
+        assert!(liegt_im_erinnerungsfenster(jetzt + 1, jetzt));
+        assert!(liegt_im_erinnerungsfenster(
+            jetzt + TERMIN_ERINNERUNG_SEKUNDEN,
+            jetzt
+        ));
+        assert!(!liegt_im_erinnerungsfenster(
+            jetzt + TERMIN_ERINNERUNG_SEKUNDEN + 1,
+            jetzt
+        ));
+    }
 }

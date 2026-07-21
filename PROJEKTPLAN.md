@@ -4,7 +4,7 @@ Lebendes Übersichtsdokument. Wird nach jedem Meilenstein aktualisiert.
 Regel: **Ein Meilenstein nach dem anderen, jeder wird von Philipp getestet
 und freigegeben, bevor der nächste beginnt.**
 
-Stand: 2026-07-08
+Stand: 2026-07-21
 
 ## Meilensteine
 
@@ -96,6 +96,7 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 | 2026-07-20 | **M5.1 Nachtrag 2:** (a) Im Gesendet-Ordner zeigt die Liste jetzt den Empfänger („An: …") statt meiner eigenen Adresse. (b) Beim Lesen werden An- und (falls vorhanden) Cc-Empfänger im Kopf angezeigt — man sieht jetzt, ob jemand in Kopie stand. (c) Das Datum steht im Lesekopf unter den Buttons (rechts), damit ein langer Absender keine schiefen Umbrüche mehr erzeugt. Für (a)/(b) werden An/Cc je Mail schon beim Abgleich gespeichert (zwei neue Cache-Spalten); der Mail-Cache wird dafür einmalig neu aufgebaut (Konten/Einstellungen bleiben, die Listen laden beim nächsten Start neu). Zum dev-Fenster: `GDK_BACKEND=x11 cargo tauri dev` wurde auf diesem Rechner als funktionierend verifiziert (Fenster mit Inhalt); wichtig ist, die installierte Nanomail-App vorher zu schließen (sonst ist der lokale Cache gesperrt). |
 | 2026-07-20 | **M5.1 Nachtrag:** (a) Beim Antworten/Weiterleiten wurde als Absender fälschlich das erste Konto vorgewählt statt des Kontos, in dessen Ordner man sich befindet — es wird jetzt die aktive Konto-ID ans Verfassen-Fenster übergeben. (b) Strg + Mausrad zoomt jetzt das ganze Fenster (Mail wird mitvergrößert); zusätzlich ist der native Zoom über Strg + Plus/Minus aktiv (`zoomHotkeysEnabled`). Direkt über dem Mail-Inhalt fängt das Sicherheits-iframe das Mausrad ab — dort wirkt Strg + Plus/Minus. (c) Hinweis: `cargo tauri dev` zeigt auf diesem System ein leeres Fenster (WebKitGTK-Darstellungsfehler im Debug-Build unter Wayland); die installierte .deb rendert korrekt. Für dev hilft i. d. R. `GDK_BACKEND=x11 cargo tauri dev`. |
 | 2026-07-20 | **M5.1 (Komfort- & Fehlerbehebungsrunde, 9 Wünsche von Philipp):** (1) Nach dem Öffnen eines Wiederholungstermins ließ sich kein neuer Termin mehr anlegen („Termin lokal nicht mehr vorhanden“) — das versteckte Termin-Kennzeichen blieb im Formular hängen; es wird beim Anlegen jetzt sauber geleert. (2) Links in Mails öffnen jetzt im Standard-Browser des Systems (Backend fängt den Klick ab; Mail-Inhalte bleiben unverändert streng geschützt). (3) Der Ungelesen-Zähler am Konto-Symbol zählt nur noch den Posteingang statt aller Ordner (Spam/Papierkorb blähten die Zahl auf). (4) Favicon-Fallback greift jetzt auch bei Absender-Subdomains (z. B. `notify.docker.com` → `docker.com`); zusätzlich werden bisher als „kein Bild“ gemerkte Einträge einmalig verworfen und neu ermittelt. (5) Bei Gravatar/Favicon hat der Avatar-Kreis keinen farbigen Hintergrund mehr — nur Initialen behalten die Farbe. (6) Die Signatur erscheint nur noch bei einer neuen Erstnachricht, nicht beim Antworten/Weiterleiten. (7) Adress-Vorschläge lassen sich auch mit Tab übernehmen (nicht nur Enter). (8) Tab springt von den Empfängern direkt in den Mailinhalt; die Formatier-Knöpfe werden übersprungen. (9) Neue Emoji-Auswahl im Verfassen-Fenster (Smiley-Knopf oder „Super + .“). |
+| 2026-07-21 | **M5.1 Nachtrag 3 (wartet auf Praxistest):** (a) Die Suche arbeitet jetzt nur im gerade geöffneten Ordner, sodass „Gesendet“ keine Posteingangstreffer mehr zeigt. (b) Online ergänzt eine direkte IMAP-Volltextsuche den lokalen Index und findet dadurch auch ungeöffnete Mails, ohne alle Nachrichten samt Anhängen herunterzuladen; offline bleibt der lokale Bestand durchsuchbar. (c) Im Editor erzeugt Enter einen Absatz mit sichtbarem Abstand und Umschalt+Enter eine einfache neue Zeile ohne Zusatzabstand. (d) Der Fensterzoom reagiert auf Strg+Mausrad und Umschalt+Mausrad. (e) Nanomail zeigt 30 Minuten vor einem sichtbaren Kalendertermin eine Ubuntu-Systembenachrichtigung mit Titel, Uhrzeit und optionalem Ort. Die Prüfung läuft minütlich, berücksichtigt Serien/Zeitzonen und merkt sich gezeigte Erinnerungen dauerhaft, damit sie nicht doppelt erscheinen. Nanomail muss dafür laufen; ein eigener Hintergrunddienst bei geschlossener App ist bewusst nicht hinzugefügt. |
 
 ## So testest du den aktuellen Stand (M5)
 
@@ -145,6 +146,20 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 11. **Konfliktschutz (optional):** Einen Termin in Nanomail öffnen, dann den
    gleichen Termin in Nextcloud ändern und erst danach in Nanomail speichern.
    Nanomail sollte nicht überschreiben, sondern zum Aktualisieren auffordern.
+12. **Suche je Ordner:** Im Ordner „Gesendet“ nach einem Begriff suchen, der
+    auch im Posteingang vorkommt. Es dürfen nur Treffer aus „Gesendet“ erscheinen.
+13. **Ungeöffnete Mail durchsuchen:** Bei bestehender Internetverbindung nach
+    einem Begriff im Text einer noch nie in Nanomail geöffneten Mail suchen.
+    Auch diese Mail muss gefunden werden; die Serversuche kann kurz dauern.
+14. **Editor:** Beim Verfassen Enter drücken (neuer Absatz) und danach
+    Umschalt+Enter (nur eine neue Zeile innerhalb des Absatzes).
+15. **Zoom:** Strg (alternativ Umschalt) halten und über Mail-Liste oder
+    Seitenleiste am Mausrad drehen. Das Fenster muss größer/kleiner werden.
+    Über dem geschützten Mail-Inhalt weiterhin Strg+Plus/Minus verwenden.
+16. **Terminerinnerung:** Einen Termin auf ungefähr 30 Minuten ab jetzt setzen
+    und Nanomail geöffnet lassen. Spätestens nach einer Minute muss Ubuntu eine
+    Systembenachrichtigung mit Termintitel, Beginn und ggf. Ort zeigen. Sie darf
+    bei den folgenden Prüfungen nicht erneut erscheinen.
 
 Wenn das passt: M5 freigeben → danach folgt M6 (Microsoft, zuletzt).
 
