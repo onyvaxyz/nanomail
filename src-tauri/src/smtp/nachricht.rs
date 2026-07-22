@@ -55,6 +55,11 @@ pub struct KalenderEinladung {
     pub ics: String,
 }
 
+/// Programm-Kennung im `User-Agent`-Kopf. Ohne eine solche Kennung stufen
+/// manche Versand-Server (z. B. appsuite/Open-Xchange) ausgehende Mails als
+/// Bot/Spam ein und lehnen sie mit „550 Reject for policy reason“ ab.
+const PROGRAMM_KENNUNG: &str = "Nanomail/0.1.0";
+
 /// Baut die versandfertige Nachricht. Liefert zusätzlich die Rohbytes
 /// für das IMAP-APPEND in den „Gesendet“-Ordner.
 pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
@@ -63,6 +68,7 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
     let absender_adresse = von.email.clone();
     let mut builder = Message::builder()
         .from(von)
+        .user_agent(PROGRAMM_KENNUNG.to_string())
         .message_id(Some(neue_message_id(&absender_adresse)));
     for adresse in &eingabe.an {
         builder = builder.to(parse_adresse(adresse)?);
@@ -146,6 +152,7 @@ pub fn baue_kalender_einladung(eingabe: &KalenderEinladung) -> Result<(Message, 
     let message_id = neue_message_id(&von.email);
     let mut builder = Message::builder()
         .from(von)
+        .user_agent(PROGRAMM_KENNUNG.to_string())
         .message_id(Some(message_id))
         .subject(&eingabe.betreff);
     for adresse in &eingabe.an {
@@ -355,6 +362,8 @@ mod tests {
         assert!(roh.contains("@example.org>"));
         assert!(roh.contains("Subject: Testbetreff"));
         assert!(roh.contains("Hallo Anna!"));
+        // Ohne Programm-Kennung lehnen manche Server die Mail als Spam ab.
+        assert!(roh.contains("User-Agent: Nanomail/"));
     }
 
     #[test]
@@ -460,6 +469,7 @@ mod tests {
         assert!(roh.contains("method=REQUEST"));
         assert!(roh.contains("METHOD:REQUEST"));
         assert!(!roh.contains("METHOD:PUBLISH"));
+        assert!(roh.contains("User-Agent: Nanomail/"));
     }
 
     #[test]
