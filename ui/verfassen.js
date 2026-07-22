@@ -481,6 +481,46 @@ el("abbrechen-knopf").addEventListener("click", () => aktuellesFenster.close());
 
 // ------------------------------------------------- Entwurf speichern --
 
+// Wandelt den Editor-Inhalt in reinen Text um und macht dabei Link-Adressen
+// sichtbar („Text (URL)“). `innerText` allein verwirft die URLs — dann zeigt
+// der Text-Teil andere Ziele als der HTML-Teil, was Spamfilter als Phishing
+// werten (verstecktes Link-Ziel) und die Mail aussortieren.
+function editorAlsText(knoten) {
+  let text = "";
+  for (const n of knoten.childNodes) {
+    if (n.nodeType === Node.TEXT_NODE) {
+      text += n.textContent;
+    } else if (n.nodeType === Node.ELEMENT_NODE) {
+      if (n.tagName === "BR") {
+        text += "\n";
+      } else if (n.tagName === "A") {
+        const url = n.getAttribute("href") || "";
+        const beschriftung = n.textContent;
+        text += url && url !== beschriftung ? `${beschriftung} (${url})` : beschriftung;
+      } else {
+        const block = /^(DIV|P|LI|BLOCKQUOTE|H[1-6]|TR)$/.test(n.tagName);
+        if (block && text && !text.endsWith("\n")) text += "\n";
+        text += editorAlsText(n);
+        if (block && !text.endsWith("\n")) text += "\n";
+      }
+    }
+  }
+  return text;
+}
+
+// Nur wenn wirklich formatiert wurde (Links, Fett, Listen …), lohnt der
+// HTML-Teil. Sonst reine Textmail wie in anderen Programmen — ein HTML-Teil
+// ohne echte Formatierung wertet mancher Spamfilter als Bulk/Bot-Merkmal.
+// Reine Struktur-Tags (div/p/br) zählen nicht als Formatierung.
+function hatFormatierung(editor) {
+  return (
+    editor.querySelector(
+      "a[href],b,strong,i,em,u,s,strike,ul,ol,li,blockquote," +
+        "h1,h2,h3,h4,h5,h6,font,code,pre,img,table,[style]",
+    ) !== null
+  );
+}
+
 el("entwurf-knopf").addEventListener("click", async () => {
   const daten = new FormData(el("verfassen-formular"));
   const editor = el("verfassen-editor");
@@ -494,8 +534,8 @@ el("entwurf-knopf").addEventListener("click", async () => {
         an: daten.get("an"),
         cc: daten.get("cc"),
         betreff: daten.get("betreff"),
-        text: editor.innerText,
-        html: editor.innerHTML,
+        text: editorAlsText(editor),
+        html: hatFormatierung(editor) ? editor.innerHTML : null,
         anhaenge: zustand.anhaenge,
         antwort_auf: null,
         weiterleiten: false,
@@ -527,8 +567,8 @@ el("verfassen-formular").addEventListener("submit", async (ereignis) => {
         an: daten.get("an"),
         cc: daten.get("cc"),
         betreff: daten.get("betreff"),
-        text: editor.innerText,
-        html: editor.innerHTML,
+        text: editorAlsText(editor),
+        html: hatFormatierung(editor) ? editor.innerHTML : null,
         anhaenge: zustand.anhaenge,
         antwort_auf: zustand.antwortAuf,
         weiterleiten: zustand.weiterleiten,

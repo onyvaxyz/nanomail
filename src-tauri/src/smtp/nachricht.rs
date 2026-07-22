@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{Local, TimeZone};
-use lettre::message::header::{ContentDisposition, ContentType};
+use lettre::message::header::{ContentDisposition, ContentType, HeaderName, HeaderValue};
 use lettre::message::{Attachment, Body, Mailbox, MultiPart, SinglePart};
 use lettre::Message;
 
@@ -58,7 +58,27 @@ pub struct KalenderEinladung {
 /// Programm-Kennung im `User-Agent`-Kopf. Ohne eine solche Kennung stufen
 /// manche Versand-Server (z. B. appsuite/Open-Xchange) ausgehende Mails als
 /// Bot/Spam ein und lehnen sie mit „550 Reject for policy reason“ ab.
-const PROGRAMM_KENNUNG: &str = "Nanomail/0.1.0";
+const PROGRAMM_KENNUNG: &str = "Nanomail";
+
+/// `Content-Language`-Kopf wie bei gängigen Mailprogrammen. Fehlt er, wirkt
+/// die Mail eher wie eine anonyme Massensendung.
+fn sprach_kopf() -> HeaderValue {
+    HeaderValue::new(
+        HeaderName::new_from_ascii_str("Content-Language"),
+        "de".to_string(),
+    )
+}
+
+/// Verpackt das (bereits bereinigte) HTML-Fragment aus dem Editor in ein
+/// vollständiges HTML-Dokument. Nackte Fragmente ohne `<html>`/`<body>`-Rahmen
+/// werden von manchen Empfangsfiltern (appsuite/Open-Xchange) als Spam
+/// verworfen und still verschluckt; ein vollständiges Dokument mit
+/// Zeichensatz-Angabe wird akzeptiert — so wie es andere Mailprogramme senden.
+fn html_dokument(fragment: &str) -> String {
+    format!(
+        "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n</head>\n<body>\n{fragment}\n</body>\n</html>\n"
+    )
+}
 
 /// Baut die versandfertige Nachricht. Liefert zusätzlich die Rohbytes
 /// für das IMAP-APPEND in den „Gesendet“-Ordner.
@@ -69,6 +89,7 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
     let mut builder = Message::builder()
         .from(von)
         .user_agent(PROGRAMM_KENNUNG.to_string())
+        .raw_header(sprach_kopf())
         .message_id(Some(neue_message_id(&absender_adresse)));
     for adresse in &eingabe.an {
         builder = builder.to(parse_adresse(adresse)?);
@@ -108,7 +129,7 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
             MultiPart::alternative().singlepart(text_teil).singlepart(
                 SinglePart::builder()
                     .header(ContentType::TEXT_HTML)
-                    .body(html.clone()),
+                    .body(html_dokument(html)),
             ),
         ),
         None => Inhalt::Einteilig(text_teil),
@@ -153,6 +174,7 @@ pub fn baue_kalender_einladung(eingabe: &KalenderEinladung) -> Result<(Message, 
     let mut builder = Message::builder()
         .from(von)
         .user_agent(PROGRAMM_KENNUNG.to_string())
+        .raw_header(sprach_kopf())
         .message_id(Some(message_id))
         .subject(&eingabe.betreff);
     for adresse in &eingabe.an {
@@ -363,7 +385,8 @@ mod tests {
         assert!(roh.contains("Subject: Testbetreff"));
         assert!(roh.contains("Hallo Anna!"));
         // Ohne Programm-Kennung lehnen manche Server die Mail als Spam ab.
-        assert!(roh.contains("User-Agent: Nanomail/"));
+        assert!(roh.contains("User-Agent: Nanomail"));
+        assert!(roh.contains("Content-Language: de"));
     }
 
     #[test]
@@ -420,6 +443,11 @@ mod tests {
         assert!(roh.contains("text/plain"));
         assert!(roh.contains("text/html"));
         assert!(roh.contains("Hallo <b>Anna</b>!"));
+        // Vollständiges HTML-Dokument statt nacktem Fragment (sonst
+        // verwerfen manche Empfangsfilter die Mail).
+        assert!(roh.contains("<!DOCTYPE html>"));
+        assert!(roh.contains("<body>"));
+        assert!(roh.contains("<meta charset=\"utf-8\">"));
     }
 
     #[test]
@@ -469,7 +497,7 @@ mod tests {
         assert!(roh.contains("method=REQUEST"));
         assert!(roh.contains("METHOD:REQUEST"));
         assert!(!roh.contains("METHOD:PUBLISH"));
-        assert!(roh.contains("User-Agent: Nanomail/"));
+        assert!(roh.contains("User-Agent: Nanomail"));
     }
 
     #[test]
