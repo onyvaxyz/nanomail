@@ -988,7 +988,7 @@ async function bilderLaden(mailId = zustand.aktiveMailId, anfrage = leseAnfrage)
   }
 }
 
-el("bilder-laden-knopf").addEventListener("click", bilderLaden);
+el("bilder-laden-knopf").addEventListener("click", () => bilderLaden());
 el("bilder-immer-knopf").addEventListener("click", async () => {
   const mailId = zustand.aktiveMailId;
   const anfrage = leseAnfrage;
