@@ -99,7 +99,9 @@ document.addEventListener(
 
 // ------------------------------------------------------- Konto-Farben --
 
-const STANDARD_FARBE = "#2f8052";
+// Leere Farbe in älteren Konten bedeutet weiterhin das damalige
+// Standard-Violett. So bleibt eine bereits gewählte Kontofarbe erhalten.
+const STANDARD_FARBE = "#c678dd";
 
 function kontoFarbe(konto) {
   return konto && konto.farbe ? konto.farbe : STANDARD_FARBE;
@@ -699,7 +701,7 @@ async function mailOeffnen(mailId) {
 function leseStilApp() {
   const hell = document.documentElement.dataset.thema === "hell";
   const [hintergrund, text, link, linie, zitat] = hell
-    ? ["#fafaf8", "#0b0d0b", "#286bbd", "#878b8633", "#595959"]
+    ? ["#f9fdf6", "#0b0d0b", "#286bbd", "#878b8633", "#595959"]
     : ["#0b0d0b", "#f6fff5", "#6ca0e0", "#878b8633", "#9ca49c"];
   return (
     `body{background:${hintergrund};color:${text};font-family:system-ui,sans-serif;` +

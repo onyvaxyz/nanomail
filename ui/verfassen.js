@@ -10,7 +10,7 @@ const aktuellesFenster = window.__TAURI__.webviewWindow.getCurrentWebviewWindow(
 const el = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 
-const STANDARD_FARBE = "#2f8052";
+const STANDARD_FARBE = "#c678dd";
 
 const zustand = {
   konten: [],

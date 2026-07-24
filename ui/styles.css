@@ -4,11 +4,12 @@
    die Farbvariablen (siehe Block „Helles Design“ und ui/thema.js). */
 
 :root {
-  --bg-window: #0b0d0b;
+  /* Fensterrahmen oben/unten; der Inhalt liegt als eigene Fläche darauf. */
+  --bg-window: #171a17;
   --bg-editor: #0b0d0b;
-  --bg-panel: #101210;
-  --bg-surface: #121512;
-  --bg-titelleiste: #171a17;
+  --bg-panel: #0b0d0b;
+  --bg-surface: #0b0d0b;
+  --bg-titelleiste: var(--bg-window);
   --bg-hover: #1a1e1a;
   --bg-aktiv: #202520;
   --bg-auswahl: #1c211c;
@@ -53,11 +54,11 @@
    (Umschalter unten in der Icon-Leiste: dunkel → hell → System). */
 
 :root[data-thema="hell"] {
-  --bg-window: #f0f2ed;
-  --bg-editor: #fafaf8;
-  --bg-panel: #f8f9f5;
-  --bg-surface: #f4f5f1;
-  --bg-titelleiste: #e5ebe1;
+  --bg-window: #e5ebe1;
+  --bg-editor: #f9fdf6;
+  --bg-panel: #f9fdf6;
+  --bg-surface: #f9fdf6;
+  --bg-titelleiste: var(--bg-window);
   --bg-hover: #eef0eb;
   --bg-aktiv: #e4e8e1;
   --bg-auswahl: #e8ece5;
@@ -125,7 +126,11 @@ body {
   display: grid;
   grid-template-columns: var(--breite-seitenleiste) var(--breite-mailliste) 1fr;
   min-height: 0;
+  margin: 8px 8px 0;
   background: var(--bg-editor);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-gross);
+  overflow: hidden;
 }
 
 button,
@@ -164,7 +169,7 @@ textarea:focus-visible {
   min-height: 38px;
   padding: 0 10px 0 18px;
   background: var(--bg-titelleiste);
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
   flex-shrink: 0;
   user-select: none;
   -webkit-user-select: none;
@@ -542,12 +547,11 @@ textarea:focus-visible {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 4px;
   padding: 4px;
 }
 
-/* Ruhige, flache Liste: Linien trennen die Mails, nur die Auswahl wird zur
-   abgerundeten Fläche. */
+/* Jede Mail bleibt als eigene, fein umrandete Karte klar erkennbar. */
 .mail-eintrag {
   display: flex;
   gap: 14px;
@@ -555,11 +559,10 @@ textarea:focus-visible {
   min-height: 84px;
   flex-shrink: 0;
   padding: 15px 14px;
-  border: 1px solid transparent;
-  border-bottom-color: var(--border-weich);
+  border: 1px solid var(--border);
   border-left: 2px solid transparent;
-  border-radius: 0;
-  background: transparent;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
   cursor: pointer;
   transition: background 0.1s;
 }
@@ -568,9 +571,7 @@ textarea:focus-visible {
 }
 .mail-eintrag.aktiv {
   background: var(--bg-auswahl);
-  border-color: var(--border);
   border-left-color: var(--akzent);
-  border-radius: var(--radius);
 }
 /* Ungelesen: sehr leichte Akzent-Tönung + gleiche Linie wie beim aktiven Eintrag. */
 .mail-eintrag.ungelesen {
@@ -939,8 +940,8 @@ textarea:focus-visible {
   font-family: var(--schrift-mono);
   font-size: 12px;
   color: var(--text-leise);
-  border-top: 1px solid var(--border);
-  background: var(--bg-surface);
+  border-top: none;
+  background: var(--bg-window);
   flex-shrink: 0;
   min-height: 32px;
 }
