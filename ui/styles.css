@@ -113,7 +113,6 @@ body {
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: var(--radius-klein);
 }
 
 body {
@@ -1205,7 +1204,7 @@ textarea:focus-visible {
 /* ------------------------------------------- Verfassen-Fenster (M3.1) -- */
 
 body.fenster-verfassen {
-  background: var(--bg-editor);
+  background: var(--bg-titelleiste);
   height: 100vh;
 }
 
@@ -1214,6 +1213,11 @@ body.fenster-verfassen {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  margin: 8px 8px;
+  background: var(--bg-editor);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-gross);
+  overflow: hidden;
 }
 
 .verfassen-kopf {
