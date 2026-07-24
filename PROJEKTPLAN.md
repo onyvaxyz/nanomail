@@ -4,7 +4,7 @@ Lebendes Übersichtsdokument. Wird nach jedem Meilenstein aktualisiert.
 Regel: **Ein Meilenstein nach dem anderen, jeder wird von Philipp getestet
 und freigegeben, bevor der nächste beginnt.**
 
-Stand: 2026-07-21
+Stand: 2026-07-24
 
 ## Meilensteine
 
@@ -97,6 +97,7 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 | 2026-07-20 | **M5.1 Nachtrag:** (a) Beim Antworten/Weiterleiten wurde als Absender fälschlich das erste Konto vorgewählt statt des Kontos, in dessen Ordner man sich befindet — es wird jetzt die aktive Konto-ID ans Verfassen-Fenster übergeben. (b) Strg + Mausrad zoomt jetzt das ganze Fenster (Mail wird mitvergrößert); zusätzlich ist der native Zoom über Strg + Plus/Minus aktiv (`zoomHotkeysEnabled`). Direkt über dem Mail-Inhalt fängt das Sicherheits-iframe das Mausrad ab — dort wirkt Strg + Plus/Minus. (c) Hinweis: `cargo tauri dev` zeigt auf diesem System ein leeres Fenster (WebKitGTK-Darstellungsfehler im Debug-Build unter Wayland); die installierte .deb rendert korrekt. Für dev hilft i. d. R. `GDK_BACKEND=x11 cargo tauri dev`. |
 | 2026-07-20 | **M5.1 (Komfort- & Fehlerbehebungsrunde, 9 Wünsche von Philipp):** (1) Nach dem Öffnen eines Wiederholungstermins ließ sich kein neuer Termin mehr anlegen („Termin lokal nicht mehr vorhanden“) — das versteckte Termin-Kennzeichen blieb im Formular hängen; es wird beim Anlegen jetzt sauber geleert. (2) Links in Mails öffnen jetzt im Standard-Browser des Systems (Backend fängt den Klick ab; Mail-Inhalte bleiben unverändert streng geschützt). (3) Der Ungelesen-Zähler am Konto-Symbol zählt nur noch den Posteingang statt aller Ordner (Spam/Papierkorb blähten die Zahl auf). (4) Favicon-Fallback greift jetzt auch bei Absender-Subdomains (z. B. `notify.docker.com` → `docker.com`); zusätzlich werden bisher als „kein Bild“ gemerkte Einträge einmalig verworfen und neu ermittelt. (5) Bei Gravatar/Favicon hat der Avatar-Kreis keinen farbigen Hintergrund mehr — nur Initialen behalten die Farbe. (6) Die Signatur erscheint nur noch bei einer neuen Erstnachricht, nicht beim Antworten/Weiterleiten. (7) Adress-Vorschläge lassen sich auch mit Tab übernehmen (nicht nur Enter). (8) Tab springt von den Empfängern direkt in den Mailinhalt; die Formatier-Knöpfe werden übersprungen. (9) Neue Emoji-Auswahl im Verfassen-Fenster (Smiley-Knopf oder „Super + .“). |
 | 2026-07-21 | **M5.1 Nachtrag 3 (wartet auf Praxistest):** (a) Die Suche arbeitet jetzt nur im gerade geöffneten Ordner, sodass „Gesendet“ keine Posteingangstreffer mehr zeigt. (b) Online ergänzt eine direkte IMAP-Volltextsuche den lokalen Index und findet dadurch auch ungeöffnete Mails, ohne alle Nachrichten samt Anhängen herunterzuladen; offline bleibt der lokale Bestand durchsuchbar. (c) Im Editor erzeugt Enter einen Absatz mit sichtbarem Abstand und Umschalt+Enter eine einfache neue Zeile ohne Zusatzabstand. (d) Der Fensterzoom reagiert auf Strg+Mausrad und Umschalt+Mausrad. (e) Nanomail zeigt 30 Minuten vor einem sichtbaren Kalendertermin eine Ubuntu-Systembenachrichtigung mit Titel, Uhrzeit und optionalem Ort. Die Prüfung läuft minütlich, berücksichtigt Serien/Zeitzonen und merkt sich gezeigte Erinnerungen dauerhaft, damit sie nicht doppelt erscheinen. Nanomail muss dafür laufen; ein eigener Hintergrunddienst bei geschlossener App ist bewusst nicht hinzugefügt. |
+| 2026-07-24 | **M5.1 Nachtrag 4 (wartet auf Praxistest):** Die Oberfläche wurde auf Wunsch in einem ruhigen, von Amp inspirierten Stil neu gestaltet: warme Grün-Neutraltöne, Ubuntu-/Systemschrift, feinere Trennlinien, zurückhaltende Rundungen und eine flachere Mail-Liste. Hell-, Dunkel- und Systemmodus bleiben erhalten; Funktionen und gespeicherte Daten sind unverändert. |
 
 ## So testest du den aktuellen Stand (M5)
 
@@ -160,6 +161,10 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
     und Nanomail geöffnet lassen. Spätestens nach einer Minute muss Ubuntu eine
     Systembenachrichtigung mit Termintitel, Beginn und ggf. Ort zeigen. Sie darf
     bei den folgenden Prüfungen nicht erneut erscheinen.
+17. **Neues Design:** Hell- und Dunkelmodus über den Knopf links durchschalten.
+    Hauptfenster, Kalender, Dialoge und Verfassen-Fenster müssen lesbar und
+    einheitlich wirken. Besonders auf abgeschnittene Texte oder überlappende
+    Knöpfe achten. Danach kurz eine Mail öffnen und eine neue Mail verfassen.
 
 Wenn das passt: M5 freigeben → danach folgt M6 (Microsoft, zuletzt).
 

@@ -99,7 +99,7 @@ document.addEventListener(
 
 // ------------------------------------------------------- Konto-Farben --
 
-const STANDARD_FARBE = "#c678dd";
+const STANDARD_FARBE = "#2f8052";
 
 function kontoFarbe(konto) {
   return konto && konto.farbe ? konto.farbe : STANDARD_FARBE;
@@ -694,19 +694,15 @@ async function mailOeffnen(mailId) {
 
 // Stile fürs Sandbox-iframe: Standard ist die App-Ansicht (folgt dem
 // gewählten Design, siehe thema.js), per Umschalter gibt es die
-// Originalansicht des Absenders (immer hell). Die Inter-Schrift lädt
-// relativ — srcdoc-Dokumente erben die Basis-URL der App; schlägt das
-// fehl, greift system-ui. CSS-Variablen erreichen das iframe nicht,
-// deshalb stehen die Farbwerte beider Designs hier noch einmal.
+// Originalansicht des Absenders (immer hell). CSS-Variablen erreichen das
+// iframe nicht, deshalb stehen die Farbwerte beider Designs hier noch einmal.
 function leseStilApp() {
   const hell = document.documentElement.dataset.thema === "hell";
   const [hintergrund, text, link, linie, zitat] = hell
-    ? ["#ebebec", "#23272e", "#3468c7", "#c6c6cc", "#4b5058"]
-    : ["#282c34", "#fff", "#61afef", "#3e4452", "#abb2bf"];
+    ? ["#fafaf8", "#0b0d0b", "#286bbd", "#878b8633", "#595959"]
+    : ["#0b0d0b", "#f6fff5", "#6ca0e0", "#878b8633", "#9ca49c"];
   return (
-    "@font-face{font-family:Inter;font-style:normal;font-weight:100 900;" +
-    'src:url("fonts/inter-latin-wght-normal.woff2") format("woff2-variations")}' +
-    `body{background:${hintergrund};color:${text};font-family:Inter,system-ui,sans-serif;` +
+    `body{background:${hintergrund};color:${text};font-family:system-ui,sans-serif;` +
     "font-size:15px;line-height:1.75;max-width:72ch;margin:0 auto;" +
     "padding:40px 36px;overflow-wrap:break-word}" +
     `a{color:${link}}img{max-width:100%;height:auto}` +

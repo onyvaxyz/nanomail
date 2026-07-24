@@ -1,106 +1,87 @@
-/* Nanomail — Zed One Dark Extended (M3.2).
-   Zed-Farbwerte mit bewusst luftigerer Dichte für bessere Lesbarkeit.
-   Dunkel ist die Basis (:root); das helle Design überschreibt nur die
-   Farbvariablen (siehe Block „Helles Design“ und ui/thema.js). */
-
-@font-face {
-  font-family: "JetBrains Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "JetBrains Mono";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Inter";
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url("fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
-}
+/* Nanomail — ruhiges, von Amp inspiriertes Redesign (M5.1).
+   Systemschrift, warme Grün-Neutraltöne, feine Trennlinien und zurückhaltende
+   Rundungen. Dunkel ist die Basis (:root); das helle Design überschreibt nur
+   die Farbvariablen (siehe Block „Helles Design“ und ui/thema.js). */
 
 :root {
-  --bg-window: #1f232a;
-  --bg-editor: #282c34;
-  --bg-panel: #23272e;
-  --bg-surface: #2e343e;
-  --bg-hover: #404754;
-  --bg-aktiv: #404754;
-  --bg-auswahl: #343b47;
+  --bg-window: #0b0d0b;
+  --bg-editor: #0b0d0b;
+  --bg-panel: #101210;
+  --bg-surface: #121512;
+  --bg-titelleiste: #171a17;
+  --bg-hover: #1a1e1a;
+  --bg-aktiv: #202520;
+  --bg-auswahl: #1c211c;
 
-  --border: #3e4452;
-  --border-weich: #343a46;
+  --border: #878b8633;
+  --border-weich: #878b861f;
 
-  --text: #fff;
-  --text-hell: #fff;
-  --text-muted: #abb2bf;
-  --text-leise: #7f838c;
-  --text-subtil: #636b78;
+  --text: #f6fff5;
+  --text-hell: #f6fff5;
+  --text-muted: #9ca49c;
+  --text-leise: #7f877f;
+  --text-subtil: #626962;
 
-  /* Akzentfarbe: Standard Violett; wird je Konto per JS überschrieben.
+  /* Akzentfarbe: Standard Grün; wird je Konto per JS überschrieben.
      Alle Abtönungen leiten sich per color-mix davon ab. */
-  --akzent: #a371f7;
+  --akzent: #54b879;
   --akzent-hell: color-mix(in srgb, var(--akzent) 80%, white);
-  --akzent-schwach: color-mix(in srgb, var(--akzent) 16%, transparent);
+  --akzent-schwach: color-mix(in srgb, var(--akzent) 12%, transparent);
 
-  --rot: #ff616e;
-  --gelb: #e5c07b;
-  --grun: #a5e075;
-  --blau: #61afef;
+  --rot: #d67670;
+  --gelb: #d6a038;
+  --grun: #54b879;
+  --blau: #6ca0e0;
 
-  --scroll: #4e5666;
-  --scroll-hover: #5a6375;
-  --eingabe-fokus: #2b3039;
+  --scroll: #3f463f;
+  --scroll-hover: #565e56;
+  --eingabe-fokus: #111411;
 
-  --schrift-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
-  --schrift-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --schrift-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Auch Datum, Zähler und Ordner verwenden bewusst die Systemschrift. */
+  --schrift-mono: var(--schrift-sans);
 
   --breite-seitenleiste: 64px;
   --breite-mailliste: 380px;
-  --radius: 8px;
+  --radius-gross: 14px;
+  --radius: 10px;
   --radius-klein: 6px;
 }
 
 /* ------------------------------------------------------ Helles Design -- */
 /* Aktiv, wenn thema.js data-thema="hell" ans <html>-Element schreibt
-   (Umschalter unten in der Icon-Leiste: dunkel → hell → System).
-   Hintergrund bewusst #EBEBEC statt Weiß (Wunsch des Projektinhabers). */
+   (Umschalter unten in der Icon-Leiste: dunkel → hell → System). */
 
 :root[data-thema="hell"] {
-  --bg-window: #dedee0;
-  --bg-editor: #ebebec;
-  --bg-panel: #e4e4e6;
-  --bg-surface: #f3f3f4;
-  --bg-hover: #d9d9dc;
-  --bg-aktiv: #d1d1d6;
-  --bg-auswahl: #dcdce1;
+  --bg-window: #f0f2ed;
+  --bg-editor: #fafaf8;
+  --bg-panel: #f8f9f5;
+  --bg-surface: #f4f5f1;
+  --bg-titelleiste: #e5ebe1;
+  --bg-hover: #eef0eb;
+  --bg-aktiv: #e4e8e1;
+  --bg-auswahl: #e8ece5;
 
-  --border: #c6c6cc;
-  --border-weich: #d7d7db;
+  --border: #878b8633;
+  --border-weich: #878b861f;
 
-  --text: #23272e;
-  --text-hell: #101216;
-  --text-muted: #4b5058;
-  --text-leise: #6e7480;
-  --text-subtil: #9096a2;
+  --text: #0b0d0b;
+  --text-hell: #0b0d0b;
+  --text-muted: #595959;
+  --text-leise: #737873;
+  --text-subtil: #979c97;
 
   /* Auf hellem Grund braucht der Akzent-Text Abdunklung statt Aufhellung. */
   --akzent-hell: color-mix(in srgb, var(--akzent) 65%, black);
 
-  --rot: #c5303c;
-  --gelb: #a67c00;
-  --grun: #448f43;
-  --blau: #3468c7;
+  --rot: #c44f4a;
+  --gelb: #a07013;
+  --grun: #2f8052;
+  --blau: #286bbd;
 
-  --scroll: #b9b9c0;
-  --scroll-hover: #a2a2ac;
-  --eingabe-fokus: #f7f7f8;
+  --scroll: #c5c9c2;
+  --scroll-hover: #aeb4ac;
+  --eingabe-fokus: #fcfcfc;
 }
 
 /* Der Aufklapp-Pfeil der <select>-Felder ist ein eingebettetes Bild und
@@ -124,7 +105,7 @@ html,
 body {
   height: 100%;
   font-family: var(--schrift-sans);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.45;
   color: var(--text);
   background: var(--bg-window);
@@ -180,9 +161,9 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 44px;
+  min-height: 38px;
   padding: 0 10px 0 18px;
-  background: var(--bg-surface);
+  background: var(--bg-titelleiste);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   user-select: none;
@@ -195,9 +176,8 @@ textarea:focus-visible {
 }
 
 .titelleiste-titel {
-  font-family: var(--schrift-mono);
   font-size: 13px;
-  letter-spacing: 0.04em;
+  font-weight: 500;
   color: var(--text-hell);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -314,7 +294,7 @@ textarea:focus-visible {
 /* ------------------------------------------------------- Icon-Leiste -- */
 
 #sidebar {
-  background: var(--bg-surface);
+  background: var(--bg-panel);
   border-right: 1px solid var(--border);
   padding: 10px 0;
   display: flex;
@@ -427,7 +407,7 @@ textarea:focus-visible {
 }
 
 .mailliste-suchzeile {
-  min-height: 56px;
+  min-height: 54px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -477,11 +457,10 @@ textarea:focus-visible {
   padding: 8px 12px;
   border-radius: var(--radius);
   border: 1px solid transparent;
-  font-family: var(--schrift-mono);
-  font-size: 12px;
+  font-family: var(--schrift-sans);
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--text-leise);
   white-space: nowrap;
   cursor: pointer;
@@ -513,8 +492,7 @@ textarea:focus-visible {
 
 .mailliste-konto-adresse {
   flex: 1;
-  font-family: var(--schrift-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   letter-spacing: 0.01em;
   color: var(--text-leise);
@@ -540,9 +518,9 @@ textarea:focus-visible {
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-leise);
-  font-family: var(--schrift-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-family: var(--schrift-sans);
+  font-size: 12px;
+  letter-spacing: 0;
   cursor: pointer;
   flex-shrink: 0;
   transition:
@@ -564,22 +542,24 @@ textarea:focus-visible {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 3px;
+  gap: 0;
+  padding: 4px;
 }
 
-/* Jede Mail als eigene Karte, leicht abgesetzt vom Feed-Hintergrund. */
+/* Ruhige, flache Liste: Linien trennen die Mails, nur die Auswahl wird zur
+   abgerundeten Fläche. */
 .mail-eintrag {
   display: flex;
   gap: 14px;
   align-items: flex-start;
   min-height: 84px;
   flex-shrink: 0;
-  padding: 16px 16px;
-  border: 1px solid var(--border-weich);
-  border-left: 3px solid transparent;
-  border-radius: var(--radius);
-  background: var(--bg-surface);
+  padding: 15px 14px;
+  border: 1px solid transparent;
+  border-bottom-color: var(--border-weich);
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
   cursor: pointer;
   transition: background 0.1s;
 }
@@ -588,11 +568,13 @@ textarea:focus-visible {
 }
 .mail-eintrag.aktiv {
   background: var(--bg-auswahl);
+  border-color: var(--border);
   border-left-color: var(--akzent);
+  border-radius: var(--radius);
 }
-/* Ungelesen: kräftige Akzent-Tönung + gleiche Linie wie beim aktiven Eintrag. */
+/* Ungelesen: sehr leichte Akzent-Tönung + gleiche Linie wie beim aktiven Eintrag. */
 .mail-eintrag.ungelesen {
-  background: color-mix(in srgb, var(--akzent) 14%, var(--bg-surface));
+  background: color-mix(in srgb, var(--akzent) 7%, transparent);
   border-left-color: var(--akzent);
 }
 .mail-eintrag.ungelesen:hover,
@@ -829,8 +811,8 @@ textarea:focus-visible {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   font-family: var(--schrift-sans);
-  font-size: 16px;
-  line-height: 1.8;
+  font-size: 15px;
+  line-height: 1.75;
   color: var(--text);
 }
 
@@ -978,7 +960,7 @@ textarea:focus-visible {
 .knopf-flach {
   font-family: var(--schrift-sans);
   font-size: 14px;
-  min-height: 38px;
+  min-height: 36px;
   padding: 8px 16px;
   border-radius: var(--radius);
   cursor: pointer;
@@ -1087,10 +1069,10 @@ textarea:focus-visible {
   position: relative;
   margin: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-gross);
   padding: 36px;
   width: min(560px, 92vw);
-  background: var(--bg-panel);
+  background: var(--bg-editor);
   color: var(--text);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
@@ -1328,9 +1310,9 @@ body.fenster-verfassen {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   gap: 2px;
-  background: var(--panel, #21252b);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-gross);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 .emoji-auswahl.versteckt {
@@ -1346,7 +1328,7 @@ body.fenster-verfassen {
   cursor: pointer;
 }
 .emoji-zelle:hover {
-  background: var(--hover, rgba(255, 255, 255, 0.08));
+  background: var(--bg-hover);
 }
 
 /* Der eigentliche Schreibbereich (contenteditable). */
@@ -1357,8 +1339,8 @@ body.fenster-verfassen {
   margin: 0;
   padding: 32px 36px;
   font-family: var(--schrift-sans);
-  font-size: 16px;
-  line-height: 1.8;
+  font-size: 15px;
+  line-height: 1.75;
   color: var(--text-hell);
   background: var(--bg-editor);
   outline: none;
