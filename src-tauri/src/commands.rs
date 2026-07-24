@@ -11,6 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
 use chrono::{Local, TimeZone};
+use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt;
@@ -816,6 +817,8 @@ pub struct MailAnsicht {
     /// Standard-Ansicht im App-Stil (M3.5).
     pub html_schlicht: Option<String>,
     pub hatte_externe_bilder: bool,
+    /// Der Nutzer hat die Absender-Domain dauerhaft zum Bilderladen erlaubt.
+    pub bilder_automatisch: bool,
     /// Anhänge für die Anhang-Leiste (M3.6).
     pub anhaenge: Vec<db::AnhangEintrag>,
 }
@@ -832,6 +835,10 @@ pub async fn mail_lesen(
 
 async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAnsicht> {
     let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
+    let bilder_automatisch = match avatar::domain(&mail.von_email) {
+        Some(domain) => mit_db(zustand, |conn| db::bild_quelle_ist_erlaubt(conn, &domain))?,
+        None => false,
+    };
 
     let (inhalt, hat_anhang, server_flag_gesetzt) =
         match mit_db(zustand, |conn| db::inhalt_holen(conn, mail_id))? {
@@ -909,6 +916,7 @@ async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAns
             .map(anzeige::stil_entfernen),
         html: inhalt.html_bereinigt,
         hatte_externe_bilder: inhalt.hatte_externe_bilder,
+        bilder_automatisch,
         anhaenge,
     })
 }
@@ -1014,6 +1022,21 @@ pub async fn mail_bilder_laden(
         .map_err(|f| als_meldung(&f))
 }
 
+/// Erlaubt externe Mail-Bilder dauerhaft für die Domain des Absenders.
+/// Die Mail-Adresse selbst wird nicht zusätzlich gespeichert.
+#[tauri::command]
+pub fn mail_bild_quelle_erlauben(
+    zustand: State<'_, AppZustand>,
+    mail_id: i64,
+) -> Result<(), String> {
+    let mail = mit_db(&zustand, |conn| db::mail_holen(conn, mail_id))
+        .map_err(|f| als_meldung(&f))?
+        .ok_or_else(|| "Die Mail ist nicht mehr vorhanden.".to_string())?;
+    let domain = avatar::domain(&mail.von_email)
+        .ok_or_else(|| "Für diesen Absender ist keine gültige Domain erkennbar.".to_string())?;
+    mit_db(&zustand, |conn| db::bild_quelle_erlauben(conn, &domain)).map_err(|f| als_meldung(&f))
+}
+
 /// Mail + Ordner + Konto zu einer Mail-ID aus dem Cache laden.
 fn mail_kontext(zustand: &AppZustand, mail_id: i64) -> Result<(MailKopf, Ordner, Konto)> {
     let mail = mit_db(zustand, |conn| db::mail_holen(conn, mail_id))?
@@ -1062,25 +1085,39 @@ async fn bilder_herunterladen(urls: &[String]) -> HashMap<String, String> {
         }
     };
 
-    for url in urls.iter().take(MAX_BILDER) {
-        if !url.starts_with("https://") {
-            tracing::info!("Bild über unverschlüsseltes HTTP bleibt blockiert");
-            continue;
+    let mut gesehen = HashSet::new();
+    let sichere_urls: Vec<String> = urls
+        .iter()
+        .take(MAX_BILDER)
+        .filter_map(|url| {
+            if !url.starts_with("https://") {
+                tracing::info!("Bild über unverschlüsseltes HTTP bleibt blockiert");
+                return None;
+            }
+            gesehen.insert(url.as_str()).then(|| url.clone())
+        })
+        .collect();
+    let aufgaben = sichere_urls.into_iter().map(|url| {
+        let client = client.clone();
+        async move {
+            let ergebnis = bild_holen(&client, &url).await;
+            (url, ergebnis)
         }
-        match bild_holen(&client, url).await {
+    });
+    let mut ergebnisse = stream::iter(aufgaben).buffer_unordered(6);
+    while let Some((url, ergebnis)) = ergebnisse.next().await {
+        match ergebnis {
             Ok(daten_uri) => {
-                geladene.insert(url.clone(), daten_uri);
+                geladene.insert(url, daten_uri);
             }
-            Err(fehler) => {
-                tracing::warn!("Bild-Download fehlgeschlagen: {fehler:#}");
-            }
+            Err(fehler) => tracing::warn!("Bild-Download fehlgeschlagen: {fehler:#}"),
         }
     }
     geladene
 }
 
 async fn bild_holen(client: &reqwest::Client, url: &str) -> Result<String> {
-    let antwort = client.get(url).send().await.context("Bild anfragen")?;
+    let mut antwort = client.get(url).send().await.context("Bild anfragen")?;
     if !antwort.status().is_success() {
         anyhow::bail!("HTTP-Status {}", antwort.status());
     }
@@ -1097,9 +1134,18 @@ async fn bild_holen(client: &reqwest::Client, url: &str) -> Result<String> {
     if !mime.starts_with("image/") {
         anyhow::bail!("Kein Bild (Content-Type {mime:?})");
     }
-    let bytes = antwort.bytes().await.context("Bild herunterladen")?;
-    if bytes.len() > MAX_BILD_BYTES {
-        anyhow::bail!("Bild zu groß ({} Bytes)", bytes.len());
+    if antwort
+        .content_length()
+        .is_some_and(|groesse| groesse > MAX_BILD_BYTES as u64)
+    {
+        anyhow::bail!("Bild zu groß");
+    }
+    let mut bytes = Vec::new();
+    while let Some(block) = antwort.chunk().await.context("Bild herunterladen")? {
+        if bytes.len().saturating_add(block.len()) > MAX_BILD_BYTES {
+            anyhow::bail!("Bild zu groß");
+        }
+        bytes.extend_from_slice(&block);
     }
     let daten = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{mime};base64,{daten}"))
@@ -1163,6 +1209,7 @@ fn html_aus_editor(html: Option<&str>) -> Option<String> {
 #[derive(Serialize)]
 pub struct Vorlage {
     pub an: String,
+    pub cc: String,
     pub betreff: String,
     pub text: String,
 }
@@ -1175,8 +1222,9 @@ pub async fn antwort_vorbereiten(
     zustand: State<'_, AppZustand>,
     mail_id: i64,
     weiterleiten: bool,
+    allen_antworten: bool,
 ) -> Result<Vorlage, String> {
-    antwort_vorbereiten_intern(&zustand, mail_id, weiterleiten)
+    antwort_vorbereiten_intern(&zustand, mail_id, weiterleiten, allen_antworten)
         .await
         .map_err(|f| als_meldung(&f))
 }
@@ -1185,6 +1233,7 @@ async fn antwort_vorbereiten_intern(
     zustand: &AppZustand,
     mail_id: i64,
     weiterleiten: bool,
+    allen_antworten: bool,
 ) -> Result<Vorlage> {
     let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
     let roh = roh_nachricht_laden(&konto, &ordner.name, mail.uid).await?;
@@ -1193,6 +1242,7 @@ async fn antwort_vorbereiten_intern(
     if weiterleiten {
         Ok(Vorlage {
             an: String::new(),
+            cc: String::new(),
             betreff: nachricht::weiterleit_betreff(&daten.betreff),
             text: nachricht::weiterleit_block(
                 &daten.von_anzeige,
@@ -1203,12 +1253,56 @@ async fn antwort_vorbereiten_intern(
             ),
         })
     } else {
+        let (an, cc) = if allen_antworten {
+            let eigene_adressen: HashSet<String> = mit_db(zustand, db::konten_liste)?
+                .into_iter()
+                .map(|konto| konto.email.trim().to_lowercase())
+                .collect();
+            antwort_alle_empfaenger(&daten.antwort_an, &daten.an, &daten.cc, &eigene_adressen)
+        } else {
+            (daten.antwort_an, String::new())
+        };
         Ok(Vorlage {
-            an: daten.antwort_an,
+            an,
+            cc,
             betreff: nachricht::antwort_betreff(&daten.betreff),
             text: nachricht::zitat_block(daten.datum, &daten.von_anzeige, &daten.text),
         })
     }
+}
+
+/// Empfänger für „Allen antworten“: Absender zuerst, danach ursprüngliche
+/// An-/Cc-Adressen; eigene Konten und Dubletten werden entfernt.
+fn antwort_alle_empfaenger(
+    antwort_an: &str,
+    an: &str,
+    cc: &str,
+    eigene_adressen: &HashSet<String>,
+) -> (String, String) {
+    let mut empfaenger = Vec::<String>::new();
+    for adresse in std::iter::once(antwort_an)
+        .chain(an.split(','))
+        .chain(cc.split(','))
+        .map(str::trim)
+        .filter(|adresse| !adresse.is_empty())
+    {
+        let normalisiert = adresse.to_lowercase();
+        if eigene_adressen.contains(&normalisiert)
+            || empfaenger
+                .iter()
+                .any(|vorhanden| vorhanden.eq_ignore_ascii_case(adresse))
+        {
+            continue;
+        }
+        empfaenger.push(adresse.to_string());
+    }
+    let an = empfaenger.first().cloned().unwrap_or_default();
+    let cc = empfaenger
+        .into_iter()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join(", ");
+    (an, cc)
 }
 
 #[tauri::command]
@@ -2407,6 +2501,35 @@ fn termin_objekt_speichern(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn allen_antworten_entfernt_eigene_adressen_und_dubletten() {
+        let eigene = HashSet::from([
+            "ich@example.org".to_string(),
+            "arbeit@example.org".to_string(),
+        ]);
+        let (an, cc) = antwort_alle_empfaenger(
+            "anna@example.org",
+            "ich@example.org, BERT@example.org, anna@example.org",
+            "bert@example.org, arbeit@example.org, carla@example.org",
+            &eigene,
+        );
+        assert_eq!(an, "anna@example.org");
+        assert_eq!(cc, "BERT@example.org, carla@example.org");
+    }
+
+    #[test]
+    fn allen_antworten_im_gesendet_ordner_nimmt_empfaenger_statt_mich() {
+        let eigene = HashSet::from(["ich@example.org".to_string()]);
+        let (an, cc) = antwort_alle_empfaenger(
+            "ich@example.org",
+            "kollege@example.org",
+            "chef@example.org",
+            &eigene,
+        );
+        assert_eq!(an, "kollege@example.org");
+        assert_eq!(cc, "chef@example.org");
+    }
 
     #[test]
     fn erinnerungsfenster_umfasst_die_naechsten_dreissig_minuten() {

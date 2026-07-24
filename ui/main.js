@@ -29,6 +29,16 @@ const zustand = {
 
 // Avatar-Cache im Frontend: email -> dataUri | null (null = Initialen).
 const avatarCache = new Map();
+// Noch laufende Abfragen zusammenführen, damit dieselbe Adresse in einer
+// langen Liste nicht gleichzeitig mehrfach extern gesucht wird.
+const avatarAnfragen = new Map();
+// Ein Eintrag je Konto verhindert, dass sich parallele Sync-Meldungen
+// gegenseitig überschreiben.
+const syncStatus = new Map();
+// Kennzeichnet die jüngste Mail-Leseanfrage. Langsame ältere Antworten
+// dürfen weder die Ansicht überschreiben noch Bilder einer neuen Mail laden.
+let leseAnfrage = 0;
+let ordnerLadeAnfrage = null;
 
 // ---------------------------------------------------------- DOM-Kürzel --
 
@@ -156,7 +166,12 @@ async function avatarLaden(email, kreis) {
     return;
   }
   try {
-    const uri = await invoke("absender_avatar", { email });
+    let anfrage = avatarAnfragen.get(schluessel);
+    if (!anfrage) {
+      anfrage = invoke("absender_avatar", { email }).finally(() => avatarAnfragen.delete(schluessel));
+      avatarAnfragen.set(schluessel, anfrage);
+    }
+    const uri = await anfrage;
     avatarCache.set(schluessel, uri || null);
     bildSetzen(kreis, uri || null);
   } catch {
@@ -223,13 +238,18 @@ function ordnerIconName(ordner) {
 }
 
 async function kontenAnzeigen() {
-  for (const konto of zustand.konten) {
-    try {
-      zustand.ordnerJeKonto.set(konto.id, await invoke("ordner_liste", { kontoId: konto.id }));
-    } catch (fehler) {
-      status(`✗ ${konto.name}: ${fehler}`, "fehler");
-    }
+  if (!ordnerLadeAnfrage) {
+    ordnerLadeAnfrage = Promise.all(zustand.konten.map(async (konto) => {
+      try {
+        zustand.ordnerJeKonto.set(konto.id, await invoke("ordner_liste", { kontoId: konto.id }));
+      } catch (fehler) {
+        status(`✗ ${konto.name}: ${fehler}`, "fehler");
+      }
+    })).finally(() => {
+      ordnerLadeAnfrage = null;
+    });
   }
+  await ordnerLadeAnfrage;
   kontenLeisteAnzeigen();
   ordnerPillenAnzeigen();
 }
@@ -289,9 +309,8 @@ function ordnerPillenAnzeigen() {
     pille.className = "ordner-pille";
     if (ordner.id === zustand.aktiverOrdnerId) pille.classList.add("aktiv");
     pille.appendChild(icon(ordnerIconName(ordner)));
-    const name = document.createElement("span");
-    name.textContent = ordner.anzeige_name;
-    pille.appendChild(name);
+    pille.title = ordner.anzeige_name;
+    pille.setAttribute("aria-label", ordner.anzeige_name);
     pille.addEventListener("click", () => ordnerOeffnen(zustand.aktivesKontoId, ordner.id));
     pillen.appendChild(pille);
   }
@@ -455,7 +474,15 @@ function mailEintrag(mail, ordnerName = null) {
 
   text.append(zeile1, zeile2);
   eintrag.appendChild(text);
-  eintrag.addEventListener("click", () => mailAnklicken(mail));
+  let klickTimer = null;
+  eintrag.addEventListener("click", () => {
+    clearTimeout(klickTimer);
+    klickTimer = setTimeout(() => mailAnklicken(mail), 220);
+  });
+  eintrag.addEventListener("dblclick", () => {
+    clearTimeout(klickTimer);
+    mailFensterOeffnen(mail);
+  });
   eintrag.addEventListener("contextmenu", (ereignis) => kontextmenuZeigen(ereignis, mail));
   return eintrag;
 }
@@ -473,6 +500,25 @@ function mailAnklicken(mail) {
     return;
   }
   mailOeffnen(mail.id);
+}
+
+/// Öffnet eine Mail per Doppelklick in einem eigenen, schlanken Lesefenster.
+function mailFensterOeffnen(mail) {
+  const ordner = ordnerZuId(mail.ordner_id);
+  if (ordner?.rolle === "entwuerfe") {
+    mailAnklicken(mail);
+    return;
+  }
+  fensterZaehler += 1;
+  new WebviewWindow(`mail-${Date.now()}-${fensterZaehler}`, {
+    url: `mail.html?mailId=${mail.id}&kontoId=${ordner?.konto_id || zustand.aktivesKontoId || ""}`,
+    title: mail.betreff || "Mail",
+    width: 840,
+    height: 760,
+    minWidth: 520,
+    minHeight: 420,
+    decorations: false,
+  });
 }
 
 // --------------------------------------------------------------- Suche --
@@ -635,11 +681,13 @@ async function listeNeuLaden() {
 // --------------------------------------------------------- Lesebereich --
 
 async function mailOeffnen(mailId) {
+  const anfrage = ++leseAnfrage;
   zustand.aktiveMailId = mailId;
   markiereAktivenEintrag(mailId);
   status("Lade Mail …");
   try {
     const ansicht = await invoke("mail_lesen", { mailId });
+    if (anfrage !== leseAnfrage || zustand.aktiveMailId !== mailId) return;
     zustand.aktiveMailOrdnerId = ansicht.kopf.ordner_id;
     zeige("lese-platzhalter", false);
     zeige("lese-kopf", true);
@@ -667,7 +715,7 @@ async function mailOeffnen(mailId) {
       ? datumFormat.format(new Date(ansicht.kopf.datum * 1000))
       : "";
 
-    zeige("bilder-leiste", ansicht.hatte_externe_bilder);
+    zeige("bilder-leiste", ansicht.hatte_externe_bilder && !ansicht.bilder_automatisch);
 
     // Beide HTML-Fassungen merken; Standard ist die App-Ansicht.
     zustand.lese = { html: ansicht.html, schlicht: ansicht.html_schlicht, modus: "app" };
@@ -681,6 +729,9 @@ async function mailOeffnen(mailId) {
       zeige("mail-text", true);
     }
     anhangLeisteAnzeigen(mailId, ansicht.anhaenge || []);
+    if (ansicht.hatte_externe_bilder && ansicht.bilder_automatisch) {
+      void bilderLaden(mailId, anfrage);
+    }
 
     const eintrag = document.querySelector(`.mail-eintrag[data-mail-id="${mailId}"]`);
     if (eintrag) {
@@ -690,7 +741,7 @@ async function mailOeffnen(mailId) {
     kontenAnzeigen();
     status("Bereit.");
   } catch (fehler) {
-    status(`✗ ${fehler}`, "fehler");
+    if (anfrage === leseAnfrage) status(`✗ ${fehler}`, "fehler");
   }
 }
 
@@ -754,6 +805,7 @@ el("ansicht-knopf").addEventListener("click", () => {
 
 /// Setzt den Lesebereich auf den Platzhalter zurück.
 function lesebereichLeeren() {
+  leseAnfrage += 1;
   zustand.lese = { html: null, schlicht: null, modus: "app" };
   zustand.aktiveMailOrdnerId = null;
   zeige("lese-kopf", false);
@@ -914,22 +966,39 @@ function markiereAktivenEintrag(mailId) {
   if (eintrag) eintrag.classList.add("aktiv");
 }
 
-el("bilder-laden-knopf").addEventListener("click", async () => {
-  if (!zustand.aktiveMailId) return;
+async function bilderLaden(mailId = zustand.aktiveMailId, anfrage = leseAnfrage) {
+  if (!mailId) return;
   const knopf = el("bilder-laden-knopf");
   knopf.disabled = true;
   knopf.textContent = "Lade Bilder …";
   try {
-    const ansicht = await invoke("mail_bilder_laden", { mailId: zustand.aktiveMailId });
+    const ansicht = await invoke("mail_bilder_laden", { mailId });
+    if (anfrage !== leseAnfrage || zustand.aktiveMailId !== mailId) return;
     zustand.lese.html = ansicht.html;
     zustand.lese.schlicht = ansicht.html_schlicht;
     htmlAnzeigen();
     zeige("bilder-leiste", false);
   } catch (fehler) {
-    status(`✗ ${fehler}`, "fehler");
+    if (anfrage === leseAnfrage) status(`✗ ${fehler}`, "fehler");
   } finally {
-    knopf.disabled = false;
-    knopf.textContent = "Bilder laden";
+    if (anfrage === leseAnfrage) {
+      knopf.disabled = false;
+      knopf.textContent = "Bilder laden";
+    }
+  }
+}
+
+el("bilder-laden-knopf").addEventListener("click", bilderLaden);
+el("bilder-immer-knopf").addEventListener("click", async () => {
+  const mailId = zustand.aktiveMailId;
+  const anfrage = leseAnfrage;
+  if (!mailId) return;
+  try {
+    await invoke("mail_bild_quelle_erlauben", { mailId });
+    if (anfrage !== leseAnfrage || zustand.aktiveMailId !== mailId) return;
+    await bilderLaden(mailId, anfrage);
+  } catch (fehler) {
+    status(`✗ ${fehler}`, "fehler");
   }
 });
 
@@ -950,11 +1019,28 @@ function kontoName(kontoId) {
   return zustand.konten.find((k) => k.id === kontoId)?.name || `Konto ${kontoId}`;
 }
 
+function syncStatusAnzeigen() {
+  const bereich = el("backend-status");
+  bereich.innerHTML = "";
+  for (const konto of zustand.konten) {
+    const eintrag = syncStatus.get(konto.id);
+    if (!eintrag) continue;
+    const span = document.createElement("span");
+    span.className = `sync-konto ${eintrag.status === "fertig" ? "ok" : eintrag.status === "fehler" ? "fehler" : ""}`;
+    const zustandsText = eintrag.status === "laeuft"
+      ? "wird aktualisiert …"
+      : eintrag.status === "fertig"
+        ? "aktuell"
+        : eintrag.meldung || "Fehler";
+    span.textContent = `${konto.name}: ${zustandsText}`;
+    bereich.appendChild(span);
+  }
+}
+
 listen("sync:status", (ereignis) => {
   const { status: s, meldung, konto_id } = ereignis.payload;
-  if (s === "laeuft") status(`${kontoName(konto_id)} wird abgeglichen …`);
-  else if (s === "fertig") status("✓ Postfach ist aktuell.", "ok");
-  else if (s === "fehler") status(`✗ ${kontoName(konto_id)}: ${meldung}`, "fehler");
+  syncStatus.set(konto_id, { status: s, meldung });
+  syncStatusAnzeigen();
 });
 
 listen("mails:neu", (ereignis) => {
@@ -1010,6 +1096,16 @@ el("antworten-knopf").addEventListener("click", () => {
     // Als Absender das Konto des gerade geöffneten Ordners vorwählen.
     const konto = zustand.aktivesKontoId ? `&kontoId=${zustand.aktivesKontoId}` : "";
     verfassenFensterOeffnen(`?antwortAuf=${zustand.aktiveMailId}&weiterleiten=0${konto}`, "Antworten");
+  }
+});
+
+el("allen-antworten-knopf").addEventListener("click", () => {
+  if (zustand.aktiveMailId) {
+    const konto = zustand.aktivesKontoId ? `&kontoId=${zustand.aktivesKontoId}` : "";
+    verfassenFensterOeffnen(
+      `?antwortAuf=${zustand.aktiveMailId}&weiterleiten=0&allenAntworten=1${konto}`,
+      "Allen antworten",
+    );
   }
 });
 

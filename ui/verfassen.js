@@ -17,6 +17,7 @@ const zustand = {
   anhaenge: [],
   antwortAuf: params.get("antwortAuf") ? Number(params.get("antwortAuf")) : null,
   weiterleiten: params.get("weiterleiten") === "1",
+  allenAntworten: params.get("allenAntworten") === "1",
   vorgabeKontoId: params.get("kontoId") ? Number(params.get("kontoId")) : null,
   /// Mail-ID des Entwurfs, der hier weiterbearbeitet wird (null = neu).
   entwurfVon: params.get("entwurfId") ? Number(params.get("entwurfId")) : null,
@@ -62,7 +63,7 @@ document.addEventListener(
 const fensterTitel = zustand.entwurfVon
   ? "Entwurf bearbeiten"
   : zustand.antwortAuf
-    ? (zustand.weiterleiten ? "Weiterleiten" : "Antworten")
+    ? (zustand.weiterleiten ? "Weiterleiten" : zustand.allenAntworten ? "Allen antworten" : "Antworten")
     : "Neue Mail";
 el("fenster-titel").textContent = fensterTitel;
 document.title = `${fensterTitel} — Nanomail`;
@@ -160,6 +161,11 @@ el("link-knopf").addEventListener("click", () => {
 // Absatzabstand aus styles.css.
 document.execCommand("defaultParagraphSeparator", false, "p");
 el("verfassen-editor").addEventListener("keydown", (ereignis) => {
+  if ((ereignis.ctrlKey || ereignis.metaKey) && ereignis.key.toLowerCase() === "z") {
+    ereignis.preventDefault();
+    document.execCommand(ereignis.shiftKey ? "redo" : "undo", false, null);
+    return;
+  }
   if (ereignis.key !== "Enter") return;
   ereignis.preventDefault();
   document.execCommand(ereignis.shiftKey ? "insertLineBreak" : "insertParagraph", false, null);
@@ -288,8 +294,10 @@ async function aufbauen() {
       const vorlage = await invoke("antwort_vorbereiten", {
         mailId: zustand.antwortAuf,
         weiterleiten: zustand.weiterleiten,
+        allenAntworten: zustand.allenAntworten,
       });
       formular.elements.an.value = vorlage.an || "";
+      formular.elements.cc.value = vorlage.cc || "";
       formular.elements.betreff.value = vorlage.betreff || "";
       const editor = el("verfassen-editor");
       editor.appendChild(document.createElement("br")); // Schreibzeile oben
@@ -297,6 +305,22 @@ async function aufbauen() {
       zitat.id = "zitat-block";
       textAlsZeilen(zitat, (vorlage.text || "").replace(/^\n+/, ""));
       editor.appendChild(zitat);
+    }
+
+    // Ein neues Schreiben braucht wie eine Antwort einen echten ersten
+    // Schreibblock. In einem komplett leeren contenteditable ignorieren
+    // manche WebKitGTK-Versionen sonst den ersten Absatzwechsel.
+    if (!zustand.entwurfVon && !zustand.antwortAuf) {
+      const absatz = document.createElement("p");
+      absatz.appendChild(document.createElement("br"));
+      const editor = el("verfassen-editor");
+      editor.appendChild(absatz);
+      editor.classList.add("inhalt-leer");
+      editor.addEventListener("input", () => {
+        const kopie = editor.cloneNode(true);
+        kopie.querySelector("#signatur-block")?.remove();
+        editor.classList.toggle("inhalt-leer", !kopie.textContent.trim());
+      });
     }
 
     kontoAnwenden(); // Farbe + Signatur des vorausgewählten Kontos

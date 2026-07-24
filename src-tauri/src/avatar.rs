@@ -2,7 +2,7 @@
 //!
 //! **Bewusste, vom Projektinhaber freigegebene Ausnahme** vom Grundsatz
 //! „keine externen Ladevorgänge“: Avatare werden aktiv geladen
-//! (Gravatar → Favicon → sonst Initialen im Frontend). Das kontaktiert
+//! (Gravatar → Google-Favicon → sonst Initialen im Frontend). Das kontaktiert
 //! externe Server; der Nutzer hat diese Abwägung ausdrücklich gewählt.
 //!
 //! Reine Hilfsfunktionen (Hash, URL, Domain) sind unit-getestet; der
@@ -38,9 +38,9 @@ pub fn domain(email: &str) -> Option<String> {
         .filter(|d| d.contains('.') && !d.is_empty())
 }
 
-/// Favicon-Dienst (DuckDuckGo) für eine Domain.
+/// Favicon-Dienst (Google) für eine Domain.
 pub fn favicon_url(domain: &str) -> String {
-    format!("https://icons.duckduckgo.com/ip3/{domain}.ico")
+    format!("https://www.google.com/s2/favicons?domain={domain}&sz=64")
 }
 
 /// Basis-Domain (letzte zwei Namensteile) — z. B. `mail.tutti.ch` → `tutti.ch`.
@@ -161,7 +161,7 @@ mod tests {
     fn favicon_url_zeigt_auf_domain() {
         assert_eq!(
             favicon_url("shop.example"),
-            "https://icons.duckduckgo.com/ip3/shop.example.ico"
+            "https://www.google.com/s2/favicons?domain=shop.example&sz=64"
         );
     }
 

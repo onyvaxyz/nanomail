@@ -99,6 +99,7 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 | 2026-07-21 | **M5.1 Nachtrag 3 (wartet auf Praxistest):** (a) Die Suche arbeitet jetzt nur im gerade geöffneten Ordner, sodass „Gesendet“ keine Posteingangstreffer mehr zeigt. (b) Online ergänzt eine direkte IMAP-Volltextsuche den lokalen Index und findet dadurch auch ungeöffnete Mails, ohne alle Nachrichten samt Anhängen herunterzuladen; offline bleibt der lokale Bestand durchsuchbar. (c) Im Editor erzeugt Enter einen Absatz mit sichtbarem Abstand und Umschalt+Enter eine einfache neue Zeile ohne Zusatzabstand. (d) Der Fensterzoom reagiert auf Strg+Mausrad und Umschalt+Mausrad. (e) Nanomail zeigt 30 Minuten vor einem sichtbaren Kalendertermin eine Ubuntu-Systembenachrichtigung mit Titel, Uhrzeit und optionalem Ort. Die Prüfung läuft minütlich, berücksichtigt Serien/Zeitzonen und merkt sich gezeigte Erinnerungen dauerhaft, damit sie nicht doppelt erscheinen. Nanomail muss dafür laufen; ein eigener Hintergrunddienst bei geschlossener App ist bewusst nicht hinzugefügt. |
 | 2026-07-24 | **M5.1 Nachtrag 4 (wartet auf Praxistest):** Die Oberfläche wurde auf Wunsch in einem ruhigen, von Amp inspirierten Stil neu gestaltet: warme Grün-Neutraltöne, Ubuntu-/Systemschrift, feinere Trennlinien, zurückhaltende Rundungen und eine flachere Mail-Liste. Hell-, Dunkel- und Systemmodus bleiben erhalten; Funktionen und gespeicherte Daten sind unverändert. |
 | 2026-07-24 | **M5.1 Nachtrag 5 (wartet auf Praxistest):** Design-Nachbesserung nach Sichtprüfung: Der gesamte helle Inhaltsbereich nutzt einheitlich `#F9FDF6` und liegt leicht eingerückt mit abgerundeten Ecken auf der gemeinsamen Fläche von Fensterkopf und Statusleiste. Jede Mail besitzt wieder einen eigenen feinen Rahmen. Die bisherige Bedeutung leer gespeicherter Kontofarben bleibt erhalten, damit insbesondere das Hauptkonto wieder sein früheres Standard-Violett statt des neuen Grüns verwendet; ausdrücklich gewählte eigene Farben bleiben unverändert. |
+| 2026-07-24 | **M5.1 Nachtrag 6 (wartet auf Praxistest):** Weitere Bedienungsrunde: „Allen antworten“ mit Doppelpfeil und bereinigter Empfängerliste (eigene Konten/Dubletten werden entfernt), zuverlässige Absatz-/Zeilenwechsel auch in neuen Mails sowie Strg+Z, eigenes Lesefenster per Doppelklick, dauerhaft erlaubbare externe Bilder je Absender-Domain, reine größere Ordner-Symbole, gleichzeitiger Status je Mailkonto und Google statt DuckDuckGo als Favicon-Fallback. Ohne Funktionsverlust beschleunigt: Ordnerstände werden je Konto parallel geladen, doppelte Avatar-Abfragen zusammengeführt und externe Mailbilder begrenzt parallel geladen. Die bekannten Beispieldomains `artischock.net`, `gra.ch`, `rizag.ch` und `woistroci.de` liefern bei DuckDuckGo 404, bei Google dagegen ein Bild; Microsoft 365 ist nicht die Ursache. |
 
 ## So testest du den aktuellen Stand (M5)
 
@@ -167,12 +168,36 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
     mit sichtbaren Rundungen auf der Fläche von Kopf und Statusleiste liegen.
     Jede Mail braucht einen feinen eigenen Rahmen. Danach alle Konten anklicken:
     Die jeweils eingestellte Kontofarbe muss Knöpfe und Auswahl markieren.
+18. **Allen antworten:** Eine Mail mit mehreren An-/Cc-Empfängern öffnen und
+    den neuen Doppelpfeil anklicken. Absender und weitere Personen müssen
+    eingetragen sein, die eigenen Mailadressen aber nicht. Dasselbe im
+    Gesendet-Ordner prüfen: Dort darf Nanomail nicht an die eigene Adresse
+    antworten.
+19. **Editor und Rückgängig:** Eine komplett neue Mail öffnen. Enter muss
+    einen Absatz mit Abstand erzeugen, Umschalt+Enter nur eine neue Zeile.
+    Text eingeben und mit Strg+Z rückgängig machen.
+20. **Eigenes Lesefenster:** Eine Mail im Posteingang doppelt anklicken. Es
+    muss genau ein eigenes Fenster mit der Mail erscheinen; Antworten,
+    Allen antworten, Weiterleiten und Anhänge dort kurz prüfen.
+21. **Bilder dauerhaft erlauben:** Bei einer Mail mit blockierten Bildern
+    „Von dieser Quelle immer laden“ wählen. Eine weitere Mail derselben
+    Absender-Domain öffnen — ihre Bilder sollen nun automatisch erscheinen.
+    Mails anderer Domains bleiben blockiert.
+22. **Ordner und Status:** Oben in der Mail-Liste müssen Posteingang,
+    Entwürfe usw. nur noch als größere Symbole erscheinen (Name beim
+    Darüberfahren). „Aktualisieren“ drücken: Unten muss für jedes Mailkonto
+    getrennt stehen, ob es aktualisiert wird, aktuell ist oder einen Fehler
+    hatte.
+23. **Avatare:** Im Konto `onyva.xyz` Absender von `artischock.net`, `gra.ch`,
+    `rizag.ch` und `woistroci.de` erneut ansehen. Nach dem ersten Laden
+    sollten die Google-Favicons erscheinen; vorhandene echte Gravatars haben
+    weiterhin Vorrang.
 
 Wenn das passt: M5 freigeben → danach folgt M6 (Microsoft, zuletzt).
 
 ## Was bewusst noch fehlt
 
-Vorschau-/Schnipseltext in der Mail-Liste, Lesen im eigenen Fenster,
+Vorschau-/Schnipseltext in der Mail-Liste,
 Microsoft (M6, zuletzt), Bearbeiten von Wiederholungstermin-Serien,
 automatische Übernahme von Zu-/Absage-Mails in den Teilnehmerstatus,
 Wochen-/Tagesansicht im Kalender (bewusst weggelassen),

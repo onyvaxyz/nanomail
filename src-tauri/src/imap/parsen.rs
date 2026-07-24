@@ -82,6 +82,9 @@ pub struct AntwortDaten {
     pub von_anzeige: String,
     /// An-Zeile des Originals (für den Weiterleitungs-Kopf).
     pub an_anzeige: String,
+    /// Alle An- und Cc-Adressen des Originals (für „Allen antworten“).
+    pub an: String,
+    pub cc: String,
     pub text: String,
     /// Message-ID mit spitzen Klammern, z. B. `<abc@example.org>`.
     pub message_id: Option<String>,
@@ -121,6 +124,8 @@ pub fn parse_fuer_antwort(roh: &[u8]) -> AntwortDaten {
         datum: nachricht.date().map(mail_parser::DateTime::to_timestamp),
         von_anzeige,
         an_anzeige,
+        an: adressliste(nachricht.to()),
+        cc: adressliste(nachricht.cc()),
         text: nachricht
             .body_text(0)
             .unwrap_or_default()
@@ -227,6 +232,8 @@ mod tests {
         assert_eq!(daten.antwort_an, "antworten@example.org");
         assert_eq!(daten.von_anzeige, "Anna Beispiel <anna@example.org>");
         assert_eq!(daten.an_anzeige, "Philipp <philipp@example.org>");
+        assert_eq!(daten.an, "philipp@example.org");
+        assert_eq!(daten.cc, "");
         assert_eq!(daten.betreff, "Frage");
         assert_eq!(daten.message_id, Some("<m123@example.org>".into()));
         assert_eq!(daten.references, Some("<wurzel@example.org>".into()));

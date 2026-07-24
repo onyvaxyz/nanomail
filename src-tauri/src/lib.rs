@@ -134,6 +134,7 @@ pub fn run() {
             commands::mail_lesen,
             commands::mail_loeschen,
             commands::mail_bilder_laden,
+            commands::mail_bild_quelle_erlauben,
             commands::anhang_speichern,
             commands::antwort_vorbereiten,
             commands::mail_senden,

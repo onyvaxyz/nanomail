@@ -392,6 +392,23 @@ fn migrieren(conn: &Connection) -> Result<()> {
         )
         .context("Migration 13 ausführen")?;
     }
+    if version < 14 {
+        conn.execute_batch(
+            r#"
+            -- Domains, deren externe Mail-Bilder der Nutzer ausdrücklich
+            -- dauerhaft erlaubt hat. Nur die Domain wird gespeichert.
+            CREATE TABLE erlaubte_bild_quellen (
+                domain TEXT PRIMARY KEY
+            );
+            -- Der Favicon-Fallback wechselte von DuckDuckGo zu Google.
+            -- Bisher erfolglose Adressen sollen mit der neuen Quelle erneut
+            -- geprüft werden; vorhandene echte Bilder bleiben erhalten.
+            DELETE FROM absender_avatar WHERE data_uri IS NULL;
+            INSERT INTO schema_version (version) VALUES (14);
+            "#,
+        )
+        .context("Migration 14 ausführen")?;
+    }
     Ok(())
 }
 
@@ -1200,6 +1217,26 @@ pub fn avatar_speichern(conn: &Connection, email: &str, data_uri: Option<&str>) 
     Ok(())
 }
 
+/// Speichert bzw. prüft eine Domain, von der externe Mail-Bilder ohne
+/// erneute Rückfrage geladen werden dürfen.
+pub fn bild_quelle_erlauben(conn: &Connection, domain: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO erlaubte_bild_quellen (domain) VALUES (?1)",
+        params![domain.to_lowercase()],
+    )
+    .context("Erlaubte Bildquelle speichern")?;
+    Ok(())
+}
+
+pub fn bild_quelle_ist_erlaubt(conn: &Connection, domain: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM erlaubte_bild_quellen WHERE domain = ?1)",
+        params![domain.to_lowercase()],
+        |z| z.get(0),
+    )
+    .context("Erlaubte Bildquelle prüfen")
+}
+
 fn jetzt_sekunden() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1237,7 +1274,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 13);
+        assert_eq!(version, 14);
     }
 
     #[test]
@@ -1256,6 +1293,14 @@ mod tests {
         assert_eq!(avatar_aus_cache(&conn, "c@d.de", 3600).unwrap(), Some(None));
         // Zu altes Alter (0 s Toleranz) → gilt als abgelaufen.
         assert_eq!(avatar_aus_cache(&conn, "c@d.de", -1).unwrap(), None);
+    }
+
+    #[test]
+    fn erlaubte_bild_quelle_wird_normalisiert_gespeichert() {
+        let conn = oeffnen_im_speicher().unwrap();
+        assert!(!bild_quelle_ist_erlaubt(&conn, "example.org").unwrap());
+        bild_quelle_erlauben(&conn, "Example.ORG").unwrap();
+        assert!(bild_quelle_ist_erlaubt(&conn, "example.org").unwrap());
     }
 
     #[test]
