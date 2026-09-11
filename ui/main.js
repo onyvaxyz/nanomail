@@ -729,6 +729,7 @@ async function mailOeffnen(mailId) {
       zeige("mail-text", true);
     }
     anhangLeisteAnzeigen(mailId, ansicht.anhaenge || []);
+    einladungenAnzeigen(el("mail-einladungen"), ansicht.einladungen || [], mailId);
     if (ansicht.hatte_externe_bilder && ansicht.bilder_automatisch) {
       void bilderLaden(mailId, anfrage);
     }
@@ -748,12 +749,11 @@ async function mailOeffnen(mailId) {
 // Stile fürs Sandbox-iframe: Standard ist die App-Ansicht (folgt dem
 // gewählten Design, siehe thema.js), per Umschalter gibt es die
 // Originalansicht des Absenders (immer hell). CSS-Variablen erreichen das
-// iframe nicht, deshalb stehen die Farbwerte beider Designs hier noch einmal.
+// iframe nicht, deshalb werden die aktuellen Theme-Tokens hineingereicht.
 function leseStilApp() {
-  const hell = document.documentElement.dataset.thema === "hell";
-  const [hintergrund, text, link, linie, zitat] = hell
-    ? ["#f9fdf6", "#0b0d0b", "#286bbd", "#878b8633", "#595959"]
-    : ["#0b0d0b", "#f6fff5", "#6ca0e0", "#878b8633", "#9ca49c"];
+  const stil = getComputedStyle(document.documentElement);
+  const [hintergrund, text, link, linie, zitat] = ["--bg-editor", "--text", "--blau", "--border", "--text-muted"]
+    .map(token => stil.getPropertyValue(token).trim());
   return (
     `body{background:${hintergrund};color:${text};font-family:system-ui,sans-serif;` +
     "font-size:15px;line-height:1.75;max-width:72ch;margin:0 auto;" +
@@ -813,6 +813,7 @@ function lesebereichLeeren() {
   zeige("mail-html", false);
   zeige("mail-text", false);
   zeige("anhang-leiste", false);
+  einladungenAnzeigen(el("mail-einladungen"), [], null);
   zeige("lese-platzhalter", true);
 }
 
@@ -854,7 +855,7 @@ async function anhangSpeichern(mailId, anhang, knopf) {
   try {
     const ziel = await window.__TAURI__.dialog.save({
       title: "Anhang speichern",
-      defaultPath: anhang.dateiname,
+      defaultPath: await invoke("datei_standardpfad", { dateiname: anhang.dateiname }),
     });
     if (!ziel) return; // Dialog abgebrochen
     knopf.disabled = true;

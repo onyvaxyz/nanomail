@@ -47,6 +47,7 @@
   --radius-gross: 14px;
   --radius: 10px;
   --radius-klein: 6px;
+  --app-abstand: 8px;
 }
 
 /* ------------------------------------------------------ Helles Design -- */
@@ -125,7 +126,7 @@ body {
   display: grid;
   grid-template-columns: var(--breite-seitenleiste) var(--breite-mailliste) 1fr;
   min-height: 0;
-  margin: 8px 8px 0;
+  margin: var(--app-abstand) var(--app-abstand) 0;
   background: var(--bg-editor);
   border: 1px solid var(--border);
   border-radius: var(--radius-gross);
@@ -137,6 +138,23 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+/* thema.js bestimmt Schwarz/Weiß aus dem tatsächlich sichtbaren Hintergrund,
+   einschließlich Kontofarbe, transparenter Flächen und Hover-Zustand. */
+button,
+button .avatar,
+.konto-icon-abzeichen {
+  color: var(--knopf-text, var(--text)) !important;
+}
+
+/* Kein Zwischenfarbton der Schrift beim Wechsel Schwarz ↔ Weiß. */
+button {
+  transition-property: box-shadow, transform !important;
+}
+
+:root[data-omarchy="true"] {
+  --akzent: var(--omarchy-akzent, #54b879) !important;
 }
 
 button:focus-visible,
@@ -989,7 +1007,7 @@ textarea:focus-visible {
   font-weight: 600;
 }
 .knopf-primaer:hover {
-  filter: brightness(1.15);
+  background: var(--akzent-hell);
 }
 
 .knopf-sekundaer {
@@ -1213,7 +1231,7 @@ body.fenster-verfassen {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  margin: 8px 8px;
+  margin: var(--app-abstand);
   background: var(--bg-editor);
   border: 1px solid var(--border);
   border-radius: var(--radius-gross);
@@ -1362,6 +1380,7 @@ body.fenster-verfassen {
 }
 #verfassen-editor:empty::before,
 #verfassen-editor.inhalt-leer::before {
+  position: absolute;
   content: attr(data-platzhalter);
   color: var(--text-leise);
   pointer-events: none;
@@ -1373,6 +1392,9 @@ body.fenster-verfassen {
 }
 #verfassen-editor > p:first-child {
   margin-top: 0;
+}
+#verfassen-editor > #signatur-block {
+  margin-top: 1.75em;
 }
 #verfassen-editor a {
   color: var(--blau);
@@ -1391,8 +1413,6 @@ body.fenster-verfassen {
   height: 100vh;
   overflow: hidden;
   background: var(--bg-window);
-  padding-bottom: 5px;
-  padding-inline: 5px;
 }
 #mailfenster-inhalt {
   display: flex;
@@ -1801,7 +1821,7 @@ body.fenster-verfassen {
 .kal-termin-zeit {
   font-family: var(--schrift-mono);
   font-size: 10px;
-  color: var(--text-muted);
+  color: inherit;
   flex-shrink: 0;
 }
 
@@ -1815,6 +1835,10 @@ body.fenster-verfassen {
 .termin-popover {
   position: fixed;
   z-index: 100;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  user-select: text;
+  -webkit-user-select: text;
   width: min(340px, 90vw);
   padding: 14px 16px;
   background: var(--bg-surface);
@@ -1878,6 +1902,7 @@ body.fenster-verfassen {
 }
 
 .popover-aktionen {
+  flex-wrap: wrap;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -1932,4 +1957,28 @@ body.fenster-verfassen {
 
 #kal-leerzustand {
   flex: 1;
+}
+
+.einladungen {
+  flex: 0 1 auto;
+  max-height: 55%;
+  overflow-y: auto;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.einladungen section + section {
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+.einladungen p {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.einladungen a,
+.termin-popover a {
+  color: var(--blau);
+  text-decoration: underline;
 }

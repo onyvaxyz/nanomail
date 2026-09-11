@@ -8,3 +8,9 @@ src-tauri/gen/
 
 # Lokaler Codegraph-Suchindex
 .codegraph/
+
+# Ausschließlich Browser-Testwerkzeuge, keine Frontend-Laufzeitabhängigkeiten.
+node_modules/
+
+# Lokale Orb-Reviewlinks und Screenshots
+.amp/

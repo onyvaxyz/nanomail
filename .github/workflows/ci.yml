@@ -38,3 +38,15 @@ jobs:
       - name: Tests
         run: cargo test
         working-directory: src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Browserprüfungen (Chromium und WebKit)
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium webkit
+          npm run check
+          npm test

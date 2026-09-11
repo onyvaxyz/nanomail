@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Nanomail
+Comment=Mail and calendar client
+Comment[de]=Mail- und Kalender-Client
+Exec=nanomail
+TryExec=nanomail
+Icon=nanomail
+Terminal=false
+Categories=Network;Email;
+StartupWMClass=nanomail

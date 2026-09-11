@@ -15,6 +15,7 @@ mod oauth;
 mod pfade;
 mod schluesselbund;
 mod smtp;
+mod thema;
 
 use std::collections::HashSet;
 use std::sync::Mutex;
@@ -121,6 +122,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ping,
+            pfade::datei_standardpfad,
+            thema::omarchy_thema,
             commands::konto_anlegen,
             commands::konto_bearbeiten,
             commands::konto_loeschen,
@@ -132,6 +135,7 @@ pub fn run() {
             commands::mail_gelesen_setzen,
             commands::adress_vorschlaege,
             commands::mail_lesen,
+            commands::mail_einladung_antworten,
             commands::mail_loeschen,
             commands::mail_bilder_laden,
             commands::mail_bild_quelle_erlauben,

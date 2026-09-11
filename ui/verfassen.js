@@ -80,6 +80,16 @@ function textAlsZeilen(ziel, text) {
   });
 }
 
+// Textmail-Konvention: Leerzeile trennt Absätze, ein LF bleibt ein <br>.
+function textAlsAbsaetze(ziel, text) {
+  for (const absatz of (text || "").replace(/\r\n?/g, "\n").split("\n\n")) {
+    const p = document.createElement("p");
+    textAlsZeilen(p, absatz);
+    if (!absatz || absatz.endsWith("\n")) p.appendChild(document.createElement("br"));
+    ziel.appendChild(p);
+  }
+}
+
 function aktuellesKonto() {
   return zustand.konten.find((k) => k.id === Number(el("von-auswahl").value));
 }
@@ -100,12 +110,6 @@ function signaturSetzen(konto) {
   // Ein geladener Entwurf bringt seinen Text (samt ggf. Signatur) schon
   // mit — nichts doppelt einfügen.
   if (zustand.entwurfVon) return;
-  // Signatur nur bei einer neuen Erstnachricht, nicht beim Antworten oder
-  // Weiterleiten.
-  if (zustand.antwortAuf) {
-    document.getElementById("signatur-block")?.remove();
-    return;
-  }
   const editor = el("verfassen-editor");
   let block = document.getElementById("signatur-block");
   if (!konto || !konto.signatur || !konto.signatur.trim()) {
@@ -113,12 +117,11 @@ function signaturSetzen(konto) {
     return;
   }
   if (!block) {
-    block = document.createElement("div");
+    block = document.createElement("p");
     block.id = "signatur-block";
     editor.insertBefore(block, document.getElementById("zitat-block"));
   }
   block.innerHTML = "";
-  block.appendChild(document.createElement("br"));
   block.appendChild(document.createTextNode("-- "));
   block.appendChild(document.createElement("br"));
   textAlsZeilen(block, konto.signatur.trim());
@@ -285,7 +288,7 @@ async function aufbauen() {
         // Vom Backend bereinigt — Formatierung bleibt erhalten.
         editor.innerHTML = entwurf.html;
       } else {
-        textAlsZeilen(editor, entwurf.text || "");
+        textAlsAbsaetze(editor, entwurf.text || "");
       }
     }
 
@@ -300,7 +303,7 @@ async function aufbauen() {
       formular.elements.cc.value = vorlage.cc || "";
       formular.elements.betreff.value = vorlage.betreff || "";
       const editor = el("verfassen-editor");
-      editor.appendChild(document.createElement("br")); // Schreibzeile oben
+      textAlsAbsaetze(editor, ""); // Echter erster Absatz auch beim Antworten.
       const zitat = document.createElement("div");
       zitat.id = "zitat-block";
       textAlsZeilen(zitat, (vorlage.text || "").replace(/^\n+/, ""));
@@ -329,7 +332,7 @@ async function aufbauen() {
     if (formular.elements.an.value) {
       const editor = el("verfassen-editor");
       editor.focus();
-      window.getSelection().collapse(editor, 0);
+      window.getSelection().collapse(editor.firstChild, 0);
     } else {
       formular.elements.an.focus();
     }
@@ -474,7 +477,8 @@ function anhangListeZeichnen() {
 
 el("anhang-knopf").addEventListener("click", async () => {
   try {
-    const auswahl = await dateiDialog({ multiple: true, title: "Dateien anhängen" });
+    const auswahl = await dateiDialog({ multiple: true, title: "Dateien anhängen",
+      defaultPath: await invoke("datei_standardpfad", { dateiname: null }) });
     if (!auswahl) return;
     const pfade = Array.isArray(auswahl) ? auswahl : [auswahl];
     zustand.anhaenge.push(...pfade);
@@ -511,23 +515,27 @@ el("abbrechen-knopf").addEventListener("click", () => aktuellesFenster.close());
 // werten (verstecktes Link-Ziel) und die Mail aussortieren.
 function editorAlsText(knoten) {
   let text = "";
+  let trennung = "";
   for (const n of knoten.childNodes) {
+    const block = n.nodeType === Node.ELEMENT_NODE && /^(DIV|P|LI|BLOCKQUOTE|H[1-6]|TR)$/.test(n.tagName);
+    const abstand = n.nodeName === "P" ? "\n\n" : "\n";
+    if (n.previousSibling && (block || trennung)) text += trennung.length > abstand.length ? trennung : block ? abstand : trennung;
+    trennung = "";
     if (n.nodeType === Node.TEXT_NODE) {
       text += n.textContent;
     } else if (n.nodeType === Node.ELEMENT_NODE) {
       if (n.tagName === "BR") {
-        text += "\n";
+        // Das letzte BR in einem Absatz ist die unsichtbare Cursor-Stütze.
+        if (n.nextSibling || knoten.nodeName !== "P") text += "\n";
       } else if (n.tagName === "A") {
         const url = n.getAttribute("href") || "";
         const beschriftung = n.textContent;
         text += url && url !== beschriftung ? `${beschriftung} (${url})` : beschriftung;
       } else {
-        const block = /^(DIV|P|LI|BLOCKQUOTE|H[1-6]|TR)$/.test(n.tagName);
-        if (block && text && !text.endsWith("\n")) text += "\n";
         text += editorAlsText(n);
-        if (block && !text.endsWith("\n")) text += "\n";
       }
     }
+    if (block) trennung = abstand;
   }
   return text;
 }

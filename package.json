@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/ui.test.cjs",
+    "check": "node --check ui/thema.js && node --check ui/verfassen.js && node --check ui/kalender.js && node --check ui/einladungen.js && node --check ui/main.js && node --check ui/mail.js && node --check ui/fenster.js"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

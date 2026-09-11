@@ -821,6 +821,7 @@ pub struct MailAnsicht {
     pub bilder_automatisch: bool,
     /// Anhänge für die Anhang-Leiste (M3.6).
     pub anhaenge: Vec<db::AnhangEintrag>,
+    pub einladungen: Vec<termine::Einladung>,
 }
 
 #[tauri::command]
@@ -842,7 +843,19 @@ async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAns
 
     let (inhalt, hat_anhang, server_flag_gesetzt) =
         match mit_db(zustand, |conn| db::inhalt_holen(conn, mail_id))? {
-            Some(inhalt) => (inhalt, mail.hat_anhang, false),
+            Some(mut inhalt) => {
+                // Bestehenden Cache einmal nachprüfen. Offline bleibt die Mail
+                // lesbar und wird beim nächsten Öffnen erneut geprüft.
+                if inhalt.kalender.is_none() {
+                    if let Ok(roh) = roh_nachricht_laden(&konto, &ordner.name, mail.uid).await {
+                        inhalt.kalender = Some(serde_json::to_string(
+                            &anzeige::nachricht_aufbereiten(&roh).kalender,
+                        )?);
+                        mit_db(zustand, |conn| db::inhalt_speichern(conn, mail_id, &inhalt))?;
+                    }
+                }
+                (inhalt, mail.hat_anhang, false)
+            }
             None => {
                 // Body fehlt im Cache → vom Server nachladen (lazy).
                 let mut verbindung = verbindung_zum_konto(&konto).await?;
@@ -866,6 +879,7 @@ async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAns
                     text: aufbereitet.text,
                     html_bereinigt: aufbereitet.html_bereinigt,
                     hatte_externe_bilder: aufbereitet.hatte_externe_bilder,
+                    kalender: Some(serde_json::to_string(&aufbereitet.kalender)?),
                 };
                 mit_db(zustand, |conn| {
                     db::inhalt_speichern(conn, mail_id, &inhalt)?;
@@ -875,6 +889,13 @@ async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAns
                 (inhalt, aufbereitet.hat_anhang, true)
             }
         };
+
+    let kalender: Vec<String> = serde_json::from_str(inhalt.kalender.as_deref().unwrap_or("[]"))?;
+    let einladungen = kalender
+        .iter()
+        .enumerate()
+        .flat_map(|(index, ics)| termine::einladungen(ics, &konto.email, index))
+        .collect();
 
     if !mail.gelesen {
         mit_db(zustand, |conn| db::mail_gelesen_setzen(conn, mail_id, true))?;
@@ -918,7 +939,64 @@ async fn mail_lesen_intern(zustand: &AppZustand, mail_id: i64) -> Result<MailAns
         hatte_externe_bilder: inhalt.hatte_externe_bilder,
         bilder_automatisch,
         anhaenge,
+        einladungen,
     })
+}
+
+#[tauri::command]
+pub async fn mail_einladung_antworten(
+    app: AppHandle,
+    zustand: State<'_, AppZustand>,
+    mail_id: i64,
+    kalender_index: usize,
+    ereignis_index: usize,
+    zusage: bool,
+) -> Result<String, String> {
+    async {
+        let (_, _, konto) = mail_kontext(&zustand, mail_id)?;
+        let inhalt = mit_db(&zustand, |conn| db::inhalt_holen(conn, mail_id))?
+            .context("Bitte die Einladung zuerst öffnen.")?;
+        let kalender: Vec<String> =
+            serde_json::from_str(inhalt.kalender.as_deref().unwrap_or("[]"))?;
+        let ics = kalender.get(kalender_index).context("Einladung fehlt")?;
+        let (organisator, antwort) =
+            termine::einladung_antwort(ics, ereignis_index, &konto.email, zusage)?;
+        let text = if zusage { "Zusage" } else { "Absage" };
+        let eingabe = nachricht::KalenderEinladung {
+            von_name: konto.anzeigename.clone(),
+            von_adresse: konto.email.clone(),
+            an: vec![organisator],
+            betreff: text.into(),
+            text: text.into(),
+            ics: antwort,
+        };
+        let (fertig, roh) = nachricht::baue_kalender_antwort(&eingabe)?;
+        let ordner = mit_db(&zustand, |conn| db::ordner_liste(conn, konto.id))?;
+        let passwort = passwort_holen(konto.id).await?;
+        versand::senden(
+            &konto.smtp_host,
+            konto.smtp_port,
+            &konto.benutzer,
+            &passwort,
+            fertig,
+        )
+        .await?;
+        if let Some(gesendet) = db::finde_gesendet_ordner(&ordner) {
+            if sent_ablage(&app, &zustand, &konto, gesendet, &roh)
+                .await
+                .is_err()
+            {
+                return Ok(format!(
+                    "{text} versendet; Ablage unter Gesendet fehlgeschlagen. Nicht erneut senden."
+                ));
+            }
+        }
+        Ok(format!(
+            "{text} versendet. Der Termin wurde nicht automatisch in einen Kalender übernommen."
+        ))
+    }
+    .await
+    .map_err(|f: anyhow::Error| als_meldung(&f))
 }
 
 /// Speichert einen Anhang der Mail unter dem angegebenen Zielpfad

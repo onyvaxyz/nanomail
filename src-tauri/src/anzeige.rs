@@ -27,6 +27,8 @@ pub struct AufbereiteteNachricht {
     pub hat_anhang: bool,
     /// „Echte“ Anhänge in Mail-Reihenfolge (für die Anhang-Leiste).
     pub anhaenge: Vec<AnhangInfo>,
+    /// Dekodierte text/calendar-Teile, getrennt vom geschützten Mail-HTML.
+    pub kalender: Vec<String>,
 }
 
 /// Ein Anhang, wie ihn die Anhang-Leiste anzeigt.
@@ -45,6 +47,7 @@ pub fn nachricht_aufbereiten(roh: &[u8]) -> AufbereiteteNachricht {
             hatte_externe_bilder: false,
             hat_anhang: false,
             anhaenge: Vec::new(),
+            kalender: Vec::new(),
         };
     };
 
@@ -80,6 +83,25 @@ pub fn nachricht_aufbereiten(roh: &[u8]) -> AufbereiteteNachricht {
         hatte_externe_bilder: !externe.is_empty(),
         hat_anhang: !anhaenge.is_empty(),
         anhaenge,
+        kalender: nachricht
+            .parts
+            .iter()
+            .filter(|teil| {
+                teil.content_type().is_some_and(|ct| {
+                    ct.ctype().eq_ignore_ascii_case("text")
+                        && ct
+                            .subtype()
+                            .is_some_and(|s| s.eq_ignore_ascii_case("calendar"))
+                }) || teil
+                    .attachment_name()
+                    .is_some_and(|n| n.to_ascii_lowercase().ends_with(".ics"))
+            })
+            .filter_map(|teil| {
+                std::str::from_utf8(teil.contents())
+                    .ok()
+                    .map(str::to_string)
+            })
+            .collect(),
     }
 }
 
@@ -291,6 +313,26 @@ fn sanitisieren(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kalenderteile_werden_dekodiert_ohne_mail_html_zu_aktivieren() {
+        let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:test\r\nDTSTART:20260911T120000Z\r\nSUMMARY:Termin\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        for typ in [
+            "text/calendar; method=REQUEST",
+            "application/octet-stream; name=einladung.ics",
+        ] {
+            let roh = format!("MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=test\r\n\r\n--test\r\nContent-Type: text/plain\r\n\r\nErster Absatz\r\n\r\nZweiter Absatz\r\nNeue Zeile\r\n--test\r\nContent-Type: {typ}\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n--test--\r\n", base64::engine::general_purpose::STANDARD.encode(ics));
+            let mail = nachricht_aufbereiten(roh.as_bytes());
+            assert_eq!(mail.kalender, vec![ics]);
+            assert!(mail.html_bereinigt.is_none());
+            assert_eq!(
+                mail.text.replace("\r\n", "\n"),
+                "Erster Absatz\n\nZweiter Absatz\nNeue Zeile"
+            );
+        }
+        let normal = nachricht_aufbereiten(b"Content-Type: text/plain\r\n\r\nBEGIN:VCALENDAR");
+        assert!(normal.kalender.is_empty());
+    }
 
     // 1×1 transparentes PNG
     const PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";

@@ -169,6 +169,14 @@ pub fn baue_nachricht(eingabe: &NeueNachricht) -> Result<(Message, Vec<u8>)> {
 /// Der gespeicherte CalDAV-Termin darf kein METHOD enthalten; in der Mail ist
 /// METHOD:REQUEST dagegen richtig, damit Mailprogramme sie als Einladung erkennen.
 pub fn baue_kalender_einladung(eingabe: &KalenderEinladung) -> Result<(Message, Vec<u8>)> {
+    baue_kalender_mail(eingabe, "REQUEST")
+}
+
+pub fn baue_kalender_antwort(eingabe: &KalenderEinladung) -> Result<(Message, Vec<u8>)> {
+    baue_kalender_mail(eingabe, "REPLY")
+}
+
+fn baue_kalender_mail(eingabe: &KalenderEinladung, methode: &str) -> Result<(Message, Vec<u8>)> {
     let von = mailbox(&eingabe.von_name, &eingabe.von_adresse)?;
     let message_id = neue_message_id(&von.email);
     let mut builder = Message::builder()
@@ -180,12 +188,13 @@ pub fn baue_kalender_einladung(eingabe: &KalenderEinladung) -> Result<(Message, 
     for adresse in &eingabe.an {
         builder = builder.to(parse_adresse(adresse)?);
     }
-    let ics = ics_mit_methode(&eingabe.ics, "REQUEST");
+    let ics = ics_mit_methode(&eingabe.ics, methode);
     let text_teil = SinglePart::builder()
         .header(ContentType::TEXT_PLAIN)
         .body(eingabe.text.clone());
-    let kalender_typ = ContentType::parse("text/calendar; method=REQUEST; charset=utf-8")
-        .context("Kalender-Inhaltstyp bauen")?;
+    let kalender_typ =
+        ContentType::parse(&format!("text/calendar; method={methode}; charset=utf-8"))
+            .context("Kalender-Inhaltstyp bauen")?;
     let kalender_teil = SinglePart::builder()
         .header(kalender_typ)
         .header(ContentDisposition::inline_with_name("einladung.ics"))
@@ -359,6 +368,29 @@ pub fn neue_references(alte: Option<&str>, message_id: Option<&str>) -> Option<S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_absatz_und_zeilenumbruch_ueberleben_mime_roundtrip() {
+        let mut mail = beispiel();
+        mail.text = "Erster Absatz\n\nZweiter Absatz\nEinfache Zeile".into();
+        let (_, roh) = baue_nachricht(&mail).unwrap();
+        let gelesen = crate::anzeige::nachricht_aufbereiten(&roh);
+        assert_eq!(gelesen.text.replace("\r\n", "\n"), mail.text);
+        assert!(gelesen.html_bereinigt.is_none());
+    }
+
+    #[test]
+    fn kalender_antwort_traegt_reply_in_mime_und_ics() {
+        let mail = KalenderEinladung { von_name: "Anna".into(), von_adresse: "anna@example.org".into(),
+            an: vec!["team@example.org".into()], betreff: "Zusage".into(), text: "Zusage".into(),
+            ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:test\r\nDTSTART:20260911T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n".into() };
+        let (_, roh) = baue_kalender_antwort(&mail).unwrap();
+        assert!(String::from_utf8_lossy(&roh).contains("method=REPLY"));
+        let gelesen = crate::anzeige::nachricht_aufbereiten(&roh);
+        assert_eq!(gelesen.kalender.len(), 1);
+        assert!(gelesen.kalender[0].contains("METHOD:REPLY"));
+        assert!(!gelesen.kalender[0].contains("METHOD:REQUEST"));
+    }
 
     fn beispiel() -> NeueNachricht {
         NeueNachricht {

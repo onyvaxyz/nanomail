@@ -4,7 +4,85 @@ Lebendes Übersichtsdokument. Wird nach jedem Meilenstein aktualisiert.
 Regel: **Ein Meilenstein nach dem anderen, jeder wird von Philipp getestet
 und freigegeben, bevor der nächste beginnt.**
 
-Stand: 2026-07-24
+Stand: 2026-09-11
+
+## Arch-/Omarchy-Paketierung (September 2026)
+
+- `packaging/arch/prepare-source.sh` erzeugt einen lokalen Quellschnappschuss
+  einschließlich unveröffentlichter Änderungen und einen PKGBUILD mit echter
+  SHA-256. Keine vorgebauten Debian-Binaries und keine persönlichen Daten.
+- Arch-Paketbau mit `cargo-tauri`, gesperrtem Cargo.lock und Rust-Tests;
+  Installation nach `/usr/bin`, Desktop-Starter und vier Hicolor-Icongrößen.
+  Build-/Runtime-Abhängigkeiten sind getrennt; Secret Service und das optionale
+  Wayland-Dateidialog-Portal sind dokumentiert. Bestehende Debian-Unterstützung bleibt.
+- Im Orb mit offiziellem Arch-Bootstrap 2026.09.01 und signaturgeprüften,
+  aktuellen Arch-Paketen in einem isolierten Bubblewrap-Dateisystem gebaut,
+  nicht gegen Debian-/Ubuntu-Bibliotheken. Rust 1.98.1, glibc 2.44,
+  WebKitGTK 2.52.6; Ausgabe `nanomail-0.1.0-1-x86_64.pkg.tar.zst`.
+- 120 Rust-Tests unter Arch bestanden; Paketinhalt, Desktop-Datei, dynamische
+  Bibliotheken, Pacman-Installation und nativer Start mit leerem Testprofil
+  geprüft. Ein Screenshot des gerenderten Arch-Programms wurde inspiziert.
+  JavaScript-Prüfung, Chromium/WebKit-Tests, Rust-fmt und Clippy erneut grün.
+- Einschränkungen: Xvfb statt echter Omarchy-/Hyprland-Sitzung; kein eingerichteter
+  Secret Service oder Live-Mailkonto. `namcap` erkennt den dynamisch benutzten
+  `xdg-open`-Fallback nicht; `xdg-utils` bleibt daher eine Laufzeitabhängigkeit.
+  Makepkg meldet eingebettete Rust-Quellpfade unter `/build` (keine persönlichen
+  Pfade). Der eigene vollständige MIT-Lizenztext fehlt bereits im Repository;
+  vor einer öffentlichen Veröffentlichung muss der Projektinhaber ihn ergänzen.
+
+Installation und lokaler Nachbau: siehe README, Abschnitt „Arch Linux / Omarchy“.
+Kein Push, Release, Deployment oder Pull Request; keine Freigabe weiterer Meilensteine.
+
+## Beauftragte Nachbesserungen zu M5.1 (September 2026)
+
+Lokal umgesetzt; keine Veröffentlichung und keine Freigabe von M6:
+
+- Buttons wählen Schwarz/Weiß anhand des sichtbaren Hintergrunds einschließlich
+  Kontofarbe, Transparenz und Hover. Fenster verwenden den gemeinsamen
+  8-Pixel-Außenabstand von `#app` (im Projekt eine ID, keine Klasse `.app`).
+- Antworten begannen bisher mit freiem Text vor dem ersten Absatz. Das ist in
+  WebKit reproduziert und korrigiert. Neue Mail, Antworten und Allen antworten
+  verwenden echte Absätze: Enter = Absatz, Shift+Enter = Zeilenumbruch.
+  Die Adressfelder An/Cc bleiben einzeilige Empfängerfelder; Enter übernimmt
+  dort gegebenenfalls einen Adressvorschlag, es gibt dort keine Absatzformatierung.
+- Signaturen erscheinen jetzt ausdrücklich auch bei Antworten, mit einer
+  Leerzeile davor. Das ersetzt den früheren Wunsch „nur bei Erstnachricht“.
+  Textmails und Textentwürfe bewahren Absatzgrenzen als Leerzeilen und einzelne
+  Zeilenumbrüche als einfache neue Zeilen.
+- Datei- und Speicherdialoge beginnen auf dem plattformgerechten Desktop;
+  fehlt dieser, im persönlichen Ordner. Dateinamen können den Startordner nicht verlassen.
+- Eingehende ICS-/MIME-Kalenderteile werden erkannt, im Cache gespeichert und
+  in beiden Mailansichten interaktiv angezeigt. Zu-/Absagen senden nach Rückfrage
+  eine iTIP-REPLY-Mail an den Organisator. Das Konto muss als Teilnehmer genannt
+  sein. Ohne Organisator bzw. bei CANCEL/REPLY werden keine Antwortknöpfe angeboten.
+  Keine automatische Übernahme in CalDAV und keine automatische Verarbeitung
+  fremder Zu-/Absagen. Ältere Cacheeinträge werden beim Öffnen einmal nachgeladen;
+  bei fehlendem Netz bleibt die bisherige Mailansicht verfügbar.
+- Termindetails bleiben beim Markieren, Kopieren und Fensterwechsel offen.
+  HTTP(S)-Links sind klickbar; Escape/Schließen gibt den Fokus zurück, ein neuer
+  Klick außerhalb schließt. Lange Inhalte bleiben scrollbar.
+- Omarchy ergänzt Hell/Dunkel/System. Unter Linux werden
+  `$XDG_STATE_HOME/omarchy/current/theme/colors.toml` (Standard `~/.local/state`)
+  sowie der ältere Pfad unter `$XDG_CONFIG_HOME` gelesen. `mode`, `theme_type`,
+  `light.mode` und Hintergrundhelligkeit bestimmen Hell/Dunkel; gültige
+  Hex-Farben speisen die vorhandenen Tokens. Prüfung alle drei Sekunden und
+  beim Fensterfokus, ohne Shellbefehle oder Schreibzugriffe. Ohne Palette bzw.
+  außerhalb Linux gilt die Systemeinstellung einschließlich normaler Kontofarbe.
+  Quellen: [Omarchy Theme-Set](https://github.com/basecamp/omarchy/blob/master/bin/omarchy-theme-set),
+  [Farbschema](https://github.com/basecamp/omarchy/blob/master/themes/tokyo-night/colors.toml).
+
+Prüfung: Rust-Kerntests, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
+`cargo check`, vollständiger Tauri-`.deb`-Build sowie Browserprüfungen in Chromium
+und WebKit. Letztere testen echte Tastatureingaben, Rückgängig, Text-Roundtrips,
+Kontrastwechsel, Themewechsel/Fallback, Maus-Textselektion und Einladungsaktionen.
+Screenshots für neue Mail, Antwort, Einladung und Kalender wurden inspiziert.
+Browser-Review verwendet ausschließlich Testdaten, keinen echten Mailversand.
+Ein echter Omarchy-Desktop und Live-IMAP/SMTP/CalDAV waren im Orb nicht eingerichtet.
+
+Zum Abnehmen: Neue Mail und Antwort mit Enter/Shift+Enter verfassen, Signaturabstand
+prüfen, einen Entwurf wieder öffnen; bei einer echten Einladung bewusst Zu-/Absage
+testen; Termintext über den Popoverrand hinaus markieren; Theme und Desktop-Dialog
+auf dem Zielrechner ausprobieren. Danach M5/M5.1 freigeben, nicht automatisch M6 starten.
 
 ## Meilensteine
 

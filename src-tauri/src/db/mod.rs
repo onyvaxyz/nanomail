@@ -95,6 +95,8 @@ pub struct MailInhalt {
     /// Mit `ammonia` bereinigtes HTML — nur das darf angezeigt werden.
     pub html_bereinigt: Option<String>,
     pub hatte_externe_bilder: bool,
+    /// JSON-Liste dekodierter ICS-Teile; None = älterer Cache, noch ungeprüft.
+    pub kalender: Option<String>,
 }
 
 /// Öffnet (bzw. erzeugt) die Datenbank und bringt das Schema auf Stand.
@@ -408,6 +410,13 @@ fn migrieren(conn: &Connection) -> Result<()> {
             "#,
         )
         .context("Migration 14 ausführen")?;
+    }
+    if version < 15 {
+        conn.execute_batch(
+            "ALTER TABLE mail_bodies ADD COLUMN kalender TEXT;
+            INSERT INTO schema_version (version) VALUES (15);",
+        )
+        .context("Migration 15 ausführen")?;
     }
     Ok(())
 }
@@ -926,7 +935,7 @@ pub fn anhaenge_liste(conn: &Connection, mail_id: i64) -> Result<Vec<AnhangEintr
 
 pub fn inhalt_holen(conn: &Connection, mail_id: i64) -> Result<Option<MailInhalt>> {
     conn.query_row(
-        "SELECT text, html_bereinigt, hatte_externe_bilder
+        "SELECT text, html_bereinigt, hatte_externe_bilder, kalender
          FROM mail_bodies WHERE mail_id = ?1",
         params![mail_id],
         |z| {
@@ -934,6 +943,7 @@ pub fn inhalt_holen(conn: &Connection, mail_id: i64) -> Result<Option<MailInhalt
                 text: z.get(0)?,
                 html_bereinigt: z.get(1)?,
                 hatte_externe_bilder: z.get(2)?,
+                kalender: z.get(3)?,
             })
         },
     )
@@ -943,17 +953,19 @@ pub fn inhalt_holen(conn: &Connection, mail_id: i64) -> Result<Option<MailInhalt
 
 pub fn inhalt_speichern(conn: &Connection, mail_id: i64, inhalt: &MailInhalt) -> Result<()> {
     conn.execute(
-        "INSERT INTO mail_bodies (mail_id, text, html_bereinigt, hatte_externe_bilder)
-         VALUES (?1, ?2, ?3, ?4)
+        "INSERT INTO mail_bodies (mail_id, text, html_bereinigt, hatte_externe_bilder, kalender)
+         VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(mail_id) DO UPDATE SET
              text = excluded.text,
              html_bereinigt = excluded.html_bereinigt,
-             hatte_externe_bilder = excluded.hatte_externe_bilder",
+             hatte_externe_bilder = excluded.hatte_externe_bilder,
+             kalender = excluded.kalender",
         params![
             mail_id,
             inhalt.text,
             inhalt.html_bereinigt,
-            inhalt.hatte_externe_bilder
+            inhalt.hatte_externe_bilder,
+            inhalt.kalender
         ],
     )
     .context("Mail-Inhalt speichern")?;
@@ -1274,7 +1286,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 14);
+        assert_eq!(version, 15);
     }
 
     #[test]
@@ -1629,12 +1641,14 @@ mod tests {
                 text: "Hallo".into(),
                 html_bereinigt: Some("<p>Hallo</p>".into()),
                 hatte_externe_bilder: true,
+                kalender: Some("[]".into()),
             },
         )
         .unwrap();
         let inhalt = inhalt_holen(&conn, mail.id).unwrap().unwrap();
         assert_eq!(inhalt.text, "Hallo");
         assert!(inhalt.hatte_externe_bilder);
+        assert_eq!(inhalt.kalender.as_deref(), Some("[]"));
     }
 
     #[test]
@@ -1767,6 +1781,7 @@ mod tests {
                 text: "Bitte um Überweisung bis Ende des Monats.".into(),
                 html_bereinigt: None,
                 hatte_externe_bilder: false,
+                kalender: Some("[]".into()),
             },
         )
         .unwrap();

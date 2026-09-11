@@ -30,6 +30,7 @@ pub struct Termin {
     pub titel: String,
     pub ort: String,
     pub beschreibung: String,
+    pub url: String,
     pub teilnehmer: Vec<Teilnehmer>,
     /// UTC-Sekunden; bei Ganztags-Terminen die lokale Mitternacht.
     pub beginn: i64,
@@ -167,6 +168,102 @@ fn ereignisse(kalender: &Calendar) -> impl Iterator<Item = &Event> {
     kalender.components.iter().filter_map(|k| k.as_event())
 }
 
+#[derive(Debug, Serialize)]
+pub struct Einladung {
+    pub termin: Termin,
+    pub methode: String,
+    pub organisator: String,
+    pub antwortbar: bool,
+    pub ereignis_index: usize,
+    pub kalender_index: usize,
+}
+
+/// Ohne Wiederholungsexpansion: die Einladung selbst, nicht alle Vorkommen.
+pub fn einladungen(ics: &str, email: &str, kalender_index: usize) -> Vec<Einladung> {
+    let Ok(kalender) = kalender_lesen(ics) else {
+        return Vec::new();
+    };
+    let methode = kalender
+        .property_value("METHOD")
+        .unwrap_or("PUBLISH")
+        .to_ascii_uppercase();
+    ereignisse(&kalender)
+        .enumerate()
+        .filter_map(|(index, event)| {
+            let termin = als_termin(event, &ereignis_zeiten(event).ok()?);
+            let organisator =
+                mailto_bereinigen(event.property_value("ORGANIZER").unwrap_or_default());
+            let antwortbar = methode == "REQUEST"
+                && event.get_status() != Some(EventStatus::Cancelled)
+                && event.get_uid().is_some()
+                && organisator.parse::<lettre::Address>().is_ok()
+                && termin
+                    .teilnehmer
+                    .iter()
+                    .any(|t| t.email.eq_ignore_ascii_case(email));
+            Some(Einladung {
+                termin,
+                methode: methode.clone(),
+                organisator,
+                antwortbar,
+                ereignis_index: index,
+                kalender_index,
+            })
+        })
+        .collect()
+}
+
+/// Minimaler iTIP REPLY: keine fremden Teilnehmer, Alarme oder URLs kopieren.
+/// UID, SEQUENCE und RECURRENCE-ID bleiben dem konkreten Termin zugeordnet.
+pub fn einladung_antwort(
+    ics: &str,
+    index: usize,
+    email: &str,
+    zusage: bool,
+) -> Result<(String, String)> {
+    let info = einladungen(ics, email, 0)
+        .into_iter()
+        .find(|e| e.ereignis_index == index && e.antwortbar)
+        .context("Diese Einladung kann mit diesem Mailkonto nicht beantwortet werden.")?;
+    let kalender = kalender_lesen(ics)?;
+    let original = ereignisse(&kalender).nth(index).context("Termin fehlt")?;
+    let mut event = Event::new();
+    for key in [
+        "UID",
+        "SEQUENCE",
+        "RECURRENCE-ID",
+        "DTSTART",
+        "DTEND",
+        "SUMMARY",
+        "ORGANIZER",
+    ] {
+        if let Some(property) = original.properties().get(key) {
+            event.append_property(property.clone());
+        }
+    }
+    event.timestamp(Utc::now());
+    event.append_property(
+        Property::new("ATTENDEE", format!("mailto:{email}"))
+            .add_parameter("PARTSTAT", if zusage { "ACCEPTED" } else { "DECLINED" })
+            .done(),
+    );
+    let mut antwort = Calendar::new();
+    antwort.append_property(Property::new("METHOD", "REPLY"));
+    // Benutzerdefinierte Zeitzonen bleiben erhalten, andere Ereignisse nicht.
+    for component in kalender
+        .components
+        .iter()
+        .filter(|c| c.as_event().is_none())
+    {
+        if matches!(component, icalendar::CalendarComponent::Other(other) if other.component_kind() == "VTIMEZONE")
+        {
+            antwort.push(component.clone());
+        }
+    }
+    antwort.push(event);
+    Ok((info.organisator, antwort.to_string()))
+}
+
 fn ist_ueberschreibung(ereignis: &Event) -> bool {
     ereignis.properties().contains_key("RECURRENCE-ID")
 }
@@ -189,6 +286,7 @@ fn als_termin(ereignis: &Event, zeiten: &Zeiten) -> Termin {
         titel: ereignis.get_summary().unwrap_or("(ohne Titel)").to_string(),
         ort: ereignis.get_location().unwrap_or_default().to_string(),
         beschreibung: ereignis.get_description().unwrap_or_default().to_string(),
+        url: ereignis.get_url().unwrap_or_default().to_string(),
         teilnehmer: teilnehmer(ereignis),
         beginn: zeiten.beginn,
         ende: zeiten.ende,
@@ -684,6 +782,58 @@ fn parameter_bereinigen(zeile: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn einladung_erkennt_anfrage_und_beschraenkt_antwortkonto() {
+        let ics = vevent("DTSTART:20260911T120000Z\r\nDTEND:20260911T130000Z\r\nSUMMARY:Besprechung\r\nSEQUENCE:7\r\nRECURRENCE-ID:20260910T120000Z\r\nORGANIZER:mailto:team@example.org\r\nATTENDEE:mailto:anna@example.org\r\nATTENDEE:mailto:bob@example.org")
+            .replace("VERSION:2.0", "VERSION:2.0\r\nMETHOD:REQUEST");
+        let einladung = einladungen(&ics, "ANNA@example.org", 2);
+        assert_eq!(einladung.len(), 1);
+        assert!(einladung[0].antwortbar);
+        assert_eq!(einladung[0].kalender_index, 2);
+        assert_eq!(einladung[0].termin.beginn, utc("2026-09-11T12:00:00Z"));
+        assert!(!einladungen(&ics, "fremd@example.org", 0)[0].antwortbar);
+        assert!(einladung_antwort(&ics, 0, "fremd@example.org", true).is_err());
+        assert!(einladung_antwort(&ics, 1, "anna@example.org", true).is_err());
+        for (zusage, status) in [(true, "accepted"), (false, "declined")] {
+            let (an, antwort) = einladung_antwort(&ics, 0, "anna@example.org", zusage).unwrap();
+            assert_eq!(an, "team@example.org");
+            let cal = kalender_lesen(&antwort).unwrap();
+            assert_eq!(cal.property_value("METHOD"), Some("REPLY"));
+            let event = ereignisse(&cal).next().unwrap();
+            assert_eq!(event.get_uid(), Some("test-1"));
+            assert_eq!(event.property_value("SEQUENCE"), Some("7"));
+            assert_eq!(
+                event.property_value("RECURRENCE-ID"),
+                Some("20260910T120000Z")
+            );
+            assert_eq!(
+                teilnehmer(event),
+                vec![Teilnehmer {
+                    email: "anna@example.org".into(),
+                    status: status.into()
+                }]
+            );
+        }
+        for methode in ["CANCEL", "REPLY", "PUBLISH"] {
+            let anders = ics.replace("METHOD:REQUEST", &format!("METHOD:{methode}"));
+            assert_eq!(
+                einladungen(&anders, "anna@example.org", 0)[0].methode,
+                methode
+            );
+            assert!(einladung_antwort(&anders, 0, "anna@example.org", true).is_err());
+        }
+        let ohne_organisator = ics.replace("ORGANIZER:mailto:team@example.org\r\n", "");
+        assert!(!einladungen(&ohne_organisator, "anna@example.org", 0)[0].antwortbar);
+        let abgesagt = ics.replace(
+            "SUMMARY:Besprechung",
+            "STATUS:CANCELLED\r\nSUMMARY:Besprechung\r\nURL:https://example.org/termin",
+        );
+        let einladung = einladungen(&abgesagt, "anna@example.org", 0);
+        assert!(!einladung[0].antwortbar);
+        assert_eq!(einladung[0].termin.url, "https://example.org/termin");
+        assert!(einladungen("kein Kalender", "anna@example.org", 0).is_empty());
+    }
 
     fn vevent(inhalt: &str) -> String {
         format!(

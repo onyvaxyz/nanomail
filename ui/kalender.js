@@ -222,8 +222,13 @@ function terminZeitText(termin) {
   return `${kalDatumKurz.format(beginn)}, ${kalZeitFormat.format(beginn)} Uhr – ${kalDatumKurz.format(ende)}, ${kalZeitFormat.format(ende)} Uhr`;
 }
 
+let popoverAusloeser = null;
 function terminPopoverZeigen(ereignis, termin) {
   const popover = el("termin-popover");
+  popoverAusloeser = ereignis.currentTarget;
+  popover.setAttribute("role", "dialog");
+  popover.setAttribute("aria-label", "Termindetails");
+  popover.tabIndex = -1;
   popover.innerHTML = "";
 
   const kopf = document.createElement("div");
@@ -246,14 +251,20 @@ function terminPopoverZeigen(ereignis, termin) {
     const ort = document.createElement("div");
     ort.className = "popover-zeile";
     ort.appendChild(icon("map-pin"));
-    ort.append(termin.ort);
+    textMitLinks(ort, termin.ort);
     popover.appendChild(ort);
   }
   if (termin.beschreibung) {
     const beschreibung = document.createElement("div");
     beschreibung.className = "popover-beschreibung";
-    beschreibung.textContent = termin.beschreibung;
+    textMitLinks(beschreibung, termin.beschreibung);
     popover.appendChild(beschreibung);
+  }
+  if (termin.url) {
+    const link = document.createElement("div");
+    link.className = "popover-zeile";
+    textMitLinks(link, termin.url);
+    popover.appendChild(link);
   }
   if (termin.teilnehmer && termin.teilnehmer.length > 0) {
     const teilnehmer = document.createElement("div");
@@ -270,6 +281,11 @@ function terminPopoverZeigen(ereignis, termin) {
 
   const aktionen = document.createElement("div");
   aktionen.className = "popover-aktionen";
+  const schliessen = document.createElement("button");
+  schliessen.type = "button";
+  schliessen.className = "knopf-sekundaer";
+  schliessen.textContent = "Schließen";
+  schliessen.addEventListener("click", () => terminPopoverSchliessen(true));
   const bearbeiten = document.createElement("button");
   bearbeiten.type = "button";
   bearbeiten.className = "knopf-sekundaer";
@@ -290,14 +306,16 @@ function terminPopoverZeigen(ereignis, termin) {
     terminPopoverSchliessen();
     await terminLoeschen(termin);
   });
-  aktionen.append(bearbeiten, loeschen);
+  aktionen.append(bearbeiten, loeschen, schliessen);
   popover.appendChild(aktionen);
 
   // Am Klickpunkt öffnen, ohne über den Fensterrand zu ragen.
   popover.classList.remove("versteckt");
   const kasten = popover.getBoundingClientRect();
-  popover.style.left = `${Math.min(ereignis.clientX, window.innerWidth - kasten.width - 12)}px`;
-  popover.style.top = `${Math.min(ereignis.clientY, window.innerHeight - kasten.height - 12)}px`;
+  const anker = popoverAusloeser.getBoundingClientRect();
+  popover.style.left = `${Math.max(12, Math.min(ereignis.clientX || anker.left, window.innerWidth - kasten.width - 12))}px`;
+  popover.style.top = `${Math.max(12, Math.min(ereignis.clientY || anker.bottom, window.innerHeight - kasten.height - 12))}px`;
+  popover.focus();
 }
 
 // ------------------------------------------------------- Termin-Dialog --
@@ -636,14 +654,21 @@ function kalAdressvorschlaegeAnbinden(feld) {
 
 kalAdressvorschlaegeAnbinden(el("termin-formular").elements.teilnehmer);
 
-function terminPopoverSchliessen() {
+function terminPopoverSchliessen(fokusZurueck = false) {
   el("termin-popover").classList.add("versteckt");
+  if (fokusZurueck) popoverAusloeser?.focus();
 }
 
-document.addEventListener("click", terminPopoverSchliessen);
-window.addEventListener("blur", terminPopoverSchliessen);
+// Nur der Beginn einer Interaktion außerhalb schließt. Eine innen begonnene
+// Textselektion darf auch außerhalb enden; Fensterwechsel zum Kopieren bleibt offen.
+document.addEventListener("pointerdown", (ereignis) => {
+  if (!el("termin-popover").contains(ereignis.target)) terminPopoverSchliessen();
+});
+document.addEventListener("focusin", (ereignis) => {
+  if (!el("termin-popover").contains(ereignis.target) && ereignis.target !== popoverAusloeser) terminPopoverSchliessen();
+});
 document.addEventListener("keydown", (ereignis) => {
-  if (ereignis.key === "Escape") terminPopoverSchliessen();
+  if (ereignis.key === "Escape" && !el("termin-popover").classList.contains("versteckt")) terminPopoverSchliessen(true);
 });
 
 // ------------------------------------------------------ Kalender-Leiste --

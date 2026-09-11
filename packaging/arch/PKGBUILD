@@ -1,0 +1,59 @@
+# Lokaler Quellschnappschuss; zuerst prepare-source.sh ausführen.
+# Das Skript ersetzt den Platzhalter durch die SHA-256 des Archivs.
+pkgname=nanomail
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Mail- (IMAP/SMTP) und Kalender-Client (CalDAV)'
+arch=('x86_64')
+url='https://github.com/onyvaxyz/nanomail'
+license=('MIT')
+depends=('glibc' 'libgcc' 'gtk3' 'glib2' 'cairo' 'gdk-pixbuf2'
+         'dbus' 'webkit2gtk-4.1' 'libsoup3' 'hicolor-icon-theme' 'xdg-utils')
+makedepends=('rust' 'cargo-tauri' 'pkgconf')
+checkdepends=('desktop-file-utils')
+optdepends=('gnome-keyring: Secret-Service-Schlüsselbund für Zugangsdaten (oder kompatibler Anbieter)'
+            'xdg-desktop-portal-gtk: Dateidialoge unter Wayland, zusätzlich zum Desktop-Portal')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('@SOURCE_SHA256@')
+# Cargo.toml aktiviert bereits LTO und entfernt Debugsymbole.
+options=('!lto' '!debug')
+
+prepare() {
+  cd "$pkgname-$pkgver/src-tauri"
+  export CARGO_HOME="$srcdir/cargo-home"
+  cargo fetch --locked
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export CARGO_HOME="$srcdir/cargo-home"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cargo tauri build --no-bundle -- --frozen
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export CARGO_HOME="$srcdir/cargo-home"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cargo test --manifest-path src-tauri/Cargo.toml --release --frozen
+  desktop-file-validate packaging/arch/io.github.onyvaxyz.nanomail.desktop
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 "$srcdir/target/release/nanomail" "$pkgdir/usr/bin/nanomail"
+  install -Dm644 packaging/arch/io.github.onyvaxyz.nanomail.desktop \
+    "$pkgdir/usr/share/applications/io.github.onyvaxyz.nanomail.desktop"
+  local size icon
+  for size in 32 128 256 512; do
+    case "$size" in
+      256) icon=128x128@2x.png ;;
+      512) icon=icon.png ;;
+      *) icon="${size}x${size}.png" ;;
+    esac
+    install -Dm644 "src-tauri/icons/$icon" \
+      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/nanomail.png"
+  done
+  install -Dm644 README.md "$pkgdir/usr/share/doc/nanomail/README.md"
+  install -Dm644 ui/phosphor/LICENSE "$pkgdir/usr/share/licenses/nanomail/phosphor-LICENSE"
+}

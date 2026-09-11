@@ -22,10 +22,9 @@ function zeige(id, sichtbar) {
 }
 
 function leseStil() {
-  const hell = document.documentElement.dataset.thema === "hell";
-  const [hintergrund, text, link, linie, zitat] = hell
-    ? ["#f9fdf6", "#0b0d0b", "#286bbd", "#878b8633", "#595959"]
-    : ["#0b0d0b", "#f6fff5", "#6ca0e0", "#878b8633", "#9ca49c"];
+  const stil = getComputedStyle(document.documentElement);
+  const [hintergrund, text, link, linie, zitat] = ["--bg-editor", "--text", "--blau", "--border", "--text-muted"]
+    .map(token => stil.getPropertyValue(token).trim());
   return (
     `body{background:${hintergrund};color:${text};font-family:system-ui,sans-serif;` +
     "font-size:15px;line-height:1.75;max-width:72ch;margin:0 auto;padding:40px 36px;" +
@@ -98,7 +97,9 @@ function anhaengeAnzeigen(anhaenge) {
     knopf.textContent = anhang.dateiname;
     knopf.addEventListener("click", async () => {
       try {
-        const ziel = await window.__TAURI__.dialog.save({ defaultPath: anhang.dateiname });
+        const ziel = await window.__TAURI__.dialog.save({
+          defaultPath: await invoke("datei_standardpfad", { dateiname: anhang.dateiname }),
+        });
         if (ziel) await invoke("anhang_speichern", { mailId, index: anhang.index, zielPfad: ziel });
       } catch (fehler) {
         fehlerZeigen(fehler);
@@ -132,6 +133,7 @@ async function laden() {
       zeige("mailfenster-text", true);
     }
     anhaengeAnzeigen(ansicht.anhaenge || []);
+    einladungenAnzeigen(el("mail-einladungen"), ansicht.einladungen || [], mailId);
     zeige("mailfenster-bilder", ansicht.hatte_externe_bilder && !ansicht.bilder_automatisch);
     if (ansicht.hatte_externe_bilder && ansicht.bilder_automatisch) bilderLaden();
   } catch (fehler) {
