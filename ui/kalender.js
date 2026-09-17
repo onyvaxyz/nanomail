@@ -30,6 +30,7 @@ function kalenderAnsichtZeigen(aktiv) {
   if (kalZustand.aktiv === aktiv) return;
   kalZustand.aktiv = aktiv;
   zeige("mailliste", !aktiv);
+  zeige("listen-teiler", !aktiv);
   zeige("lesebereich", !aktiv);
   zeige("kalenderbereich", aktiv);
   el("kalender-knopf").classList.toggle("aktiv", aktiv);

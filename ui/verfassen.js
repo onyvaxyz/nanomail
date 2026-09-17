@@ -104,12 +104,16 @@ function kontoAnwenden() {
   signaturSetzen(konto);
 }
 
-/// Signatur als eigener Block im Editor: bei Antworten über dem Zitat,
-/// sonst am Ende. Wechselt das Von-Konto, wird der Block ersetzt.
+/// Signatur als eigener Block im Editor: nur bei neuen Mails, nie bei
+/// Antworten/Weiterleitungen. Wechselt das Von-Konto, wird der Block ersetzt.
 function signaturSetzen(konto) {
   // Ein geladener Entwurf bringt seinen Text (samt ggf. Signatur) schon
-  // mit — nichts doppelt einfügen.
-  if (zustand.entwurfVon) return;
+  // mit — nichts doppelt einfügen. Bei Antworten/Weiterleitungen gibt es
+  // bewusst keine automatische Signatur.
+  if (zustand.entwurfVon || zustand.antwortAuf) {
+    document.getElementById("signatur-block")?.remove();
+    return;
+  }
   const editor = el("verfassen-editor");
   let block = document.getElementById("signatur-block");
   if (!konto || !konto.signatur || !konto.signatur.trim()) {

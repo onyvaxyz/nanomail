@@ -44,16 +44,8 @@ package() {
   install -Dm755 "$srcdir/target/release/nanomail" "$pkgdir/usr/bin/nanomail"
   install -Dm644 packaging/arch/io.github.onyvaxyz.nanomail.desktop \
     "$pkgdir/usr/share/applications/io.github.onyvaxyz.nanomail.desktop"
-  local size icon
-  for size in 32 128 256 512; do
-    case "$size" in
-      256) icon=128x128@2x.png ;;
-      512) icon=icon.png ;;
-      *) icon="${size}x${size}.png" ;;
-    esac
-    install -Dm644 "src-tauri/icons/$icon" \
-      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/nanomail.png"
-  done
+  # Kein eigenes Icon mehr: Die Desktop-Datei nutzt das Mail-Icon des
+  # aktiven Omarchy-Icon-Sets (Yaru-Variante, Hell/Dunkel-automatisch).
   install -Dm644 README.md "$pkgdir/usr/share/doc/nanomail/README.md"
   install -Dm644 ui/phosphor/LICENSE "$pkgdir/usr/share/licenses/nanomail/phosphor-LICENSE"
 }

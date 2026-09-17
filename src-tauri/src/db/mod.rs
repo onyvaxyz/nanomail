@@ -30,6 +30,8 @@ pub struct Konto {
     pub signatur: String,
     /// Akzentfarbe des Kontos als Hex-Wert, z. B. `#c678dd` (leer = Standard).
     pub farbe: String,
+    /// Manuelle Sortierung in der Icon-Leiste (kleiner = weiter oben).
+    pub position: i64,
 }
 
 /// Ein IMAP-Ordner samt Cache-Stand und Zählern für die Anzeige.
@@ -418,6 +420,19 @@ fn migrieren(conn: &Connection) -> Result<()> {
         )
         .context("Migration 15 ausführen")?;
     }
+    if version < 16 {
+        conn.execute_batch(
+            r#"
+            -- Manuelle Sortierung der Mail-Konten in der Icon-Leiste
+            -- (Paket C, per Ziehen änderbar). Bestand übernimmt die
+            -- bisherige Reihenfolge (nach id).
+            ALTER TABLE konten ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+            UPDATE konten SET position = id;
+            INSERT INTO schema_version (version) VALUES (16);
+            "#,
+        )
+        .context("Migration 16 ausführen")?;
+    }
     Ok(())
 }
 
@@ -439,10 +454,18 @@ pub struct KontoDaten {
 }
 
 pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
+    // Neue Konten hängen sich unten an die selbst gewählte Reihenfolge.
+    let position: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), 0) + 1 FROM konten",
+            [],
+            |z| z.get(0),
+        )
+        .context("Konto-Position bestimmen")?;
     conn.execute(
         "INSERT INTO konten (name, anzeigename, email, imap_host, imap_port, benutzer, smtp_host,
-                             smtp_port, signatur, farbe)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                             smtp_port, signatur, farbe, position)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             daten.name,
             daten.anzeigename,
@@ -453,7 +476,8 @@ pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
             daten.smtp_host,
             daten.smtp_port,
             daten.signatur,
-            daten.farbe
+            daten.farbe,
+            position
         ],
     )
     .context("Konto speichern")?;
@@ -470,7 +494,21 @@ pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
         smtp_port: daten.smtp_port,
         signatur: daten.signatur.clone(),
         farbe: daten.farbe.clone(),
+        position,
     })
+}
+
+/// Speichert die per Ziehen geänderte Konto-Reihenfolge (Paket C):
+/// `ids` in der gewünschten Reihenfolge (erste = oben).
+pub fn konten_reihenfolge(conn: &Connection, ids: &[i64]) -> Result<()> {
+    for (index, id) in ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE konten SET position = ?1 WHERE id = ?2",
+            params![index as i64, id],
+        )
+        .context("Konto-Reihenfolge speichern")?;
+    }
+    Ok(())
 }
 
 pub fn konto_aktualisieren(conn: &Connection, id: i64, daten: &KontoDaten) -> Result<()> {
@@ -501,8 +539,8 @@ pub fn konten_liste(conn: &Connection) -> Result<Vec<Konto>> {
     let mut stmt = conn
         .prepare(
             "SELECT id, name, anzeigename, email, imap_host, imap_port, benutzer, smtp_host,
-                    smtp_port, signatur, farbe
-             FROM konten ORDER BY id",
+                    smtp_port, signatur, farbe, position
+             FROM konten ORDER BY position, id",
         )
         .context("Konten abfragen")?;
     let konten = stmt
@@ -515,7 +553,7 @@ pub fn konten_liste(conn: &Connection) -> Result<Vec<Konto>> {
 pub fn konto_holen(conn: &Connection, id: i64) -> Result<Option<Konto>> {
     conn.query_row(
         "SELECT id, name, anzeigename, email, imap_host, imap_port, benutzer, smtp_host,
-                smtp_port, signatur, farbe
+                smtp_port, signatur, farbe, position
          FROM konten WHERE id = ?1",
         params![id],
         zeile_zu_konto,
@@ -537,6 +575,7 @@ fn zeile_zu_konto(zeile: &rusqlite::Row<'_>) -> rusqlite::Result<Konto> {
         smtp_port: zeile.get(8)?,
         signatur: zeile.get(9)?,
         farbe: zeile.get(10)?,
+        position: zeile.get(11)?,
     })
 }
 
@@ -1286,7 +1325,25 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 15);
+        assert_eq!(version, 16);
+    }
+
+    #[test]
+    fn konten_reihenfolge_bleibt_gespeichert() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let a = beispiel_konto(&conn);
+        let b = beispiel_konto(&conn);
+        let reihe = |conn: &Connection| {
+            konten_liste(conn)
+                .unwrap()
+                .into_iter()
+                .map(|k| k.id)
+                .collect::<Vec<_>>()
+        };
+        // Neue Konten hängen sich unten an.
+        assert_eq!(reihe(&conn), vec![a.id, b.id]);
+        konten_reihenfolge(&conn, &[b.id, a.id]).unwrap();
+        assert_eq!(reihe(&conn), vec![b.id, a.id]);
     }
 
     #[test]

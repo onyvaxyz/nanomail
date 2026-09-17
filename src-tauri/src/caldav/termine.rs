@@ -264,6 +264,49 @@ pub fn einladung_antwort(
     Ok((info.organisator, antwort.to_string()))
 }
 
+/// Baut aus einer Einladung ein speicherbares CalDAV-Objekt (Paket B): das
+/// gewählte Ereignis samt gleich-UIDigen Ausnahmen (Serien bleiben intakt)
+/// plus Zeitzonen — ohne METHOD (gespeicherte Objekte haben keine).
+/// Liefert (UID, ICS). Abgesagte oder unvollständige Termine lehnt sie ab.
+pub fn einladung_export_ics(ics: &str, index: usize) -> Result<(String, String)> {
+    let kalender = kalender_lesen(ics)?;
+    let original = ereignisse(&kalender).nth(index).context("Termin fehlt")?;
+    let uid = original
+        .get_uid()
+        .context("Termin ohne Kennung")?
+        .to_string();
+    if original.get_start().is_none() {
+        anyhow::bail!(
+            "NUTZERFEHLER:Diese Einladung enthält keinen Terminbeginn und kann nicht übernommen werden."
+        );
+    }
+    if original.get_status() == Some(EventStatus::Cancelled) {
+        anyhow::bail!(
+            "NUTZERFEHLER:Dieser Termin wurde abgesagt und kann nicht übernommen werden."
+        );
+    }
+    let mut export = Calendar::new();
+    // Benutzerdefinierte Zeitzonen bleiben erhalten, andere Ereignisse nicht.
+    for component in kalender
+        .components
+        .iter()
+        .filter(|c| c.as_event().is_none())
+    {
+        if matches!(component, icalendar::CalendarComponent::Other(other) if other.component_kind() == "VTIMEZONE")
+        {
+            export.push(component.clone());
+        }
+    }
+    for ereignis in ereignisse(&kalender).filter(|e| e.get_uid().is_some_and(|u| u == uid)) {
+        let mut kopie = ereignis.clone();
+        if kopie.property_value("DTSTAMP").is_none() {
+            kopie.timestamp(Utc::now());
+        }
+        export.push(kopie);
+    }
+    Ok((uid, export.to_string()))
+}
+
 fn ist_ueberschreibung(ereignis: &Event) -> bool {
     ereignis.properties().contains_key("RECURRENCE-ID")
 }
@@ -833,6 +876,51 @@ mod tests {
         assert!(!einladung[0].antwortbar);
         assert_eq!(einladung[0].termin.url, "https://example.org/termin");
         assert!(einladungen("kein Kalender", "anna@example.org", 0).is_empty());
+    }
+
+    #[test]
+    fn einladung_export_behaelt_serie_und_wirft_methode_weg() {
+        let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Fremd//DE\r\nMETHOD:REQUEST\r\n\
+             BEGIN:VTIMEZONE\r\nTZID:Europe/Berlin\r\nEND:VTIMEZONE\r\n\
+             BEGIN:VEVENT\r\nUID:serie-9\r\nDTSTAMP:20260101T000000Z\r\n\
+             DTSTART:20260911T120000Z\r\nDTEND:20260911T130000Z\r\nSUMMARY:Runde\r\n\
+             RRULE:FREQ=WEEKLY\r\nORGANIZER:mailto:team@example.org\r\n\
+             ATTENDEE:mailto:anna@example.org\r\nEND:VEVENT\r\n\
+             BEGIN:VEVENT\r\nUID:serie-9\r\nDTSTAMP:20260102T000000Z\r\n\
+             RECURRENCE-ID:20260918T120000Z\r\nDTSTART:20260918T140000Z\r\nDTEND:20260918T150000Z\r\n\
+             SUMMARY:Runde (verschoben)\r\nEND:VEVENT\r\n\
+             BEGIN:VEVENT\r\nUID:anderer-termin\r\nDTSTAMP:20260101T000000Z\r\n\
+             DTSTART:20260912T120000Z\r\nDTEND:20260912T130000Z\r\nSUMMARY:Fremd\r\nEND:VEVENT\r\n\
+             END:VCALENDAR\r\n";
+        let (uid, export) = einladung_export_ics(ics, 0).unwrap();
+        assert_eq!(uid, "serie-9");
+        let cal = kalender_lesen(&export).unwrap();
+        assert!(cal.property_value("METHOD").is_none());
+        let events: Vec<_> = ereignisse(&cal).collect();
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|e| e.get_uid() == Some("serie-9")));
+        assert!(events.iter().any(|e| e.property_value("RRULE").is_some()));
+        assert!(events
+            .iter()
+            .any(|e| e.property_value("RECURRENCE-ID").is_some()));
+        // Drittes Ereignis (fremde UID) bleibt draußen; Index 2 wählt es allein.
+        let (uid2, export2) = einladung_export_ics(ics, 2).unwrap();
+        assert_eq!(uid2, "anderer-termin");
+        assert_eq!(ereignisse(&kalender_lesen(&export2).unwrap()).count(), 1);
+    }
+
+    #[test]
+    fn einladung_export_lehnt_abgesagte_und_unvollstaendige_ab() {
+        let abgesagt = vevent(
+            "DTSTART:20260911T120000Z\r\nDTEND:20260911T130000Z\r\nSUMMARY:Abgesagt\r\nSTATUS:CANCELLED",
+        );
+        assert!(einladung_export_ics(&abgesagt, 0).is_err());
+        let ohne_beginn = vevent("SUMMARY:Ohne Beginn");
+        assert!(einladung_export_ics(&ohne_beginn, 0).is_err());
+        let ohne_uid = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n\
+             DTSTART:20260911T120000Z\r\nSUMMARY:Ohne UID\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        assert!(einladung_export_ics(ohne_uid, 0).is_err());
+        assert!(einladung_export_ics("kein Kalender", 0).is_err());
     }
 
     fn vevent(inhalt: &str) -> String {

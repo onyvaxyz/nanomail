@@ -347,6 +347,13 @@ pub fn konten_liste(zustand: State<'_, AppZustand>) -> Result<Vec<Konto>, String
     mit_db(&zustand, db::konten_liste).map_err(|f| als_meldung(&f))
 }
 
+/// Speichert die per Ziehen geänderte Konto-Reihenfolge (Paket C):
+/// `ids` in der gewünschten Reihenfolge (erste = oben in der Icon-Leiste).
+#[tauri::command]
+pub fn konten_reihenfolge(zustand: State<'_, AppZustand>, ids: Vec<i64>) -> Result<(), String> {
+    mit_db(&zustand, |conn| db::konten_reihenfolge(conn, &ids)).map_err(|f| als_meldung(&f))
+}
+
 // ---------------------------------------------------------------- Ordner --
 
 #[tauri::command]
@@ -991,12 +998,130 @@ pub async fn mail_einladung_antworten(
                 ));
             }
         }
-        Ok(format!(
-            "{text} versendet. Der Termin wurde nicht automatisch in einen Kalender übernommen."
-        ))
+        Ok(format!("{text} versendet."))
     }
     .await
     .map_err(|f: anyhow::Error| als_meldung(&f))
+}
+
+/// Übernimmt eine Kalendereinladung aus einer Mail in einen CalDAV-Kalender
+/// (Paket B): als eigenständige Kopie samt Serie und Ausnahmen, ohne
+/// Antwort-Mail. Erneutes Übernehmen aktualisiert die eigene Kopie.
+#[tauri::command]
+pub async fn mail_einladung_uebernehmen(
+    app: AppHandle,
+    zustand: State<'_, AppZustand>,
+    mail_id: i64,
+    kalender_index: usize,
+    ereignis_index: usize,
+    kalender_id: i64,
+) -> Result<String, String> {
+    mail_einladung_uebernehmen_intern(
+        &app,
+        &zustand,
+        mail_id,
+        kalender_index,
+        ereignis_index,
+        kalender_id,
+    )
+    .await
+    .map_err(|f| als_meldung(&f))
+}
+
+async fn mail_einladung_uebernehmen_intern(
+    app: &AppHandle,
+    zustand: &AppZustand,
+    mail_id: i64,
+    kalender_index: usize,
+    ereignis_index: usize,
+    kalender_id: i64,
+) -> Result<String> {
+    mail_kontext(zustand, mail_id)?;
+    let inhalt = mit_db(zustand, |conn| db::inhalt_holen(conn, mail_id))?
+        .context("Bitte die Einladung zuerst öffnen.")?;
+    let kalender: Vec<String> = serde_json::from_str(inhalt.kalender.as_deref().unwrap_or("[]"))?;
+    let ics = kalender.get(kalender_index).context("Einladung fehlt")?;
+    let (uid, export) = termine::einladung_export_ics(ics, ereignis_index)?;
+    let (ziel, _, verbindung) = caldav_verbindung_zum_kalender(zustand, kalender_id).await?;
+    let datei = uid
+        .chars()
+        .map(|z| {
+            if z.is_ascii_alphanumeric() || z == '-' {
+                z
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let href = format!("{}{}.ics", ziel.href, datei);
+    // Eigene frühere Übernahme aktualisieren, sonst neu anlegen. Liegt das
+    // Objekt auf dem Server, aber nicht im Cache (z. B. andere App), gilt
+    // der Server-Stand als Ausgangspunkt für die Aktualisierung.
+    let etag_db = mit_db(zustand, |conn| {
+        db_kalender::termin_etag(conn, ziel.id, &href)
+    })?
+    .filter(|etag| !etag.is_empty());
+    let etag_alt = match etag_db {
+        Some(etag) => Some(etag),
+        None => verbindung
+            .objekte_laden(&ziel.href, std::slice::from_ref(&href))
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .next()
+            .map(|objekt| objekt.etag)
+            .filter(|etag| !etag.is_empty()),
+    };
+    let etag_neu = verbindung
+        .termin_speichern(&href, &export, etag_alt.as_deref())
+        .await?;
+    gespeichertes_objekt_cachen(app, zustand, &verbindung, &ziel, href, &export, etag_neu).await?;
+    tracing::info!(kalender_id = ziel.id, "Einladung übernommen");
+    Ok(format!("Im Kalender „{}“ übernommen.", ziel.anzeige_name))
+}
+
+/// Schreibt ein per PUT gespeichertes Objekt in den lokalen Cache und meldet
+/// es der Oberfläche (gemeinsam für Termin-Speichern und Einladungs-Übernahme).
+#[allow(clippy::too_many_arguments)]
+async fn gespeichertes_objekt_cachen(
+    app: &AppHandle,
+    zustand: &AppZustand,
+    verbindung: &CaldavVerbindung,
+    kalender: &db_kalender::Kalender,
+    href: String,
+    ics: &str,
+    etag_neu: String,
+) -> Result<()> {
+    // Liefert der Server keinen ETag, wird das Objekt nachgeladen. Scheitert
+    // auch das, gilt der Termin trotzdem als gespeichert — er liegt bereits
+    // auf dem Server; den ETag holt der nächste Abgleich nach.
+    let objekt = if etag_neu.is_empty() {
+        verbindung
+            .objekte_laden(&kalender.href, std::slice::from_ref(&href))
+            .await
+            .unwrap_or_else(|fehler| {
+                tracing::warn!("Termin nach dem Speichern nicht nachgeladen: {fehler:#}");
+                Vec::new()
+            })
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| xml::ObjektDaten {
+                href: href.clone(),
+                etag: String::new(),
+                ics: ics.to_string(),
+            })
+    } else {
+        xml::ObjektDaten {
+            href: href.clone(),
+            etag: etag_neu,
+            ics: ics.to_string(),
+        }
+    };
+    mit_db(zustand, |conn| {
+        termin_objekt_speichern(conn, kalender.id, &objekt)
+    })?;
+    let _ = app.emit("kalender:aktualisiert", ());
+    Ok(())
 }
 
 /// Speichert einen Anhang der Mail unter dem angegebenen Zielpfad
@@ -1029,6 +1154,57 @@ async fn anhang_speichern_intern(
         .map_err(|f| nutzerfehler(format!("Die Datei ließ sich nicht speichern: {f}")))?;
     tracing::info!(mail_id, index, "Anhang gespeichert");
     Ok(())
+}
+
+/// Legt einen Anhang zum Öffnen mit dem Systemprogramm bereit (Paket D):
+/// frisch vom Server geholt, sicher benamst im Zwischenlager, dann über
+/// den System-Öffner gestartet. Anhänge liegen nie im lokalen Cache.
+#[tauri::command]
+pub async fn anhang_oeffnen(
+    app: AppHandle,
+    zustand: State<'_, AppZustand>,
+    mail_id: i64,
+    index: i64,
+) -> Result<String, String> {
+    anhang_oeffnen_intern(&app, &zustand, mail_id, index)
+        .await
+        .map_err(|f| als_meldung(&f))
+}
+
+async fn anhang_oeffnen_intern(
+    app: &AppHandle,
+    zustand: &AppZustand,
+    mail_id: i64,
+    index: i64,
+) -> Result<String> {
+    let (mail, ordner, konto) = mail_kontext(zustand, mail_id)?;
+    let roh = roh_nachricht_laden(&konto, &ordner.name, mail.uid).await?;
+    let (name, daten) =
+        anzeige::anhang_daten(&roh, usize::try_from(index).unwrap_or(usize::MAX))
+            .ok_or_else(|| nutzerfehler("Der Anhang wurde in der Mail nicht gefunden."))?;
+    // Dateiname säubern: nur der reine Name, ohne Pfadanteile.
+    let sicher = std::path::Path::new(&name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty())
+        .unwrap_or("anhang.bin");
+    let verzeichnis = std::env::temp_dir().join(format!("nanomail-anhang-{mail_id}-{index}"));
+    std::fs::create_dir_all(&verzeichnis)
+        .map_err(|f| nutzerfehler(format!("Die Datei ließ sich nicht bereitstellen: {f}")))?;
+    let pfad = verzeichnis.join(sicher);
+    tokio::fs::write(&pfad, daten)
+        .await
+        .map_err(|f| nutzerfehler(format!("Die Datei ließ sich nicht bereitstellen: {f}")))?;
+    {
+        use tauri_plugin_opener::OpenerExt;
+        app.opener()
+            .open_path(pfad.to_string_lossy(), None::<&str>)
+            .map_err(|f| {
+                nutzerfehler(format!("Das Systemprogramm ließ sich nicht starten: {f}"))
+            })?;
+    }
+    tracing::info!(mail_id, index, "Anhang geöffnet");
+    Ok(format!("„{sicher}“ wird im Systemprogramm geöffnet …"))
 }
 
 /// Löscht eine Mail: außerhalb des Papierkorbs wird sie dorthin
@@ -2157,35 +2333,7 @@ async fn kalender_termin_speichern_intern(
     let etag_neu = verbindung
         .termin_speichern(&href, &ics, etag_alt.as_deref())
         .await?;
-    // Liefert der Server keinen ETag, wird das Objekt nachgeladen. Scheitert
-    // auch das, gilt der Termin trotzdem als gespeichert — er liegt bereits
-    // auf dem Server; den ETag holt der nächste Abgleich nach.
-    let objekt = if etag_neu.is_empty() {
-        verbindung
-            .objekte_laden(&kalender.href, std::slice::from_ref(&href))
-            .await
-            .unwrap_or_else(|fehler| {
-                tracing::warn!("Termin nach dem Speichern nicht nachgeladen: {fehler:#}");
-                Vec::new()
-            })
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| xml::ObjektDaten {
-                href: href.clone(),
-                etag: String::new(),
-                ics: ics.clone(),
-            })
-    } else {
-        xml::ObjektDaten {
-            href: href.clone(),
-            etag: etag_neu,
-            ics: ics.clone(),
-        }
-    };
-    mit_db(zustand, |conn| {
-        termin_objekt_speichern(conn, kalender.id, &objekt)
-    })?;
-    let _ = app.emit("kalender:aktualisiert", ());
+    gespeichertes_objekt_cachen(app, zustand, &verbindung, &kalender, href, &ics, etag_neu).await?;
     if einladung_senden && !teilnehmer.is_empty() {
         let Some(mail_konto) = einladung_konto else {
             return Ok(

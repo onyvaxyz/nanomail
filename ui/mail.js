@@ -95,15 +95,11 @@ function anhaengeAnzeigen(anhaenge) {
     knopf.type = "button";
     knopf.className = "anhang-knopf";
     knopf.textContent = anhang.dateiname;
-    knopf.addEventListener("click", async () => {
-      try {
-        const ziel = await window.__TAURI__.dialog.save({
-          defaultPath: await invoke("datei_standardpfad", { dateiname: anhang.dateiname }),
-        });
-        if (ziel) await invoke("anhang_speichern", { mailId, index: anhang.index, zielPfad: ziel });
-      } catch (fehler) {
-        fehlerZeigen(fehler);
-      }
+    knopf.addEventListener("click", () => {
+      // Auswahl Speichern/Öffnen (Paket D) — Fehler erscheinen im Fenster.
+      void anhangAktion(mailId, anhang, knopf, (text, klasse) => {
+        if (klasse === "fehler") fehlerZeigen(text);
+      });
     });
     leiste.appendChild(knopf);
   }
@@ -129,11 +125,15 @@ async function laden() {
     if (ansicht.html_schlicht) {
       htmlAnzeigen(ansicht.html_schlicht);
     } else {
-      el("mailfenster-text").textContent = ansicht.text;
+      // Reiner Text: Links werden erkannt und sind anklickbar
+      // (textMitLinks baut nur Text + Links, nie HTML aus der Mail).
+      const textfeld = el("mailfenster-text");
+      textfeld.innerHTML = "";
+      textMitLinks(textfeld, ansicht.text || "");
       zeige("mailfenster-text", true);
     }
     anhaengeAnzeigen(ansicht.anhaenge || []);
-    einladungenAnzeigen(el("mail-einladungen"), ansicht.einladungen || [], mailId);
+    void einladungenAnzeigen(el("mail-einladungen"), ansicht.einladungen || [], mailId);
     zeige("mailfenster-bilder", ansicht.hatte_externe_bilder && !ansicht.bilder_automatisch);
     if (ansicht.hatte_externe_bilder && ansicht.bilder_automatisch) bilderLaden();
   } catch (fehler) {

@@ -124,7 +124,7 @@ body {
 #app {
   flex: 1;
   display: grid;
-  grid-template-columns: var(--breite-seitenleiste) var(--breite-mailliste) 1fr;
+  grid-template-columns: var(--breite-seitenleiste) var(--breite-mailliste) auto 1fr;
   min-height: 0;
   margin: var(--app-abstand) var(--app-abstand) 0;
   background: var(--bg-editor);
@@ -366,6 +366,13 @@ textarea:focus-visible {
   background: var(--konto-farbe, var(--akzent));
   border-radius: 0 2px 2px 0;
 }
+/* Sortieren per Ziehen (Paket C): Quelle blass, Ziel mit Akzent-Ring. */
+.konto-icon.wird-gezogen {
+  opacity: 0.4;
+}
+.konto-icon.ablage {
+  box-shadow: 0 0 0 2px var(--akzent);
+}
 
 .konto-icon-abzeichen {
   position: absolute;
@@ -420,7 +427,22 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   background: var(--bg-editor);
+}
+
+/* Schmaler Zieh-Griff zwischen Mail-Liste und Lesebereich: verändert die
+   CSS-Variable --breite-mailliste (Logik in main.js, Breite wird gemerkt). */
+#listen-teiler {
+  width: 7px;
+  margin: 0 -4px 0 -3px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 5;
+}
+#listen-teiler:hover,
+#listen-teiler.aktiv {
+  background: color-mix(in srgb, var(--akzent) 35%, transparent);
 }
 
 .mailliste-kopf {
@@ -605,6 +627,29 @@ textarea:focus-visible {
   flex-shrink: 0;
 }
 
+/* Mehrfachauswahl (Paket C): Klick aufs Bild markiert die Mail. */
+.mail-eintrag .mail-avatar-wrap {
+  cursor: pointer;
+}
+.mail-eintrag.ausgewaehlt {
+  background: color-mix(in srgb, var(--akzent) 14%, transparent);
+}
+.mail-eintrag.ausgewaehlt .mail-avatar-wrap::after {
+  content: "✓";
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--akzent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
 .avatar {
   width: 44px;
   height: 44px;
@@ -720,6 +765,7 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   background: var(--bg-editor);
 }
 
@@ -827,11 +873,22 @@ textarea:focus-visible {
   margin: 0 auto;
   padding: 56px 48px;
   white-space: pre-wrap;
-  overflow-wrap: break-word;
+  /* anywhere (statt break-word): lange Links umbrechen auch in engem
+     Lesebereich — sonst wächst der Bereich über das Fenster hinaus und die
+     Links rutschen aus dem klickbaren Bereich. */
+  overflow-wrap: anywhere;
   font-family: var(--schrift-sans);
   font-size: 15px;
   line-height: 1.75;
   color: var(--text);
+}
+
+/* Enger Lesebereich: weniger Innenabstand, damit Text und Links sichtbar
+   und klickbar bleiben (Wunsch: zentriert mit Abstand nur wenn Platz ist). */
+@media (max-width: 760px) {
+  #mail-text {
+    padding: 24px 16px;
+  }
 }
 
 /* ------------------------------------------------ Kontextmenü (M3.4) -- */
@@ -1055,7 +1112,9 @@ textarea:focus-visible {
 }
 
 .verfassen-kompakt i {
-  color: var(--bg-window);
+  /* Folgt der Kontrastfarbe des Knopfs (thema.js) statt festem Hell —
+     sonst bleibt das Icon auf heller Kontofarbe unsichtbar weiß. */
+  color: var(--knopf-text, var(--bg-window));
 }
 
 .icon-knopf {
@@ -1092,7 +1151,8 @@ textarea:focus-visible {
 
 #konto-dialog,
 #kalender-dialog,
-#termin-dialog {
+#termin-dialog,
+#anhang-wahl-dialog {
   position: relative;
   margin: auto;
   border: 1px solid var(--border);
@@ -1105,12 +1165,14 @@ textarea:focus-visible {
 }
 #konto-dialog::backdrop,
 #kalender-dialog::backdrop,
-#termin-dialog::backdrop {
+#termin-dialog::backdrop,
+#anhang-wahl-dialog::backdrop {
   background: rgba(0, 0, 0, 0.6);
 }
 #konto-dialog h2,
 #kalender-dialog h2,
-#termin-dialog h2 {
+#termin-dialog h2,
+#anhang-wahl-dialog h2 {
   font-family: var(--schrift-sans);
   font-weight: 500;
   font-size: 22px;
@@ -1217,6 +1279,21 @@ textarea:focus-visible {
   align-items: center;
   gap: 10px;
   margin-top: 10px;
+}
+
+/* Auswahlpunkte im Anhang-Dialog (Paket D). */
+.anhang-wahl-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+.anhang-wahl-option input {
+  width: auto;
+  accent-color: var(--akzent);
 }
 
 /* ------------------------------------------- Verfassen-Fenster (M3.1) -- */
@@ -1458,6 +1535,12 @@ body.fenster-verfassen {
 #mailfenster-text {
   padding: 36px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  #mailfenster-text {
+    padding: 24px 16px;
+  }
 }
 #mailfenster-anhaenge {
   flex-shrink: 0;
@@ -1913,6 +1996,17 @@ body.fenster-verfassen {
   min-height: 30px;
   padding: 5px 10px;
   font-size: 12px;
+}
+/* Kalenderwahl in der Einladungskarte (Paket B). */
+.popover-aktionen label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.popover-aktionen select {
+  max-width: 220px;
 }
 
 .kal-checkbox {

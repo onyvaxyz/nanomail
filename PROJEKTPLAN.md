@@ -4,7 +4,7 @@ Lebendes Übersichtsdokument. Wird nach jedem Meilenstein aktualisiert.
 Regel: **Ein Meilenstein nach dem anderen, jeder wird von Philipp getestet
 und freigegeben, bevor der nächste beginnt.**
 
-Stand: 2026-09-11
+Stand: 2026-09-17
 
 ## Arch-/Omarchy-Paketierung (September 2026)
 
@@ -84,6 +84,45 @@ prüfen, einen Entwurf wieder öffnen; bei einer echten Einladung bewusst Zu-/Ab
 testen; Termintext über den Popoverrand hinaus markieren; Theme und Desktop-Dialog
 auf dem Zielrechner ausprobieren. Danach M5/M5.1 freigeben, nicht automatisch M6 starten.
 
+## Nachbesserungen Pakete A–D, Icon und Fenster-Fixes (September 2026)
+
+Lokal umgesetzt und per Arch-Paket installiert; Praxistest steht noch aus,
+daher keine Freigabe:
+
+- **Paket A:** Signatur nur noch bei neuen Mails (nicht bei Antworten/
+  Weiterleitungen; Hinweis im Konto-Dialog angepasst). Mail-Listen-Breite per
+  Zieh-Griff änderbar (wird gemerkt). Links in reinen Text-Mails werden erkannt
+  und öffnen im Standard-Browser. Nachbesserung: Lange Links spreizten den
+  Lesebereich über das Fenster hinaus (unklickbar) — der Bereich darf jetzt
+  schrumpfen, Links brechen um, unter 760 px Fensterbreite kleinerer
+  Innenabstand.
+- **Paket B (Kalender-Übernahme):** Einladungskarten haben eine Kalender-Auswahl
+  (wird gemerkt) und „In Kalender übernehmen“ — ohne .ics-Umweg. Bei „Zusagen“
+  gehen Antwort-Mail und Kalender-Eintrag gemeinsam raus; bei „Absagen“ kein
+  Eintrag. Übernommen wird samt Serie/Ausnahmen; erneutes Übernehmen
+  aktualisiert die eigene Kopie. Neuer Befehl `mail_einladung_uebernehmen`.
+- **Paket C:** Mehrfachauswahl per Absender-Bild (Haken), Shift-Bereich und
+  Strg-Einzelauswahl; gemeinsames Löschen per Entf, Knopf oder Rechtsklick
+  (Papierkorb-Regeln wie beim einzelnen Löschen). Konto-Icons per Ziehen
+  sortierbar und dauerhaft (`position`-Spalte, Migration 16, Befehl
+  `konten_reihenfolge`). Wichtig: Das Hauptfenster braucht
+  `dragDropEnabled: false` in `tauri.conf.json`, sonst meldet Tauris
+  Datei-Drop-Behandlung jeden Drop als erledigt und die Seite bekommt ihn nie
+  (Ziehen geht, Ablegen nicht).
+- **Paket D:** Anhang-Klick fragt „Auf Festplatte speichern“ (Standard) oder
+  „Mit Systemprogramm öffnen“ (neuer Befehl `anhang_oeffnen`; Inhalt frisch vom
+  Server ins Zwischenlager). Das „Neue Mail“-Icon folgt jetzt der
+  Schwarz/Weiß-Kontrastfarbe statt festem Hell.
+- **Icon:** Die Desktop-Datei nutzt `internet-mail-symbolic` aus dem aktiven
+  Omarchy-Icon-Set (Yaru-Variante je Omarchy-Theme, Hell/Dunkel passt sich
+  automatisch an); die eigenen blauen PNGs fliegen aus dem Arch-Paket raus.
+  Wirkung in der Leiste abwarten.
+
+Prüfung: 123 Rust-Tests, `cargo fmt --check`, `cargo clippy --all-targets`,
+JS-Syntaxprüfung sowie Browser-Nachstellungen (Auswahl, Kalenderkarte,
+Anhang-Dialog, Icon-Kontrast, Drop-Pfad) grün. Echte IMAP/CalDAV-Vorgänge und
+das echte Ziehen sind nur auf dem Zielrechner testbar.
+
 ## Meilensteine
 
 | Nr. | Meilenstein | Inhalt | Status |
@@ -112,12 +151,12 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 |---|---|
 | Microsoft-Konto: privat oder Firmen-Tenant (mit/ohne Admin-Zugriff)? | Zu Beginn von M6 per Mini-Auth-Test |
 | Kalender auch schreiben (M5) oder nur lesen? | Nach Abnahme von M4 |
-| Git/Versionierung: Dieser Ordner ist eine Experimentier-Kopie ohne Repo-Anbindung — Versionsverwaltung wird am Projektende sauber aufgesetzt. | Am Projektende |
 
 ## Getroffene Entscheidungen
 
 | Datum | Entscheidung |
 |---|---|
+| 2026-09-17 | Entwicklung läuft in Git (origin: GitHub onyvaxyz/nanomail); Commits nach getesteten Paketen |
 | 2026-07-04 | Microsoft-OAuth als letzter Meilenstein (M6) |
 | 2026-07-04 | Jeder Meilenstein einzeln freigabepflichtig, kleine Schritte |
 | 2026-07-04 | Zugangsdaten nur im GNOME Keyring, nie im Klartext |
@@ -181,10 +220,11 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 
 ## So testest du den aktuellen Stand (M5)
 
-1. Bauen und installieren wie gehabt:
-   `cd src-tauri && cargo tauri build`, dann
-   `sudo dpkg -i src-tauri/target/release/bundle/deb/Nanomail_0.1.0_amd64.deb`
-   Mail-Konten und Einstellungen bleiben erhalten.
+1. Bauen und installieren (Omarchy/Arch, siehe README):
+   `bash packaging/arch/prepare-source.sh`, dann in `.amp/arch-build`
+   `makepkg -si`. Mail-Konten und Einstellungen bleiben erhalten.
+   (Debian/Ubuntu alternativ: `cd src-tauri && cargo tauri build`, dann
+   `sudo dpkg -i src-tauri/target/release/bundle/deb/Nanomail_0.1.0_amd64.deb`.)
 2. **Termin erstellen:** Kalender öffnen → oben auf „Termin“ klicken
    (oder im Monatsraster auf einen Tag doppelklicken). Titel, Zeit, Ort
    und optional Teilnehmer-E-Mail eintragen → speichern. Der Termin sollte

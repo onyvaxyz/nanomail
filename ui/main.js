@@ -22,6 +22,9 @@ const zustand = {
   /// Ordner der geöffneten Mail (kann bei Suchtreffern vom aktiven
   /// Ordner abweichen — wichtig für die Papierkorb-Rückfrage).
   aktiveMailOrdnerId: null,
+  /// Mehrfachauswahl (Paket C): mailId -> mail. Klick aufs Absender-Bild
+  /// markiert, ohne die Mail zu öffnen.
+  auswahl: new Map(),
   /// Inhalt des Lesebereichs: beide HTML-Fassungen + gewählte Ansicht.
   lese: { html: null, schlicht: null, modus: "app" },
   kontoDialog: { modus: "anlegen", kontoId: null },
@@ -106,6 +109,56 @@ document.addEventListener(
   },
   { passive: false, capture: true },
 );
+
+// --------------------------------------- Listenbreite per Ziehen --
+// Der Griff zwischen Mail-Liste und Lesebereich verändert die
+// CSS-Variable --breite-mailliste; die Wahl wird lokal gemerkt.
+const TEILER_MIN = 240;
+const TEILER_MAX = 720;
+
+try {
+  const gemerkt = Number(localStorage.getItem("mailliste-breite"));
+  if (gemerkt >= TEILER_MIN && gemerkt <= TEILER_MAX) {
+    document.documentElement.style.setProperty("--breite-mailliste", `${gemerkt}px`);
+  }
+} catch {
+  // Lokale Ablage nicht verfügbar — Standardbreite behalten.
+}
+
+el("listen-teiler").addEventListener("pointerdown", (start) => {
+  if (start.button !== 0) return;
+  start.preventDefault();
+  const teiler = el("listen-teiler");
+  teiler.classList.add("aktiv");
+  teiler.setPointerCapture(start.pointerId);
+  const startX = start.clientX;
+  const startBreite = el("mailliste").getBoundingClientRect().width;
+
+  const ziehen = (bewegung) => {
+    const breite = Math.min(
+      TEILER_MAX,
+      Math.max(TEILER_MIN, Math.round(startBreite + bewegung.clientX - startX)),
+    );
+    document.documentElement.style.setProperty("--breite-mailliste", `${breite}px`);
+  };
+  const loslassen = () => {
+    teiler.removeEventListener("pointermove", ziehen);
+    teiler.removeEventListener("pointerup", loslassen);
+    teiler.removeEventListener("pointercancel", loslassen);
+    teiler.classList.remove("aktiv");
+    try {
+      localStorage.setItem(
+        "mailliste-breite",
+        getComputedStyle(document.documentElement).getPropertyValue("--breite-mailliste").replace("px", "").trim(),
+      );
+    } catch {
+      // Merken ist Komfort — Fehler still ignorieren.
+    }
+  };
+  teiler.addEventListener("pointermove", ziehen);
+  teiler.addEventListener("pointerup", loslassen);
+  teiler.addEventListener("pointercancel", loslassen);
+});
 
 // ------------------------------------------------------- Konto-Farben --
 
@@ -257,6 +310,10 @@ async function kontenAnzeigen() {
 /// Icon-Leiste (Spalte 1): ein rundes Konto-Icon je Konto, mit
 /// Ungelesen-Abzeichen (Summe über alle Ordner) und Aktiv-Markierung.
 function kontenLeisteAnzeigen() {
+  // Während eines Ziehens nicht neu aufbauen: Das gezogene Element würde
+  // aus dem Dokument entfernt und WebKit bricht den Drag ab — danach geht
+  // kein Ablegen mehr. Zähler holt das Drag-Ende nach.
+  if (gezogenesKontoId !== null) return;
   const bereich = el("konten-bereich");
   bereich.innerHTML = "";
   for (const konto of zustand.konten) {
@@ -282,7 +339,87 @@ function kontenLeisteAnzeigen() {
     }
 
     knopf.addEventListener("click", () => kontoAuswaehlen(konto.id));
+    kontoIconVerschieben(knopf, konto);
     bereich.appendChild(knopf);
+  }
+  // Ablage in der Leiste (Lücke) hängt das Konto ans Ende.
+  bereich.ondragover = (ereignis) => {
+    if (gezogenesKontoId === null) return;
+    ereignis.preventDefault();
+  };
+  bereich.ondrop = (ereignis) => {
+    // Nach einem Icon-Drop ist die Kennung bereits leer — dann nichts tun.
+    if (gezogenesKontoId === null) return;
+    ereignis.preventDefault();
+    void kontoEinsortieren(gezogenesKontoId, null, null);
+  };
+}
+
+/// Sortieren per Ziehen (Paket C): Konto-Icon auf ein anderes ziehen
+/// oder in der Leiste ablegen (dann ans Ende). Wichtig: Das Hauptfenster
+/// braucht "dragDropEnabled": false in tauri.conf.json — sonst meldet
+/// Tauris Datei-Drop-Behandlung jeden Drop als erledigt und die Seite
+/// bekommt ihn nie (Ziehen geht, Ablegen nicht).
+let gezogenesKontoId = null;
+
+function kontoIconVerschieben(knopf, konto) {
+  knopf.draggable = true;
+  knopf.addEventListener("dragstart", (ereignis) => {
+    gezogenesKontoId = konto.id;
+    ereignis.dataTransfer.effectAllowed = "move";
+    try {
+      ereignis.dataTransfer.setData("text/plain", String(konto.id));
+    } catch {
+      // Ablage-Kennung ist Komfort — Fehler still ignorieren.
+    }
+    knopf.classList.add("wird-gezogen");
+  });
+  knopf.addEventListener("dragend", () => {
+    gezogenesKontoId = null;
+    knopf.classList.remove("wird-gezogen");
+    document.querySelectorAll(".konto-icon.ablage").forEach((e) => e.classList.remove("ablage"));
+    // Während des Ziehens übersprungene Zählerstände nachholen.
+    kontenLeisteAnzeigen();
+  });
+  // WebKit erlaubt das Ablegen nur mit dragenter (dragover allein genügt dort
+  // nicht) — deshalb beide.
+  const ablageErlauben = (ereignis) => {
+    if (gezogenesKontoId === null || gezogenesKontoId === konto.id) return;
+    ereignis.preventDefault();
+    if (ereignis.dataTransfer) ereignis.dataTransfer.dropEffect = "move";
+    knopf.classList.add("ablage");
+  };
+  knopf.addEventListener("dragenter", ablageErlauben);
+  knopf.addEventListener("dragover", ablageErlauben);
+  knopf.addEventListener("dragleave", () => knopf.classList.remove("ablage"));
+  knopf.addEventListener("drop", (ereignis) => {
+    ereignis.preventDefault();
+    knopf.classList.remove("ablage");
+    // Untere Hälfte = dahinter ablegen (sonst davor).
+    const kasten = knopf.getBoundingClientRect();
+    const danach = ereignis.clientY > kasten.top + kasten.height / 2;
+    void kontoEinsortieren(gezogenesKontoId, konto.id, danach);
+  });
+}
+
+/// Sortiert das gezogene Konto vor/hinter das Ziel und speichert die
+/// Reihenfolge dauerhaft. `zielId = null` hängt ans Ende. Fehler werden in
+/// der Statuszeile sichtbar (statt still zu scheitern).
+async function kontoEinsortieren(von, zielId, danach) {
+  gezogenesKontoId = null;
+  try {
+    if (von === null || von === zielId) return;
+    const verschoben = zustand.konten.find((k) => k.id === von);
+    const neu = zustand.konten.filter((k) => k.id !== von);
+    const ziel = zielId === null ? neu.length : neu.findIndex((k) => k.id === zielId);
+    if (!verschoben || ziel < 0) return;
+    neu.splice(zielId === null ? neu.length : danach ? ziel + 1 : ziel, 0, verschoben);
+    zustand.konten = neu;
+    kontenLeisteAnzeigen();
+    await invoke("konten_reihenfolge", { ids: neu.map((k) => k.id) });
+    status("✓ Reihenfolge gespeichert.", "ok");
+  } catch (fehler) {
+    status(`✗ ${fehler}`, "fehler");
   }
 }
 
@@ -328,7 +465,8 @@ function kontoAuswaehlen(kontoId) {
 }
 
 function ordnerOeffnen(kontoId, ordnerId) {
-  // Ein Ordnerwechsel beendet eine laufende Suche.
+  // Ein Ordnerwechsel beendet Suche und Mehrfachauswahl.
+  auswahlLeeren();
   zustand.suchbegriff = "";
   el("suche-feld").value = "";
   zustand.aktivesKontoId = kontoId;
@@ -436,8 +574,20 @@ function mailEintrag(mail, ordnerName = null) {
 
   const avatarWrap = document.createElement("div");
   avatarWrap.className = "mail-avatar-wrap";
+  avatarWrap.title = "Klicken zum Markieren (Shift = Bereich)";
   avatarWrap.appendChild(avatarElement(anzeigeName, avatarEmail));
+  avatarWrap.addEventListener("click", (ereignis) => {
+    // Markieren statt Öffnen (die Zeile selbst öffnet die Mail).
+    ereignis.stopPropagation();
+    if (ereignis.shiftKey) {
+      bereichAuswaehlen(mail);
+      return;
+    }
+    auswahlUmschalten(mail, eintrag);
+    auswahlAnkerId = mail.id;
+  });
   eintrag.appendChild(avatarWrap);
+  if (zustand.auswahl.has(mail.id)) eintrag.classList.add("ausgewaehlt");
 
   const text = document.createElement("div");
   text.className = "mail-text-block";
@@ -474,8 +624,23 @@ function mailEintrag(mail, ordnerName = null) {
 
   text.append(zeile1, zeile2);
   eintrag.appendChild(text);
+  eintrag._mail = mail; // für die Bereichsauswahl (Shift-Klick)
   let klickTimer = null;
-  eintrag.addEventListener("click", () => {
+  eintrag.addEventListener("click", (ereignis) => {
+    // Shift = Bereich ab Anker markieren, Strg = einzeln umschalten —
+    // beides ohne die Mail zu öffnen (Tasten jetzt lesen: der Timer
+    // für Einfach-/Doppelklick läuft verzögert).
+    if (ereignis.shiftKey) {
+      clearTimeout(klickTimer);
+      bereichAuswaehlen(mail);
+      return;
+    }
+    if (ereignis.ctrlKey || ereignis.metaKey) {
+      clearTimeout(klickTimer);
+      auswahlUmschalten(mail, eintrag);
+      auswahlAnkerId = mail.id;
+      return;
+    }
     clearTimeout(klickTimer);
     klickTimer = setTimeout(() => mailAnklicken(mail), 220);
   });
@@ -490,6 +655,8 @@ function mailEintrag(mail, ordnerName = null) {
 /// Klick auf einen Listeneintrag: Entwürfe öffnen sich im
 /// Verfassen-Fenster zum Weiterbearbeiten, alles andere im Lesebereich.
 function mailAnklicken(mail) {
+  // Anker für Shift-Klick merken (die Auswahl selbst bleibt bestehen).
+  auswahlAnkerId = mail.id;
   const ordnerListe = zustand.ordnerJeKonto.get(zustand.aktivesKontoId) || [];
   const ordner = ordnerListe.find((o) => o.id === mail.ordner_id);
   if (ordner?.rolle === "entwuerfe") {
@@ -607,6 +774,18 @@ function kontextmenuZeigen(ereignis, mail) {
 
   const menu = el("kontextmenu");
   menu.innerHTML = "";
+  // Rechtsklick auf eine markierte Mail (bei mehreren) löscht alle gemeinsam.
+  if (zustand.auswahl.has(mail.id) && zustand.auswahl.size > 1) {
+    const bulk = document.createElement("button");
+    bulk.type = "button";
+    bulk.appendChild(icon("trash"));
+    bulk.append(`${zustand.auswahl.size} Mails löschen`);
+    bulk.addEventListener("click", () => {
+      kontextmenuSchliessen();
+      void ausgewaehlteLoeschen();
+    });
+    menu.appendChild(bulk);
+  } else {
   const knopf = document.createElement("button");
   knopf.type = "button";
   knopf.appendChild(icon(gelesen ? "envelope-simple" : "envelope-simple-open"));
@@ -632,6 +811,7 @@ function kontextmenuZeigen(ereignis, mail) {
     mailAusListeLoeschen(mail);
   });
   menu.appendChild(loeschKnopf);
+  }
 
   // Am Zeiger öffnen, aber nie über den Fensterrand hinausragen.
   menu.classList.remove("versteckt");
@@ -725,11 +905,15 @@ async function mailOeffnen(mailId) {
     } else {
       ansichtKnopfAktualisieren(false);
       zeige("mail-html", false);
-      el("mail-text").textContent = ansicht.text;
+      // Reiner Text: Links werden erkannt und sind anklickbar
+      // (textMitLinks baut nur Text + Links, nie HTML aus der Mail).
+      const textfeld = el("mail-text");
+      textfeld.innerHTML = "";
+      textMitLinks(textfeld, ansicht.text || "");
       zeige("mail-text", true);
     }
     anhangLeisteAnzeigen(mailId, ansicht.anhaenge || []);
-    einladungenAnzeigen(el("mail-einladungen"), ansicht.einladungen || [], mailId);
+    void einladungenAnzeigen(el("mail-einladungen"), ansicht.einladungen || [], mailId);
     if (ansicht.hatte_externe_bilder && ansicht.bilder_automatisch) {
       void bilderLaden(mailId, anfrage);
     }
@@ -813,7 +997,7 @@ function lesebereichLeeren() {
   zeige("mail-html", false);
   zeige("mail-text", false);
   zeige("anhang-leiste", false);
-  einladungenAnzeigen(el("mail-einladungen"), [], null);
+  void einladungenAnzeigen(el("mail-einladungen"), [], null);
   zeige("lese-platzhalter", true);
 }
 
@@ -852,20 +1036,107 @@ function anhangLeisteAnzeigen(mailId, anhaenge) {
 }
 
 async function anhangSpeichern(mailId, anhang, knopf) {
-  try {
-    const ziel = await window.__TAURI__.dialog.save({
-      title: "Anhang speichern",
-      defaultPath: await invoke("datei_standardpfad", { dateiname: anhang.dateiname }),
-    });
-    if (!ziel) return; // Dialog abgebrochen
-    knopf.disabled = true;
-    status("Speichere Anhang …");
-    await invoke("anhang_speichern", { mailId, index: anhang.index, zielPfad: ziel });
-    status(`✓ Anhang gespeichert: ${anhang.dateiname}`, "ok");
-  } catch (fehler) {
-    status(`✗ ${fehler}`, "fehler");
-  } finally {
-    knopf.disabled = false;
+  // Auswahl Speichern/Öffnen (Paket D) — die Statuszeile meldet das Ergebnis.
+  await anhangAktion(mailId, anhang, knopf, status);
+}
+
+// -------------------------------------------------- Mehrfachauswahl --
+// (Paket C) Klick aufs Absender-Bild markiert die Mail, ohne sie zu
+// öffnen. Entf, der Löschen-Knopf und das Rechtsklick-Menü wirken dann
+// auf alle markierten Mails gemeinsam.
+
+function anzahlText(n, singular, plural) {
+  return n === 1 ? `1 ${singular}` : `${n} ${plural}`;
+}
+
+function auswahlUmschalten(mail, eintrag) {
+  if (zustand.auswahl.has(mail.id)) {
+    zustand.auswahl.delete(mail.id);
+    eintrag.classList.remove("ausgewaehlt");
+  } else {
+    zustand.auswahl.set(mail.id, mail);
+    eintrag.classList.add("ausgewaehlt");
+  }
+}
+
+function auswahlLeeren() {
+  zustand.auswahl.clear();
+  auswahlAnkerId = null;
+  document
+    .querySelectorAll(".mail-eintrag.ausgewaehlt")
+    .forEach((e) => e.classList.remove("ausgewaehlt"));
+}
+
+/// Anker für die Shift-Bereichsauswahl (zuletzt geöffnete/markierte Mail).
+let auswahlAnkerId = null;
+
+/// Markiert alle Mails vom Anker bis zur angeklickten (Shift-Klick, wie im
+/// Dateimanager; markierte bleiben markiert). Ohne Anker wirkt es wie
+/// einfaches Markieren.
+function bereichAuswaehlen(mail) {
+  const reihe = [...document.querySelectorAll(".mail-eintrag")];
+  const ziel = reihe.findIndex((e) => Number(e.dataset.mailId) === mail.id);
+  if (ziel < 0) return;
+  let anker = reihe.findIndex((e) => Number(e.dataset.mailId) === auswahlAnkerId);
+  if (anker < 0) anker = ziel;
+  const [von, bis] = anker <= ziel ? [anker, ziel] : [ziel, anker];
+  for (let i = von; i <= bis; i++) {
+    const eintrag = reihe[i];
+    const id = Number(eintrag.dataset.mailId);
+    if (!zustand.auswahl.has(id) && eintrag._mail) {
+      zustand.auswahl.set(id, eintrag._mail);
+      eintrag.classList.add("ausgewaehlt");
+    }
+  }
+  auswahlAnkerId = mail.id;
+}
+
+/// Löscht alle markierten Mails (Papierkorb; dort: endgültig nach
+/// Rückfrage — gleiche Regeln wie beim einzelnen Löschen).
+async function ausgewaehlteLoeschen() {
+  const mails = [...zustand.auswahl.values()];
+  if (mails.length === 0) return;
+  const imPapierkorb = (mail) => ordnerZuId(mail.ordner_id)?.rolle === "papierkorb";
+  const endgueltig = mails.some(imPapierkorb);
+  if (endgueltig) {
+    const sicher = confirm(
+      mails.every(imPapierkorb)
+        ? `${anzahlText(mails.length, "Mail", "Mails")} endgültig löschen?\n\nSie liegen im Papierkorb und können danach nicht wiederhergestellt werden.`
+        : `${anzahlText(mails.length, "Mail", "Mails")} löschen?\n\nMails im Papierkorb werden endgültig entfernt, die anderen in den Papierkorb verschoben.`,
+    );
+    if (!sicher) return;
+  }
+  auswahlLeeren();
+  let fehler = 0;
+  const geloeschte = [];
+  let i = 0;
+  for (const mail of mails) {
+    i += 1;
+    status(`Lösche Mail ${i} von ${mails.length} …`);
+    try {
+      await invoke("mail_loeschen", { mailId: mail.id });
+      geloeschte.push(mail.id);
+      document.querySelector(`.mail-eintrag[data-mail-id="${mail.id}"]`)?.remove();
+    } catch {
+      fehler += 1;
+    }
+  }
+  zustand.offset = Math.max(0, zustand.offset - geloeschte.length);
+  if (geloeschte.includes(zustand.aktiveMailId)) {
+    zustand.aktiveMailId = null;
+    lesebereichLeeren();
+  }
+  await listeNeuLaden();
+  kontenAnzeigen();
+  if (fehler === 0) {
+    status(
+      endgueltig
+        ? `✓ ${anzahlText(geloeschte.length, "Mail endgültig gelöscht.", "Mails endgültig gelöscht.")}`
+        : `✓ ${anzahlText(geloeschte.length, "Mail in den Papierkorb verschoben.", "Mails in den Papierkorb verschoben.")}`,
+      "ok",
+    );
+  } else {
+    status(`✗ ${fehler} von ${mails.length} Mails konnten nicht gelöscht werden.`, "fehler");
   }
 }
 
@@ -874,6 +1145,8 @@ async function anhangSpeichern(mailId, anhang, knopf) {
 /// Löscht die geöffnete Mail (Papierkorb; dort: endgültig nach Rückfrage)
 /// und wählt danach die nächste Mail in der Liste aus.
 async function aktiveMailLoeschen() {
+  // Markierte Mails gehen gemeinsam (Mehrfachauswahl hat Vorrang).
+  if (zustand.auswahl.size > 0) return ausgewaehlteLoeschen();
   const mailId = zustand.aktiveMailId;
   if (!mailId) return;
 
@@ -901,6 +1174,7 @@ async function aktiveMailLoeschen() {
       eintrag?.previousElementSibling?.dataset.mailId ||
       null;
     eintrag?.remove();
+    zustand.auswahl.delete(mailId);
     zustand.offset = Math.max(0, zustand.offset - 1);
     zustand.aktiveMailId = null;
     lesebereichLeeren();
@@ -937,6 +1211,7 @@ async function mailAusListeLoeschen(mail) {
   status("Lösche Mail …");
   try {
     await invoke("mail_loeschen", { mailId: mail.id });
+    zustand.auswahl.delete(mail.id);
     if (zustand.aktiveMailId === mail.id) {
       zustand.aktiveMailId = null;
       lesebereichLeeren();
