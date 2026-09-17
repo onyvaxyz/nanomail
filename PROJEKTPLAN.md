@@ -86,8 +86,9 @@ auf dem Zielrechner ausprobieren. Danach M5/M5.1 freigeben, nicht automatisch M6
 
 ## Nachbesserungen Pakete A–D, Icon und Fenster-Fixes (September 2026)
 
-Lokal umgesetzt und per Arch-Paket installiert; Praxistest steht noch aus,
-daher keine Freigabe:
+Lokal umgesetzt, per Arch-Paket installiert und vom Projektinhaber freigegeben
+(17.09.2026). Befunde aus dem Alltagstest werden gesammelt und folgen als
+nächste Runde:
 
 - **Paket A:** Signatur nur noch bei neuen Mails (nicht bei Antworten/
   Weiterleitungen; Hinweis im Konto-Dialog angepasst). Mail-Listen-Breite per
