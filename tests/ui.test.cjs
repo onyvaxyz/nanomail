@@ -16,10 +16,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 800 }, deviceScaleFactor: 2 });
     const errors = [];
     page.on("pageerror", e => errors.push(e.message));
-    for (const query of ["", "?antwortAuf=1", "?antwortAuf=1&allenAntworten=1"]) {
+    for (const [query, mitSignatur] of [["", true], ["?antwortAuf=1", false], ["?antwortAuf=1&allenAntworten=1", false]]) {
       await page.goto(base + "/verfassen.html" + query);
-      await page.waitForSelector("#signatur-block");
-      assert.equal(await page.locator("#verfassen-editor > p").count(), 2);
+      if (mitSignatur) {
+        await page.waitForSelector("#signatur-block");
+      } else {
+        // Antworten/Weiterleitungen bekommen bewusst keine Signatur
+        // (verfassen.js: signaturSetzen), dafür ein Zitat der Vorlage.
+        await page.waitForSelector("#zitat-block");
+        assert.equal(await page.locator("#signatur-block").count(), 0);
+        assert.match(await page.locator("#zitat-block").innerText(), /Am Freitag schrieb Team:\n> Bitte nimm am Termin teil\./);
+      }
+      assert.equal(await page.locator("#verfassen-editor > p").count(), mitSignatur ? 2 : 1);
       // Tatsächliche Tastaturbefehle, keine Simulation der entstehenden Tags.
       await page.locator("#verfassen-editor").focus();
       await page.keyboard.press("Control+Home");
@@ -34,7 +42,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         return { text: editorAlsText(editor), p: ps.map(p => p.innerHTML), abstand: ps[1].offsetTop - ps[0].offsetTop,
           zeilenhoehe: parseFloat(getComputedStyle(ps[0]).lineHeight) };
       });
-      assert.match(ergebnis.text, /^Erste Zeile\n\nZweiter Absatz\nEinfache Zeile\n\n-- \nAnna Beispiel/);
+      assert.match(ergebnis.text, mitSignatur
+        ? /^Erste Zeile\n\nZweiter Absatz\nEinfache Zeile\n\n-- \nAnna Beispiel/
+        : /^Erste Zeile\n\nZweiter Absatz\nEinfache Zeile\n\nAm Freitag schrieb Team:\n> Bitte nimm am Termin teil\./);
       assert.ok(ergebnis.abstand > ergebnis.zeilenhoehe + 5, JSON.stringify(ergebnis));
       assert.match(ergebnis.p[1], /Zweiter Absatz<br>Einfache Zeile/);
       await page.keyboard.press("Control+z");
@@ -125,7 +135,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
 
     await page.goto(base + "/mail.html?mailId=1&kontoId=1");
     await page.waitForSelector("#mail-einladungen button");
-    assert.equal(await page.locator("#mail-einladungen button").count(), 2);
+    assert.equal(await page.locator("#mail-einladungen button").count(), 3);
+    assert.equal(await page.getByRole("button", { name: "In Kalender übernehmen" }).count(), 1);
     assert.equal(await page.locator("#mail-einladungen a").count(), 3);
     assert.match(await page.locator("#mailfenster-text").textContent(), /Anna,\n\nbitte.*\nVielen/);
     page.once("dialog", d => d.accept());
