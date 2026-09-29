@@ -178,6 +178,27 @@ function cursorBrEntfernen(knoten) {
   }
 }
 
+// WebKitGTK (die Engine der App unter Linux) umbaut beim Einfügen einer
+// Liste über mehrere Absätze den Rest-Absatz in eine Schrift-Span und
+// hängt einen Platzhalter-Zeilenumbruch an; Chromium erzeugt beides
+// nicht. Die Reste direkt im Editor entfernen — gleiche Regeln wie beim
+// Senden (editorNormalisieren) — damit der Bestand beider Engines
+// identisch ist (siehe Browserprüfung in tests/ui.test.cjs).
+function listeResteBereinigen(editor) {
+  for (const absatz of editor.querySelectorAll("p")) {
+    if (!(absatz.previousElementSibling?.matches("ul, ol") ||
+          absatz.nextElementSibling?.matches("ul, ol"))) continue;
+    for (const span of [...absatz.querySelectorAll("span")]) {
+      const style = span.getAttribute("style") || "";
+      if (span.attributes.length === 1 && /^font-family\s*:\s*var\(--schrift-sans\)\s*;?$/i.test(style)) {
+        span.replaceWith(...span.childNodes);
+      }
+    }
+    const inhalt = absatz.textContent || absatz.querySelector("img, hr, table");
+    if (inhalt && absatz.lastChild?.nodeName === "BR") absatz.lastChild.remove();
+  }
+}
+
 function listeSetzen(typ) {
   const editor = el("verfassen-editor");
   const block = auswahlBlock();
@@ -200,6 +221,7 @@ function listeSetzen(typ) {
     auswahl.removeAllRanges();
     auswahl.addRange(bereich);
     document.execCommand("insertHTML", false, `<${typ}>${items}</${typ}>`);
+    listeResteBereinigen(editor);
     editor.focus();
     return;
   }
