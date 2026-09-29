@@ -71,6 +71,34 @@ impl ImapVerbindung {
         Ok(Self { session })
     }
 
+    /// Meldet sich mit einem Microsoft-Zugangs-Token an (XOAUTH2, M6).
+    /// Ablauf wie bei `verbinden`, nur der SASL-Mechanismus unterscheidet
+    /// sich — kein Passwort wird übertragen.
+    pub async fn verbinden_mit_token(
+        host: &str,
+        port: u16,
+        benutzer: &str,
+        token: &str,
+    ) -> Result<Self> {
+        let tls = tls_verbinden(host, port).await?;
+        let mut client = async_imap::Client::new(tls);
+        client
+            .read_response()
+            .await
+            .context("Server-Begrüßung lesen")?
+            .ok_or_else(|| anyhow!("Server {host} hat die Verbindung sofort beendet"))?;
+        let antwort = Xoauth2 {
+            benutzer: benutzer.to_string(),
+            token: token.to_string(),
+        };
+        let session = client
+            .authenticate("XOAUTH2", antwort)
+            .await
+            .map_err(|(fehler, _)| anyhow!("IMAP-Anmeldung abgelehnt: {fehler}"))?;
+        tracing::info!(host, port, "IMAP-Anmeldung erfolgreich (Microsoft)");
+        Ok(Self { session })
+    }
+
     /// Listet alle auswählbaren Ordner.
     pub async fn ordner_auflisten(&mut self) -> Result<Vec<OrdnerEintrag>> {
         let namen: Vec<_> = self
@@ -388,6 +416,25 @@ fn ist_beantwortet(fetch: &async_imap::types::Fetch) -> bool {
         .any(|flag| matches!(flag, async_imap::types::Flag::Answered))
 }
 
+/// SASL-Antwort für XOAUTH2: `user=<mail>` + Bearer-Token.
+/// Das Token steht nie im Log — nur die Anmeldung selbst wird gemeldet.
+struct Xoauth2 {
+    benutzer: String,
+    token: String,
+}
+
+impl async_imap::Authenticator for Xoauth2 {
+    type Response = Vec<u8>;
+
+    fn process(&mut self, _herausforderung: &[u8]) -> Vec<u8> {
+        format!(
+            "user={}\x01auth=Bearer {}\x01\x01",
+            self.benutzer, self.token
+        )
+        .into_bytes()
+    }
+}
+
 /// Baut die TLS-Verbindung mit Zertifikatsprüfung auf.
 ///
 /// `NANOMAIL_EXTRA_CA` (Pfad zu einer PEM-Datei) fügt der Vertrauensliste
@@ -431,4 +478,20 @@ async fn tls_verbinden(host: &str, port: u16) -> Result<TlsStream<TcpStream>> {
         );
     }
     Ok(tls)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_imap::Authenticator;
+
+    #[test]
+    fn xoauth2_antwort_hat_vorgeschriebenes_format() {
+        let mut auth = Xoauth2 {
+            benutzer: "a@b.de".into(),
+            token: "TOKEN".into(),
+        };
+        let antwort = auth.process(&[]);
+        assert_eq!(antwort, b"user=a@b.de\x01auth=Bearer TOKEN\x01\x01");
+    }
 }

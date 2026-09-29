@@ -962,7 +962,7 @@ function htmlAnzeigen() {
   rahmen.classList.toggle("original", original);
   const inhalt = original ? zustand.lese.html : zustand.lese.schlicht || zustand.lese.html;
   rahmen.srcdoc =
-    `<style>${original ? LESE_STIL_ORIGINAL : leseStilApp()}</style>` + inhalt;
+    `<style>${original ? LESE_STIL_ORIGINAL : leseStilApp()}</style>` + htmlMitLinks(inhalt);
   zeige("mail-html", true);
 }
 
@@ -1394,11 +1394,18 @@ el("weiterleiten-knopf").addEventListener("click", () => {
 
 // ------------------------------------------------------ Konto-Dialog --
 
+const MS_IMAP_HOST = "outlook.office365.com";
+const MS_SMTP_HOST = "smtp.office365.com";
+const PASSWORT_IMAP_HOST = "mail.infomaniak.com";
+const PASSWORT_SMTP_HOST = "mail.infomaniak.com";
+
 function kontoDialogOeffnen(modus, kontoId) {
-  zustand.kontoDialog = { modus, kontoId };
+  microsoftAbfrageStoppen();
+  zustand.kontoDialog = { modus, kontoId, msSitzung: null };
   const formular = el("konto-formular");
   const passwortFeld = formular.elements.passwort;
   const konto = zustand.konten.find((k) => k.id === kontoId);
+  const istMicrosoft = modus === "bearbeiten" && konto && konto.auth_art === "microsoft";
 
   if (modus === "bearbeiten" && konto) {
     el("konto-dialog-titel").textContent = "Konto bearbeiten";
@@ -1408,36 +1415,158 @@ function kontoDialogOeffnen(modus, kontoId) {
     formular.elements.benutzer.value = konto.benutzer;
     formular.elements.imap_host.value = konto.imap_host;
     formular.elements.imap_port.value = konto.imap_port;
-    formular.elements.smtp_host.value = konto.smtp_host || "mail.infomaniak.com";
+    formular.elements.smtp_host.value = konto.smtp_host || PASSWORT_SMTP_HOST;
     formular.elements.smtp_port.value = konto.smtp_port || 465;
     formular.elements.signatur.value = konto.signatur || "";
     formular.elements.farbe.value = konto.farbe || STANDARD_FARBE;
+    formular.elements.auth_art.value = konto.auth_art === "microsoft" ? "microsoft" : "passwort";
+    // Ein Microsoft-Konto lässt sich nicht auf Passwort zurückstellen.
+    formular.elements.auth_art[0].disabled = istMicrosoft;
     passwortFeld.value = "";
     passwortFeld.placeholder = "leer lassen = Passwort unverändert";
     passwortFeld.required = false;
+    el("microsoft-status").textContent = istMicrosoft
+      ? "Mit Microsoft verbunden — nur bei Problemen erneut verbinden."
+      : "Noch nicht mit Microsoft verbunden.";
+    el("microsoft-code-knopf").textContent = istMicrosoft ? "Erneut verbinden" : "Anmeldecode holen";
     zeige("konto-entfernen-knopf", true);
     zeige("konto-abbrechen-knopf", true);
   } else {
     el("konto-dialog-titel").textContent = "Mail-Konto einrichten";
     formular.reset();
-    formular.elements.imap_host.value = "mail.infomaniak.com";
+    formular.elements.auth_art[0].disabled = false;
+    formular.elements.imap_host.value = PASSWORT_IMAP_HOST;
     formular.elements.imap_port.value = 993;
-    formular.elements.smtp_host.value = "mail.infomaniak.com";
+    formular.elements.smtp_host.value = PASSWORT_SMTP_HOST;
     formular.elements.smtp_port.value = 465;
     passwortFeld.placeholder = "";
     passwortFeld.required = true;
+    el("microsoft-status").textContent = "Noch nicht mit Microsoft verbunden.";
+    el("microsoft-code-knopf").textContent = "Anmeldecode holen";
     zeige("konto-entfernen-knopf", false);
     zeige("konto-abbrechen-knopf", zustand.konten.length > 0);
   }
+  zeige("microsoft-code-zeile", false);
+  kontoAnmeldeartUmschalten();
   zeige("dialog-fehler", false);
   el("konto-dialog").showModal();
+}
+
+// Zeigt je nach Anmeldeart Passwort- oder Microsoft-Bereich und legt
+// die passenden Server vor (nur wenn noch Standardwerte drinstehen).
+function kontoAnmeldeartUmschalten() {
+  microsoftAbfrageStoppen();
+  const formular = el("konto-formular");
+  const art = formular.elements.auth_art.value;
+  const istMicrosoft = art === "microsoft";
+  zeige("passwort-label", !istMicrosoft);
+  zeige("microsoft-bereich", istMicrosoft);
+  zeige("konto-hinweis-passwort", !istMicrosoft);
+  zeige("konto-hinweis-microsoft", istMicrosoft);
+  formular.elements.passwort.required = !istMicrosoft && zustand.kontoDialog.modus === "anlegen";
+  if (istMicrosoft) {
+    if (!formular.elements.imap_host.value || formular.elements.imap_host.value === PASSWORT_IMAP_HOST) {
+      formular.elements.imap_host.value = MS_IMAP_HOST;
+      formular.elements.imap_port.value = 993;
+    }
+    if (!formular.elements.smtp_host.value || formular.elements.smtp_host.value === PASSWORT_SMTP_HOST) {
+      formular.elements.smtp_host.value = MS_SMTP_HOST;
+      formular.elements.smtp_port.value = 587;
+    }
+    microsoftBenutzerUebernehmen();
+  }
+}
+
+document.querySelectorAll('input[name="auth_art"]').forEach((knopf) =>
+  knopf.addEventListener("change", kontoAnmeldeartUmschalten),
+);
+
+// Bei Microsoft ist der Benutzername fast immer die E-Mail-Adresse —
+// leer lassen genügt, sie wird übernommen (Pflichtfeld schon vor dem
+// Absenden füllen, sonst blockiert die Prüfung still).
+function microsoftBenutzerUebernehmen() {
+  const formular = el("konto-formular");
+  if (
+    formular.elements.auth_art.value === "microsoft" &&
+    !formular.elements.benutzer.value.trim()
+  ) {
+    formular.elements.benutzer.value = formular.elements.email.value.trim();
+  }
+}
+
+el("konto-formular").elements.email.addEventListener("input", microsoftBenutzerUebernehmen);
+
+// Holt einen Anmeldecode von Microsoft und fragt danach regelmäßig nach,
+// ob die Browser-Anmeldung fertig ist.
+el("microsoft-code-knopf").addEventListener("click", async () => {
+  const knopf = el("microsoft-code-knopf");
+  knopf.disabled = true;
+  el("microsoft-status").textContent = "Code wird geholt …";
+  zeige("dialog-fehler", false);
+  try {
+    const start = await invoke("ms_anmeldung_starten");
+    zustand.kontoDialog.msSitzung = null;
+    const link = el("microsoft-link");
+    link.href = start.pruef_url;
+    link.textContent = start.pruef_url;
+    el("microsoft-code").textContent = start.benutzer_code;
+    zeige("microsoft-code-zeile", true);
+    el("microsoft-status").textContent =
+      "Jetzt im Browser anmelden — ich prüfe automatisch, ob es geklappt hat.";
+    knopf.textContent = "Neuer Code";
+    microsoftAbfragen(start.sitzung, start.intervall * 1000);
+  } catch (fehler) {
+    el("microsoft-status").textContent = "Code holen fehlgeschlagen.";
+    const fehlerfeld = el("dialog-fehler");
+    fehlerfeld.textContent = String(fehler);
+    zeige("dialog-fehler", true);
+  } finally {
+    knopf.disabled = false;
+  }
+});
+
+function microsoftAbfragen(sitzung, abstand) {
+  microsoftAbfrageStoppen();
+  const fragen = async () => {
+    if (!el("konto-dialog").open) return;
+    let antwort;
+    try {
+      antwort = await invoke("ms_anmeldung_abfragen", { sitzung });
+    } catch (fehler) {
+      el("microsoft-status").textContent = "Anmeldung fehlgeschlagen.";
+      const fehlerfeld = el("dialog-fehler");
+      fehlerfeld.textContent = String(fehler);
+      zeige("dialog-fehler", true);
+      return;
+    }
+    if (!el("konto-dialog").open) return;
+    if (antwort.fertig) {
+      zustand.kontoDialog.msSitzung = sitzung;
+      zustand.kontoDialog.msTimer = null;
+      el("microsoft-status").textContent = "Mit Microsoft verbunden — kann gespeichert werden.";
+      zeige("microsoft-code-zeile", false);
+      return;
+    }
+    zustand.kontoDialog.msTimer = setTimeout(fragen, abstand);
+  };
+  zustand.kontoDialog.msTimer = setTimeout(fragen, abstand);
+}
+
+function microsoftAbfrageStoppen() {
+  if (zustand.kontoDialog.msTimer) {
+    clearTimeout(zustand.kontoDialog.msTimer);
+    zustand.kontoDialog.msTimer = null;
+  }
 }
 
 el("konto-hinzufuegen-knopf").addEventListener("click", () => kontoDialogOeffnen("anlegen", null));
 el("konto-bearbeiten-knopf").addEventListener("click", () => {
   if (zustand.aktivesKontoId) kontoDialogOeffnen("bearbeiten", zustand.aktivesKontoId);
 });
-el("konto-abbrechen-knopf").addEventListener("click", () => el("konto-dialog").close());
+el("konto-abbrechen-knopf").addEventListener("click", () => {
+  microsoftAbfrageStoppen();
+  el("konto-dialog").close();
+});
 el("farbe-standard-knopf").addEventListener("click", () => {
   el("konto-formular").elements.farbe.value = STANDARD_FARBE;
 });
@@ -1453,6 +1582,7 @@ el("konto-entfernen-knopf").addEventListener("click", async () => {
   if (!sicher) return;
   try {
     await invoke("konto_loeschen", { kontoId: konto.id });
+    microsoftAbfrageStoppen();
     el("konto-dialog").close();
     zustand.aktiverOrdnerId = null;
     zustand.aktivesKontoId = null;
@@ -1475,11 +1605,17 @@ el("konto-formular").addEventListener("submit", async (ereignis) => {
   knopf.disabled = true;
   knopf.textContent = "Prüfe Verbindung …";
   zeige("dialog-fehler", false);
+  const art = daten.get("auth_art") === "microsoft" ? "microsoft" : "passwort";
+  let benutzer = (daten.get("benutzer") || "").toString().trim();
+  // Bei Microsoft ist der Benutzername fast immer die E-Mail-Adresse.
+  if (art === "microsoft" && !benutzer) {
+    benutzer = (daten.get("email") || "").toString().trim();
+  }
   const formular = {
     name: daten.get("name"),
     anzeigename: daten.get("anzeigename"),
     email: daten.get("email"),
-    benutzer: daten.get("benutzer"),
+    benutzer,
     passwort: daten.get("passwort"),
     imap_host: daten.get("imap_host"),
     imap_port: Number(daten.get("imap_port")),
@@ -1488,6 +1624,8 @@ el("konto-formular").addEventListener("submit", async (ereignis) => {
     signatur: daten.get("signatur"),
     // Standard-Violett wird als „leer“ gespeichert (= Vorgabe der App).
     farbe: daten.get("farbe") === STANDARD_FARBE ? "" : daten.get("farbe"),
+    auth_art: art,
+    ms_sitzung: zustand.kontoDialog.msSitzung,
   };
   try {
     if (zustand.kontoDialog.modus === "bearbeiten") {
@@ -1495,6 +1633,7 @@ el("konto-formular").addEventListener("submit", async (ereignis) => {
     } else {
       await invoke("konto_anlegen", { formular });
     }
+    microsoftAbfrageStoppen();
     el("konto-dialog").close();
     await start();
   } catch (fehler) {

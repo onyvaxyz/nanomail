@@ -1,7 +1,13 @@
 # Nanomail — Projektkontext für Claude Code
 
-Eigener Mail- (IMAP/SMTP) & Kalender-Client (CalDAV) für Ubuntu.
-Rust-Backend + Tauri 2 + Vanilla-HTML/CSS/JS-Frontend, Auslieferung als `.deb`.
+Eigener Mail- (IMAP/SMTP) & Kalender-Client (CalDAV) für Linux.
+Rust-Backend + Tauri 2 + Vanilla-HTML/CSS/JS-Frontend.
+
+**Primäres Ziel: Arch Linux / Omarchy**, Auslieferung als Arch-Paket
+(`packaging/arch/`, siehe README). Debian/Ubuntu (`.deb`) läuft technisch
+weiter mit (kostet praktisch keinen Zusatzaufwand, da es am selben
+Tauri-Build hängt), wird aber nicht mehr aktiv genutzt oder getestet — der
+Projektinhaber ist von Ubuntu auf Omarchy umgestiegen.
 
 Dokumentation kann bei Context / (MCP verbunden) immer nach Bedarf abgerufen werden.
 
@@ -104,8 +110,11 @@ cargo fmt --check          # Formatierung
 cargo clippy -- -D warnings
 cargo test
 cargo tauri dev            # Entwicklung (braucht tauri-cli)
-cargo tauri build          # erzeugt .deb unter target/release/bundle/deb/
+cargo tauri build          # erzeugt .deb unter target/release/bundle/deb/ (Nebenschauplatz)
 ```
+
+Arch-Paket (primärer Installationsweg): `bash packaging/arch/prepare-source.sh`
+gefolgt von `makepkg -si`, siehe README Abschnitt „Arch Linux / Omarchy“.
 
 CI (`.github/workflows/ci.yml`) führt fmt/clippy/test bei jedem Push aus
 und muss grün sein, bevor ein Meilenstein als fertig gilt.

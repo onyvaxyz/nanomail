@@ -21,6 +21,7 @@ use crate::caldav::{termine, xml};
 use crate::db::{self, kalender as db_kalender, Konto, MailKopf, NeuerMailKopf, Ordner};
 use crate::imap::verbindung::ImapVerbindung;
 use crate::imap::{idle, parsen, sync};
+use crate::oauth::{self, TokenSatz};
 use crate::smtp::{nachricht, versand};
 use crate::{anzeige, avatar, schluesselbund};
 
@@ -41,6 +42,17 @@ pub struct AppZustand {
     pub idle_tasks: Mutex<HashMap<i64, tauri::async_runtime::JoinHandle<()>>>,
     /// Läuft gerade ein Kalender-Abgleich? (verhindert Doppel-Syncs)
     pub kalender_sync_laeuft: Mutex<bool>,
+    /// Laufende Microsoft-Anmeldungen (M6): Geräte-Code plus fertige
+    /// Tokens, bis das Konto angelegt/erneuert ist. Nur im Speicher —
+    /// nie auf Platte; verwaiste Einträge verfallen nach 15 Minuten.
+    pub ms_anmeldungen: Mutex<HashMap<String, MsAnmeldung>>,
+}
+
+/// Eine begonnene Microsoft-Anmeldung (Device-Code-Flow, M6).
+pub struct MsAnmeldung {
+    pub geraete_code: String,
+    pub tokens: Option<TokenSatz>,
+    pub begonnen: std::time::Instant,
 }
 
 // ---------------------------------------------------------------- Hilfen --
@@ -121,6 +133,22 @@ async fn passwort_speichern(konto_id: i64, passwort: String) -> Result<()> {
 }
 
 async fn verbindung_zum_konto(konto: &Konto) -> Result<ImapVerbindung> {
+    if konto.auth_art == "microsoft" {
+        let token = microsoft_zugang_token(konto.id).await?;
+        return ImapVerbindung::verbinden_mit_token(
+            &konto.imap_host,
+            konto.imap_port,
+            &konto.benutzer,
+            &token,
+        )
+        .await
+        .map_err(|fehler| {
+            nutzerfehler(format!(
+                "Microsoft-Anmeldung fehlgeschlagen ({fehler:#}) — hilft das öfter, \
+                 bitte das Konto einmalig erneut verbinden (Konto bearbeiten)."
+            ))
+        });
+    }
     let passwort = passwort_holen(konto.id).await?;
     ImapVerbindung::verbinden(
         &konto.imap_host,
@@ -129,6 +157,82 @@ async fn verbindung_zum_konto(konto: &Konto) -> Result<ImapVerbindung> {
         &passwort,
     )
     .await
+}
+
+/// Versendet über das Konto — Passwort- und Microsoft-Konten (M6)
+/// teilen sich diesen einen Einstieg.
+async fn smtp_senden(konto: &Konto, nachricht: lettre::Message) -> Result<()> {
+    if konto.auth_art == "microsoft" {
+        let token = microsoft_zugang_token(konto.id).await?;
+        return versand::senden_mit_token(
+            &konto.smtp_host,
+            konto.smtp_port,
+            &konto.benutzer,
+            &token,
+            nachricht,
+        )
+        .await
+        .map_err(|fehler| {
+            nutzerfehler(format!(
+                "Microsoft hat den Versand abgelehnt ({fehler:#}) — hilft das öfter, \
+                 bitte das Konto einmalig erneut verbinden (Konto bearbeiten)."
+            ))
+        });
+    }
+    let passwort = passwort_holen(konto.id).await?;
+    versand::senden(
+        &konto.smtp_host,
+        konto.smtp_port,
+        &konto.benutzer,
+        &passwort,
+        nachricht,
+    )
+    .await
+}
+
+/// Liefert ein gültiges Microsoft-Zugangs-Token für das Konto:
+/// aus dem Schlüsselbund, bei Bedarf vorher aufgefrischt (M6).
+/// Das Token steht nie im Log.
+async fn microsoft_zugang_token(konto_id: i64) -> Result<String> {
+    let json = tauri::async_runtime::spawn_blocking(move || {
+        schluesselbund::microsoft_token_holen(konto_id)
+    })
+    .await
+    .context("Schlüsselbund-Task abgebrochen")?
+    .map_err(|fehler| nutzerfehler(format!("{fehler:#}")))?;
+    let mut satz: TokenSatz = serde_json::from_str(&json)
+        .context("Microsoft-Token lesen")
+        .map_err(|fehler| nutzerfehler(format!("{fehler:#}")))?;
+    if !satz.braucht_auffrischung(jetzt_unix()) {
+        return Ok(satz.zugang_token);
+    }
+    let http = reqwest::Client::new();
+    let neu = oauth::token_auffrischen(&http, &satz.auffrisch_token, jetzt_unix())
+        .await
+        .map_err(|fehler| nutzerfehler(format!("{fehler:#}")))?;
+    // Microsoft liefert nicht immer ein neues Auffrisch-Token mit —
+    // dann gilt das bisherige weiter.
+    satz.zugang_token = neu.zugang_token;
+    satz.ablauf_unix = neu.ablauf_unix;
+    if !neu.auffrisch_token.is_empty() {
+        satz.auffrisch_token = neu.auffrisch_token;
+    }
+    let json = serde_json::to_string(&satz).context("Microsoft-Token ablegen")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        schluesselbund::microsoft_token_speichern(konto_id, &json)
+    })
+    .await
+    .context("Schlüsselbund-Task abgebrochen")?
+    .map_err(|fehler| nutzerfehler(format!("{fehler:#}")))?;
+    Ok(satz.zugang_token)
+}
+
+/// Unix-Sekunden (für Token-Ablaufvergleiche).
+fn jetzt_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn konto_laden(zustand: &AppZustand, konto_id: i64) -> Result<Konto> {
@@ -172,6 +276,7 @@ pub struct KontoFormular {
     pub email: String,
     pub benutzer: String,
     /// Beim Bearbeiten leer lassen = Passwort unverändert.
+    /// Bei Microsoft-Konten immer leer (Token statt Passwort).
     pub passwort: String,
     pub imap_host: String,
     pub imap_port: u16,
@@ -183,6 +288,12 @@ pub struct KontoFormular {
     /// Akzentfarbe als Hex-Wert (leer = Standard).
     #[serde(default)]
     pub farbe: String,
+    /// Anmeldeart: `passwort` oder `microsoft` (M6).
+    #[serde(default)]
+    pub auth_art: String,
+    /// Fertige Microsoft-Anmeldesitzung (nur beim Anlegen/Erneuern).
+    #[serde(default)]
+    pub ms_sitzung: Option<String>,
 }
 
 impl KontoFormular {
@@ -194,6 +305,13 @@ impl KontoFormular {
         self.imap_host = self.imap_host.trim().to_string();
         self.smtp_host = self.smtp_host.trim().to_string();
         self.farbe = self.farbe.trim().to_lowercase();
+        self.auth_art = self.auth_art.trim().to_lowercase();
+        if self.auth_art.is_empty() {
+            self.auth_art = "passwort".to_string();
+        }
+        if self.auth_art != "passwort" && self.auth_art != "microsoft" {
+            anyhow::bail!("Anmeldung abgelehnt: unbekannte Anmeldeart");
+        }
         // Nur echte Hex-Farben übernehmen — alles andere fällt auf Standard.
         if !(self.farbe.len() == 7
             && self.farbe.starts_with('#')
@@ -223,6 +341,7 @@ impl KontoFormular {
             smtp_port: self.smtp_port,
             signatur: self.signatur.clone(),
             farbe: self.farbe.clone(),
+            auth_art: self.auth_art.clone(),
         }
     }
 }
@@ -261,6 +380,9 @@ pub async fn konto_anlegen(
 
 async fn konto_anlegen_intern(zustand: &AppZustand, formular: KontoFormular) -> Result<Konto> {
     let formular = formular.bereinigt()?;
+    if formular.auth_art == "microsoft" {
+        return konto_microsoft_anlegen(zustand, formular).await;
+    }
     if formular.passwort.is_empty() {
         anyhow::bail!("Anmeldung abgelehnt: Passwort fehlt");
     }
@@ -307,11 +429,15 @@ pub async fn konto_loeschen(zustand: State<'_, AppZustand>, konto_id: i64) -> Re
         Ok(())
     })
     .map_err(|f| als_meldung(&f))?;
-    // Keyring-Eintrag entfernen (blockiert intern → eigener Thread).
-    tauri::async_runtime::spawn_blocking(move || schluesselbund::passwort_loeschen(konto_id))
-        .await
-        .map_err(|_| "Interner Fehler beim Aufräumen des Schlüsselbunds".to_string())?
-        .map_err(|f| als_meldung(&f))?;
+    // Keyring-Einträge entfernen (blockiert intern → eigener Thread).
+    // Beide Anmeldearten aufräumen — ein fehlender Eintrag ist kein Fehler.
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = schluesselbund::passwort_loeschen(konto_id);
+        schluesselbund::microsoft_token_loeschen(konto_id)
+    })
+    .await
+    .map_err(|_| "Interner Fehler beim Aufräumen des Schlüsselbunds".to_string())?
+    .map_err(|f| als_meldung(&f))?;
     tracing::info!(konto_id, "Konto entfernt");
     Ok(())
 }
@@ -322,7 +448,15 @@ async fn konto_bearbeiten_intern(
     formular: KontoFormular,
 ) -> Result<Konto> {
     let formular = formular.bereinigt()?;
-    konto_laden(zustand, konto_id)?; // muss existieren
+    let bisher = konto_laden(zustand, konto_id)?; // muss existieren
+    if formular.auth_art == "microsoft" {
+        return konto_microsoft_erneuern(zustand, konto_id, bisher, formular).await;
+    }
+    if bisher.auth_art == "microsoft" {
+        anyhow::bail!(nutzerfehler(
+            "Ein Microsoft-Konto kann nicht auf Passwort umgestellt werden — bitte das Konto entfernen und neu einrichten."
+        ));
+    }
 
     // Leeres Passwort = bestehendes weiterverwenden.
     let passwort = if formular.passwort.is_empty() {
@@ -340,6 +474,224 @@ async fn konto_bearbeiten_intern(
     }
     tracing::info!(konto_id, "Konto aktualisiert");
     konto_laden(zustand, konto_id)
+}
+
+// ------------------------------------------------- Microsoft-Anmeldung (M6) --
+// Device-Code-Flow: Die App zeigt Code + URL, der Nutzer meldet sich im
+// Browser an. Fertige Tokens liegen nur im Speicher, bis das Konto
+// angelegt/erneuert ist — danach ausschließlich im Schlüsselbund.
+
+/// Verwaiste Anmeldesitzungen verfallen nach 15 Minuten.
+const MS_SITZUNG_HALTBARKEIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+#[derive(Serialize)]
+pub struct MsStartAntwort {
+    sitzung: String,
+    pruef_url: String,
+    benutzer_code: String,
+    laeuft_ab: u64,
+    intervall: u64,
+}
+
+#[derive(Serialize)]
+pub struct MsAbfrageAntwort {
+    fertig: bool,
+}
+
+/// Beginnt die Microsoft-Anmeldung: liefert URL + Code für den Browser.
+/// Das Frontend fragt danach per `ms_anmeldung_abfragen` nach.
+#[tauri::command]
+pub async fn ms_anmeldung_starten(
+    zustand: State<'_, AppZustand>,
+) -> Result<MsStartAntwort, String> {
+    (|| async {
+        let http = reqwest::Client::new();
+        let anfrage = oauth::anmeldung_starten(&http)
+            .await
+            .map_err(|fehler| nutzerfehler(format!("{fehler:#}")))?;
+        let sitzung = uuid::Uuid::new_v4().to_string();
+        if let Ok(mut sitzungen) = zustand.ms_anmeldungen.lock() {
+            sitzungen.retain(|_, s| s.begonnen.elapsed() < MS_SITZUNG_HALTBARKEIT);
+            sitzungen.insert(
+                sitzung.clone(),
+                MsAnmeldung {
+                    geraete_code: anfrage.geraete_code,
+                    tokens: None,
+                    begonnen: std::time::Instant::now(),
+                },
+            );
+        }
+        Ok(MsStartAntwort {
+            sitzung,
+            pruef_url: anfrage.pruef_url,
+            benutzer_code: anfrage.benutzer_code,
+            laeuft_ab: anfrage.laeuft_ab_sekunden,
+            intervall: anfrage.intervall_sekunden,
+        })
+    })()
+    .await
+    .map_err(|f: anyhow::Error| als_meldung(&f))
+}
+
+/// Fragt einmal nach, ob die Browser-Anmeldung abgeschlossen ist.
+/// Bei `fertig: false` später erneut aufrufen (Abstand: `intervall`).
+#[tauri::command]
+pub async fn ms_anmeldung_abfragen(
+    zustand: State<'_, AppZustand>,
+    sitzung: String,
+) -> Result<MsAbfrageAntwort, String> {
+    (|| async {
+        let geraete_code = zustand
+            .ms_anmeldungen
+            .lock()
+            .map_err(|_| anyhow!("Interner Anmeldefehler"))?
+            .get(&sitzung)
+            .map(|s| s.geraete_code.clone())
+            .ok_or_else(|| {
+                nutzerfehler("Die Anmeldesitzung ist abgelaufen — bitte erneut starten.")
+            })?;
+        let http = reqwest::Client::new();
+        match oauth::anmeldung_abfragen(&http, &geraete_code, jetzt_unix())
+            .await
+            .map_err(|fehler| nutzerfehler(format!("{fehler:#}")))?
+        {
+            oauth::AbfrageStand::Wartet => Ok(MsAbfrageAntwort { fertig: false }),
+            oauth::AbfrageStand::Fertig(tokens) => {
+                if let Ok(mut sitzungen) = zustand.ms_anmeldungen.lock() {
+                    if let Some(eintrag) = sitzungen.get_mut(&sitzung) {
+                        eintrag.tokens = Some(tokens);
+                    }
+                }
+                Ok(MsAbfrageAntwort { fertig: true })
+            }
+        }
+    })()
+    .await
+    .map_err(|f: anyhow::Error| als_meldung(&f))
+}
+
+/// Holt die fertigen Tokens einer Sitzung ab (einmalig — danach ist die
+/// Sitzung verbraucht).
+fn ms_tokens_entnehmen(zustand: &AppZustand, sitzung: &str) -> Result<TokenSatz> {
+    zustand
+        .ms_anmeldungen
+        .lock()
+        .map_err(|_| anyhow!("Interner Anmeldefehler"))?
+        .remove(sitzung)
+        .and_then(|s| s.tokens)
+        .ok_or_else(|| {
+            nutzerfehler("Die Microsoft-Anmeldung ist nicht abgeschlossen — bitte zuerst im Browser anmelden.")
+        })
+}
+
+/// Legt ein Microsoft-Konto an: prüft den Zugang per Token, speichert das
+/// Konto und legt die Tokens in den Schlüsselbund (Rollback bei Fehlern).
+async fn konto_microsoft_anlegen(zustand: &AppZustand, formular: KontoFormular) -> Result<Konto> {
+    let sitzung = formular.ms_sitzung.clone().unwrap_or_default();
+    if sitzung.is_empty() {
+        anyhow::bail!(nutzerfehler(
+            "Microsoft-Anmeldung fehlt — bitte zuerst „Mit Microsoft anmelden“ abschließen."
+        ));
+    }
+    let tokens = ms_tokens_entnehmen(zustand, &sitzung)?;
+    microsoft_zugang_pruefen(&formular, &tokens.zugang_token).await?;
+
+    let konto = mit_db(zustand, |conn| {
+        db::konto_anlegen(conn, &formular.als_daten())
+    })?;
+    let json = serde_json::to_string(&tokens).context("Microsoft-Token ablegen")?;
+    let speichern = tauri::async_runtime::spawn_blocking(move || {
+        schluesselbund::microsoft_token_speichern(konto.id, &json)
+    })
+    .await
+    .context("Schlüsselbund-Task abgebrochen")?;
+    if let Err(fehler) = speichern {
+        // Ohne Tokens im Schlüsselbund ist das Konto nutzlos → zurückrollen.
+        let _ = mit_db(zustand, |conn| {
+            conn.execute("DELETE FROM konten WHERE id = ?1", [konto.id])
+                .context("Konto zurückrollen")?;
+            Ok(())
+        });
+        return Err(fehler).context("Microsoft-Token speichern")?;
+    }
+    tracing::info!(konto_id = konto.id, "Microsoft-Konto angelegt");
+    Ok(konto)
+}
+
+/// Erneuert ein Microsoft-Konto: neue Sitzung ersetzt die Tokens,
+/// ohne Sitzung werden die bestehenden (ggf. aufgefrischt) geprüft.
+async fn konto_microsoft_erneuern(
+    zustand: &AppZustand,
+    konto_id: i64,
+    bisher: Konto,
+    formular: KontoFormular,
+) -> Result<Konto> {
+    let sitzung = formular.ms_sitzung.clone().unwrap_or_default();
+    let tokens = if sitzung.is_empty() {
+        if bisher.auth_art != "microsoft" {
+            anyhow::bail!(nutzerfehler(
+                "Für die Umstellung bitte einmalig „Mit Microsoft anmelden“ abschließen."
+            ));
+        }
+        // Bestehende Tokens laden (frischt bei Bedarf auf) und prüfen.
+        let zugang = microsoft_zugang_token(konto_id).await?;
+        let json = tauri::async_runtime::spawn_blocking(move || {
+            schluesselbund::microsoft_token_holen(konto_id)
+        })
+        .await
+        .context("Schlüsselbund-Task abgebrochen")??;
+        let mut satz: TokenSatz = serde_json::from_str(&json).context("Microsoft-Token lesen")?;
+        satz.zugang_token = zugang;
+        satz
+    } else {
+        ms_tokens_entnehmen(zustand, &sitzung)?
+    };
+    microsoft_zugang_pruefen(&formular, &tokens.zugang_token).await?;
+
+    mit_db(zustand, |conn| {
+        db::konto_aktualisieren(conn, konto_id, &formular.als_daten())
+    })?;
+    if !sitzung.is_empty() {
+        let json = serde_json::to_string(&tokens).context("Microsoft-Token ablegen")?;
+        tauri::async_runtime::spawn_blocking(move || {
+            schluesselbund::microsoft_token_speichern(konto_id, &json)
+        })
+        .await
+        .context("Schlüsselbund-Task abgebrochen")??;
+    }
+    tracing::info!(konto_id, "Microsoft-Konto aktualisiert");
+    konto_laden(zustand, konto_id)
+}
+
+/// Prüft IMAP- und SMTP-Zugang eines Microsoft-Kontos per Token,
+/// bevor irgendetwas gespeichert wird.
+async fn microsoft_zugang_pruefen(formular: &KontoFormular, token: &str) -> Result<()> {
+    ImapVerbindung::verbinden_mit_token(
+        &formular.imap_host,
+        formular.imap_port,
+        &formular.benutzer,
+        token,
+    )
+    .await
+    .map_err(|fehler| {
+        nutzerfehler(format!(
+            "Microsoft-Anmeldung fehlgeschlagen ({fehler:#}) — Benutzername ist meist die vollständige E-Mail-Adresse."
+        ))
+    })?
+    .abmelden()
+    .await;
+    versand::probe_mit_token(
+        &formular.smtp_host,
+        formular.smtp_port,
+        &formular.benutzer,
+        token,
+    )
+    .await
+    .map_err(|fehler| {
+        nutzerfehler(format!(
+            "Versand-Server nicht erreichbar ({fehler:#}) — bitte Adresse und Port prüfen."
+        ))
+    })
 }
 
 #[tauri::command]
@@ -979,15 +1331,7 @@ pub async fn mail_einladung_antworten(
         };
         let (fertig, roh) = nachricht::baue_kalender_antwort(&eingabe)?;
         let ordner = mit_db(&zustand, |conn| db::ordner_liste(conn, konto.id))?;
-        let passwort = passwort_holen(konto.id).await?;
-        versand::senden(
-            &konto.smtp_host,
-            konto.smtp_port,
-            &konto.benutzer,
-            &passwort,
-            fertig,
-        )
-        .await?;
+        smtp_senden(&konto, fertig).await?;
         if let Some(gesendet) = db::finde_gesendet_ordner(&ordner) {
             if sent_ablage(&app, &zustand, &konto, gesendet, &roh)
                 .await
@@ -1634,15 +1978,7 @@ async fn mail_senden_intern(
         nachricht::baue_nachricht(&neue).map_err(|f| nutzerfehler(f.to_string()))?;
 
     // Versand — schlägt das fehl, wird nichts abgelegt.
-    let passwort = passwort_holen(konto.id).await?;
-    versand::senden(
-        &konto.smtp_host,
-        konto.smtp_port,
-        &konto.benutzer,
-        &passwort,
-        fertig,
-    )
-    .await?;
+    smtp_senden(&konto, fertig).await?;
 
     // Empfänger für die Adress-Vorschläge merken (Fehler dabei unkritisch).
     if let Err(fehler) = mit_db(zustand, |conn| {
@@ -1673,27 +2009,29 @@ async fn mail_senden_intern(
         }
     }
 
-    // Kopie in den „Gesendet“-Ordner (Fehler hier machen den Versand nicht kaputt).
+    // Kopie in den „Gesendet“-Ordner — läuft im Hintergrund weiter: die Mail
+    // ist bereits verschickt, das Verfassen-Fenster soll sich sofort
+    // schließen und nicht auf den Ordner-Abgleich warten (der bei großen
+    // „Gesendet“-Ordnern oder einer parallel laufenden Live-Verbindung
+    // spürbar dauern kann). Schlägt die Ablage fehl, bleibt die Mail
+    // trotzdem gesendet — der nächste normale Sync holt die Kopie nach.
     let alle_ordner = mit_db(zustand, |conn| db::ordner_liste(conn, konto.id))?;
-    match db::finde_gesendet_ordner(&alle_ordner) {
-        Some(gesendet) => match sent_ablage(app, zustand, &konto, gesendet, &rohbytes).await {
-            Ok(()) => Ok("Mail gesendet.".to_string()),
-            Err(fehler) => {
-                tracing::error!("Gesendet-Ablage fehlgeschlagen: {fehler:#}");
-                Ok("Mail gesendet — aber die Kopie im „Gesendet“-Ordner \
-                    konnte nicht abgelegt werden."
-                    .to_string())
-            }
-        },
-        None => {
-            tracing::warn!(konto_id, "Kein Gesendet-Ordner gefunden");
-            Ok(
-                "Mail gesendet — es wurde aber kein „Gesendet“-Ordner gefunden, \
-                daher liegt dort keine Kopie."
-                    .to_string(),
-            )
+    match db::finde_gesendet_ordner(&alle_ordner).cloned() {
+        Some(gesendet) => {
+            let app_im_task = app.clone();
+            let konto_im_task = konto.clone();
+            tauri::async_runtime::spawn(async move {
+                let zustand = app_im_task.state::<AppZustand>();
+                if let Err(fehler) =
+                    sent_ablage(&app_im_task, &zustand, &konto_im_task, &gesendet, &rohbytes).await
+                {
+                    tracing::error!("Gesendet-Ablage fehlgeschlagen: {fehler:#}");
+                }
+            });
         }
+        None => tracing::warn!(konto_id, "Kein Gesendet-Ordner gefunden"),
     }
+    Ok("Mail gesendet.".to_string())
 }
 
 /// Markiert das Original einer beantworteten Mail: Cache sofort, das
@@ -2427,15 +2765,7 @@ async fn kalender_einladung_senden(
     };
     let (fertig, rohbytes) =
         nachricht::baue_kalender_einladung(&einladung).map_err(|f| nutzerfehler(f.to_string()))?;
-    let passwort = passwort_holen(konto.id).await?;
-    versand::senden(
-        &konto.smtp_host,
-        konto.smtp_port,
-        &konto.benutzer,
-        &passwort,
-        fertig,
-    )
-    .await?;
+    smtp_senden(konto, fertig).await?;
     if let Err(fehler) = mit_db(zustand, |conn| {
         for adresse in teilnehmer {
             db::adresse_merken(conn, adresse)?;

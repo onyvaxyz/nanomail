@@ -4,7 +4,41 @@ Lebendes Übersichtsdokument. Wird nach jedem Meilenstein aktualisiert.
 Regel: **Ein Meilenstein nach dem anderen, jeder wird von Philipp getestet
 und freigegeben, bevor der nächste beginnt.**
 
-Stand: 2026-09-17
+Stand: 2026-09-29
+
+## Alltags-Fixes: Favicon & Magic-Link (September 2026)
+
+Zwei Befunde aus dem Alltag, lokal umgesetzt (28.09.2026, Favicon-Korrektur
+29.09.2026):
+
+- **Altes Favicon (milchbüechli24):** Der Google-Favicon-Dienst cached alte
+  Icons teils wochenlang. Der Versuch, stattdessen zuerst das `favicon.ico`
+  direkt bei der Absender-Website abzufragen, ist nach zwei Tagen wieder
+  zurückgenommen: Viele Websites liefern unter `favicon.ico` nur eine
+  Standard-Grafik (z. B. das WordPress-Logo statt des echten Seiten-Icons),
+  und medium.com liefert derzeit eine defekte Datei — solche Bilder wurden
+  zusätzlich 30 Tage lang gecacht. Wieder wie bisher: Gravatar, sonst der
+  Google-Dienst (der auch die nur im HTML verlinkten Icons kennt).
+  Gespeicherte Avatar-Bilder werden erneut einmalig verworfen und neu
+  geladen (Migration 19). Das eine veraltete milchbüechli24-Icon zeigt
+  damit wieder den alten Stand, bis Google ihn aktualisiert — bewusst
+  in Kauf genommen.
+- **Magic-Link nicht klickbar:** milchbüechli24 verschickt den Anmeldelink
+  als reinen Text im HTML-Teil der Mail; HTML-Mails wurden unverändert
+  angezeigt, nackte URLs waren nicht klickbar (nur bei reinen Text-Mails
+  wurden Links erkannt). Das Frontend macht nackte HTTP(S)-Links jetzt
+  auch in der HTML-Anzeige klickbar — gleiches Muster wie bei Text-Mails,
+  gleichfalls im abgeschotteten iframe, Klick öffnet im Standard-Browser.
+  Wirkt in beiden Ansichten (App/Original) und beiden Lesefenstern.
+
+Prüfung: `cargo fmt --check`, `cargo clippy -D warnings`, Rust-Tests,
+JS-Syntax und Chromium-Browserprüfung grün; WebKit-Prüfung läuft in der CI
+(das lokale Playwright-WebKit braucht Ubuntu-Bibliotheken, die Arch nicht
+liefert — Umgebung, kein Code-Befund).
+
+Zum Abnehmen: Ein neues Anmeldelink-Mail von milchbüechli24 öffnen — der
+Link muss klickbar sein und im Browser öffnen; WordPress-Seiten müssen
+wieder ihr echtes Icon zeigen, medium.com wieder das Medium-Icon.
 
 ## Arch-/Omarchy-Paketierung (September 2026)
 
@@ -140,9 +174,9 @@ das echte Ziehen sind nur auf dem Zielrechner testbar.
 | M3.6 | Anhänge & Entwürfe | Anhang-Leiste unten im Lesebereich (jeder Anhang einzeln sichtbar, Klick speichert), zuverlässiges Anhang-Kennzeichen schon beim Abgleich, Entwürfe (speichern, weiterbearbeiten, nach Versand automatisch entfernt), Symbolleiste aufgeräumt (Archivieren/Stern/Drei-Punkte entfernt) | 🟢 Freigegeben |
 | M4 | Kalender lesend | Nextcloud-CalDAV (mehrere Konten), Monatsansicht, Farbe je Kalender, Wiederholungstermine, Zeitzonen, Offline-Cache | 🟢 Freigegeben |
 | M4.1 | Zwischenschritt Mail-Komfort | „Beantwortet“-Markierung in der Mail-Liste (Pfeil-Symbol; wird beim Antworten gesetzt und vom Server übernommen), „Löschen“ im Rechtsklick-Menü — damit lassen sich auch Entwürfe löschen | 🟢 Freigegeben |
-| M5 | Kalender schreibend *(optional)* | Termine erstellen/bearbeiten/löschen, Personen per E-Mail einladen, Konfliktbehandlung | 🟡 Wartet auf Freigabe |
-| M5.1 | Komfort- & Fehlerbehebungsrunde | Neuer Termin nach Wiederholungstermin, Links im Browser, Ungelesen-Zähler, Favicon-Fallback, Avatar-Hintergrund, Signatur nur bei Erstnachricht, Tab bei Empfängern, Emoji-Auswahl | 🟡 Wartet auf Freigabe |
-| M6 | Microsoft (zuletzt) | Erst Mini-Auth-Test (klärt Kontotyp & Tenant-Regeln), dann Device-Code-Flow, Token-Refresh, IMAP-Anbindung | ⚪ Offen |
+| M5 | Kalender schreibend *(optional)* | Termine erstellen/bearbeiten/löschen, Personen per E-Mail einladen, Konfliktbehandlung | 🟢 Freigegeben (17.09.2026) |
+| M5.1 | Komfort- & Fehlerbehebungsrunde | Neuer Termin nach Wiederholungstermin, Links im Browser, Ungelesen-Zähler, Favicon-Fallback, Avatar-Hintergrund, Signatur nur bei Erstnachricht, Tab bei Empfängern, Emoji-Auswahl | 🟢 Freigegeben (17.09.2026) |
+| M6 | Microsoft (zuletzt) | Erst Mini-Auth-Test (klärt Kontotyp & Tenant-Regeln), dann Device-Code-Flow, Token-Refresh, IMAP-Anbindung | 🔵 In Arbeit (Mini-Auth-Test bestanden; Anlegen/Lesen/Senden umgesetzt, wartet auf Praxistest mit webmaster@gbz2.ch) |
 
 Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 Freigegeben
 
@@ -157,6 +191,11 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 
 | Datum | Entscheidung |
 |---|---|
+| 2026-09-17 | Projektinhaber ist von Ubuntu auf Arch Linux/Omarchy umgestiegen — das ist jetzt das primäre System. Arch-Paket (`packaging/arch/`) ist der primäre Installationsweg; Debian/`.deb` bleibt technisch bestehen (kein Zusatzaufwand, hängt am selben Tauri-Build), wird aber nicht mehr aktiv genutzt oder getestet. CLAUDE.md/AGENTS.md/README entsprechend angepasst |
+| 2026-09-17 | M5 und M5.1 vom Projektinhaber freigegeben; M6 (Microsoft) startet |
+| 2026-09-17 | M6 für webmaster@gbz2.ch (Firmen-Tenant, ohne Admin-Zugriff): Lesen + Senden; Server aus Thunderbird übernommen (outlook.office365.com:993 SSL/TLS, smtp.office365.com:587 STARTTLS), nur Anmeldung wechselt auf OAuth2; Mini-Auth-Test nutzt Thunderbirds öffentliche Client-ID, Scopes `IMAP.AccessAsUser.All` + `SMTP.Send` + `offline_access` |
+| 2026-09-17 | M6 Mini-Auth-Test **bestanden** (Token + Auffrisch-Token erhalten, kein Admin nötig) — Vollausbau freigegeben |
+| 2026-09-17 | M6 umgesetzt (wartet auf Praxistest): Konto-Dialog mit Anmeldeart „Microsoft 365“ (Server vorbelegt, Benutzername aus E-Mail übernommen, Browser-Anmeldung per Code); Tokens nur im Schlüsselbund (`microsoft:<id>`), automatische Auffrischung vor Ablauf, IMAP/SMTP per XOAUTH2; bei abgelaufener Anmeldung Hinweis auf erneutes Verbinden. Thunderbirds öffentliche Client-ID bewusst wiederverwendet (keine eigene Azure-Registrierung nötig); Wegwerf-Test danach entfernt |
 | 2026-09-17 | Entwicklung läuft in Git (origin: GitHub onyvaxyz/nanomail); Commits nach getesteten Paketen |
 | 2026-07-04 | Microsoft-OAuth als letzter Meilenstein (M6) |
 | 2026-07-04 | Jeder Meilenstein einzeln freigabepflichtig, kleine Schritte |
@@ -218,6 +257,9 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 | 2026-07-24 | **M5.1 Nachtrag 4 (wartet auf Praxistest):** Die Oberfläche wurde auf Wunsch in einem ruhigen, von Amp inspirierten Stil neu gestaltet: warme Grün-Neutraltöne, Ubuntu-/Systemschrift, feinere Trennlinien, zurückhaltende Rundungen und eine flachere Mail-Liste. Hell-, Dunkel- und Systemmodus bleiben erhalten; Funktionen und gespeicherte Daten sind unverändert. |
 | 2026-07-24 | **M5.1 Nachtrag 5 (wartet auf Praxistest):** Design-Nachbesserung nach Sichtprüfung: Der gesamte helle Inhaltsbereich nutzt einheitlich `#F9FDF6` und liegt leicht eingerückt mit abgerundeten Ecken auf der gemeinsamen Fläche von Fensterkopf und Statusleiste. Jede Mail besitzt wieder einen eigenen feinen Rahmen. Die bisherige Bedeutung leer gespeicherter Kontofarben bleibt erhalten, damit insbesondere das Hauptkonto wieder sein früheres Standard-Violett statt des neuen Grüns verwendet; ausdrücklich gewählte eigene Farben bleiben unverändert. |
 | 2026-07-24 | **M5.1 Nachtrag 6 (wartet auf Praxistest):** Weitere Bedienungsrunde: „Allen antworten“ mit Doppelpfeil und bereinigter Empfängerliste (eigene Konten/Dubletten werden entfernt), zuverlässige Absatz-/Zeilenwechsel auch in neuen Mails sowie Strg+Z, eigenes Lesefenster per Doppelklick, dauerhaft erlaubbare externe Bilder je Absender-Domain, reine größere Ordner-Symbole, gleichzeitiger Status je Mailkonto und Google statt DuckDuckGo als Favicon-Fallback. Ohne Funktionsverlust beschleunigt: Ordnerstände werden je Konto parallel geladen, doppelte Avatar-Abfragen zusammengeführt und externe Mailbilder begrenzt parallel geladen. Die bekannten Beispieldomains `artischock.net`, `gra.ch`, `rizag.ch` und `woistroci.de` liefern bei DuckDuckGo 404, bei Google dagegen ein Bild; Microsoft 365 ist nicht die Ursache. |
+| 2026-09-24 | **Listen-/Rechtschreib-Nachtrag (wartet auf Praxistest):** Listen erzeugen im Versand wieder gültige Absätze und Zeilenumbrüche; das lokale WebKit-Wörterbuch markiert Tippfehler direkt im Verfassen-Fenster. |
+| 2026-09-28 | **Alltags-Fixes:** (1) Favicon-Abruf fragt zuerst die Absender-Website selbst ab (`favicon.ico`), Google nur noch als Fallback — Googles Zwischen-Cache lieferte wochenlang alte Icons (z. B. milchbüechli24). Gespeicherte Avatar-Bilder werden einmalig verworfen und neu geladen (Migration 18). (2) Nackte HTTP(S)-Links in HTML-Mails werden vom Frontend klickbar gemacht (Magic-Link-Mails wie die von milchbüechli24 liefern die URL als reinen Text statt als Link). |
+| 2026-09-29 | **Favicon-Rückbau:** Der direkte `favicon.ico`-Abruf ist wieder zurückgenommen — viele Websites liefern dort nur eine Standard-Grafik (z. B. das WordPress-Logo statt des echten Seiten-Icons), und medium.com liefert derzeit eine defekte Datei; solche Bilder wurden zudem 30 Tage lang gecacht. Wieder Gravatar → Google-Dienst als einzige Quellen; Migration 19 verwirft die falsch geladenen Avatar-Bilder einmalig. |
 
 ## So testest du den aktuellen Stand (M5)
 

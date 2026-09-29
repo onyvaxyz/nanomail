@@ -8,7 +8,7 @@ arch=('x86_64')
 url='https://github.com/onyvaxyz/nanomail'
 license=('MIT')
 depends=('glibc' 'libgcc' 'gtk3' 'glib2' 'cairo' 'gdk-pixbuf2'
-         'dbus' 'webkit2gtk-4.1' 'libsoup3' 'hicolor-icon-theme' 'xdg-utils')
+         'dbus' 'webkit2gtk-4.1' 'libsoup3' 'hunspell' 'hunspell-de' 'hicolor-icon-theme' 'xdg-utils')
 makedepends=('rust' 'cargo-tauri' 'pkgconf')
 checkdepends=('desktop-file-utils')
 optdepends=('gnome-keyring: Secret-Service-Schlüsselbund für Zugangsdaten (oder kompatibler Anbieter)'

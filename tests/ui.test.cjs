@@ -16,6 +16,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 800 }, deviceScaleFactor: 2 });
     const errors = [];
     page.on("pageerror", e => errors.push(e.message));
+    await page.goto(base + "/verfassen.html");
+    for (const feld of ["an", "cc", "betreff"]) {
+      assert.equal(await page.getAttribute(`input[name="${feld}"]`, "spellcheck"), "false");
+    }
+    assert.equal(await page.getAttribute("#verfassen-editor", "spellcheck"), "true");
+    assert.equal(await page.getAttribute("#verfassen-editor", "lang"), "de");
     for (const [query, mitSignatur] of [["", true], ["?antwortAuf=1", false], ["?antwortAuf=1&allenAntworten=1", false]]) {
       await page.goto(base + "/verfassen.html" + query);
       if (mitSignatur) {
@@ -50,6 +56,61 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.keyboard.press("Control+z");
       assert.ok(!(await page.locator("#verfassen-editor").innerText()).includes("Einfache Zeile"));
     }
+    for (const [befehl, tag] of [["insertUnorderedList", "ul"], ["insertOrderedList", "ol"]]) {
+      await page.goto(base + "/verfassen.html");
+      await page.waitForSelector("#signatur-block");
+      await page.locator("#verfassen-editor").focus();
+      await page.keyboard.press("Control+Home");
+      await page.keyboard.type("One");
+      await page.click(`[data-befehl="${befehl}"]`);
+      await page.keyboard.press("Enter");
+      await page.keyboard.type("Two");
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.type("Three");
+      const ergebnis = await page.evaluate(() => {
+        const editor = document.getElementById("verfassen-editor");
+        return { html: editor.innerHTML, text: editorAlsText(editor), ausgabe: editorHtml(editor) };
+      });
+      const erwartet = `<${tag}><li>One</li><li>Two<br>Three</li></${tag}><p id="signatur-block">-- <br>Anna Beispiel<br>Nanomail Review</p>`;
+      assert.equal(ergebnis.html, erwartet);
+      assert.equal(ergebnis.ausgabe, erwartet);
+      assert.equal(ergebnis.text, "One\nTwo\nThree\n\n-- \nAnna Beispiel\nNanomail Review");
+      await page.locator('input[name="an"]').fill("anna@example.org");
+      await page.click("#senden-knopf");
+      await page.waitForFunction(() => window.testAufrufe.some((aufruf) => aufruf.command === "mail_senden"));
+      const aufruf = await page.evaluate(() => window.testAufrufe.find((eintrag) => eintrag.command === "mail_senden"));
+      assert.equal(aufruf.args.formular.text, ergebnis.text);
+      assert.equal(aufruf.args.formular.html, ergebnis.ausgabe);
+    }
+    await page.goto(base + "/verfassen.html");
+    await page.waitForSelector("#signatur-block");
+    await page.locator("#verfassen-editor").focus();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.type("Alpha");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Beta");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Gamma");
+    await page.evaluate(() => {
+      const editor = document.getElementById("verfassen-editor");
+      const absaetze = [...editor.children].filter((kind) => kind.tagName === "P" && kind.id !== "signatur-block");
+      const bereich = document.createRange();
+      bereich.setStart(absaetze[0].firstChild, 0);
+      bereich.setEnd(absaetze[1].firstChild, 4);
+      const auswahl = getSelection();
+      auswahl.removeAllRanges();
+      auswahl.addRange(bereich);
+    });
+    await page.click('[data-befehl="insertUnorderedList"]');
+    assert.equal(await page.locator("#verfassen-editor").evaluate((editor) => editor.innerHTML),
+      '<ul><li>Alpha</li><li>Beta</li></ul><p>Gamma</p><p id="signatur-block">-- <br>Anna Beispiel<br>Nanomail Review</p>');
+    const ungueltig = await page.evaluate(() => {
+      const editor = document.createElement("div");
+      editor.innerHTML = "<p><ul><li>One<br></li><li><span>Two<br>Three</span></li></ul></p><p>Nach</p>";
+      return { html: editorHtml(editor), text: editorAlsText(editor) };
+    });
+    assert.equal(ungueltig.html, "<ul><li>One</li><li><span>Two<br>Three</span></li></ul><p>Nach</p>");
+    assert.equal(ungueltig.text, "One\nTwo\nThree\n\nNach");
     const texte = ["Alpha\n\nBeta\nGamma", "\n\nAnfang", "A\n\n\nB", "A\n\n\n\nB", "A\n", "A\n\n", "<script>x</script>\n& Text", ""];
     for (const text of texte) {
       assert.equal(await page.evaluate(text => {
@@ -156,6 +217,22 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     assert.equal(await page.locator("#mail-einladungen img").count(), 0);
     assert.equal(await page.locator("#mail-einladungen a").count(), 1);
     assert.equal(await page.locator("#mail-einladungen a").getAttribute("href"), "https://example.org/sicher");
+    // Nackte Links in bereits bereinigtem HTML-Mail klickbar machen.
+    const htmlErgebnis = await page.evaluate(
+      eingabe => htmlMitLinks(eingabe),
+      "Hallo <b>Welt</b>: https://example.org/anmelden?token=abc123 " +
+        '<a href="https://example.org/">fertig https://example.org/drin</a>' +
+        " javascript:alert(1) &amp; Ende"
+    );
+    // Nackter Link wird zum Anker (öffnet wie alle Mail-Links im Browser).
+    assert.ok(htmlErgebnis.includes(
+      '<a href="https://example.org/anmelden?token=abc123" target="_top">https://example.org/anmelden?token=abc123</a>'
+    ), htmlErgebnis);
+    // Vorhandene Anker bleiben unverändert, Links darin werden nicht doppelt verlinkt.
+    assert.ok(htmlErgebnis.includes('<a href="https://example.org/">fertig https://example.org/drin</a>'), htmlErgebnis);
+    assert.ok(!htmlErgebnis.includes('href="https://example.org/drin"'), htmlErgebnis);
+    // Kein HTTP(S)-Link: bleibt reiner Text; Entities überleben den Roundtrip.
+    assert.ok(htmlErgebnis.includes(" javascript:alert(1) &amp; Ende"), htmlErgebnis);
     assert.deepEqual(errors, []);
   });
 }

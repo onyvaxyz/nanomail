@@ -372,9 +372,12 @@ async function terminDialogOeffnen(termin = null, tag = null) {
     formular.elements.etag.value = "";
     const kalender = sichtbareKalender()[0];
     formular.elements.kalender_id.value = kalender.id;
-    const beginn = tag ? new Date(tag) : new Date();
-    beginn.setMinutes(0, 0, 0);
-    if (!tag) beginn.setHours(beginn.getHours() + 1);
+    const jetzt = new Date();
+    jetzt.setSeconds(0, 0);
+    // Standard-Start ist immer die aktuelle Uhrzeit (Stunde + Minute).
+    // Bei Doppelklick auf einen Tag gilt das Datum des Tags, die Uhrzeit bleibt „jetzt".
+    const beginn = tag ? new Date(tag) : new Date(jetzt);
+    if (tag) beginn.setHours(jetzt.getHours(), jetzt.getMinutes(), 0, 0);
     const ende = new Date(beginn);
     ende.setHours(ende.getHours() + 1);
     zeitfelderSetzen(beginn, ende, false);
@@ -432,7 +435,46 @@ function zwei(zahl) {
 }
 
 function datumInput(datum) {
-  return `${datum.getFullYear()}-${zwei(datum.getMonth() + 1)}-${zwei(datum.getDate())}`;
+  // Anzeigeformat im Dialog: TT.MM.JJJJ.
+  return `${zwei(datum.getDate())}.${zwei(datum.getMonth() + 1)}.${datum.getFullYear()}`;
+}
+
+/// Eingabe tolerant lesen (1.2.2026, 01.02.26), speichern normalisiert.
+function datumParsen(text) {
+  const sauber = String(text || "").trim();
+  const treffer = sauber.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/);
+  let tag;
+  let monat;
+  let jahr;
+  if (treffer) {
+    tag = Number(treffer[1]);
+    monat = Number(treffer[2]);
+    jahr = Number(treffer[3]);
+    if (jahr < 100) jahr += 2000;
+  } else if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(sauber)) {
+    const [j, m, t] = sauber.split("-").map(Number);
+    jahr = j;
+    monat = m;
+    tag = t;
+  } else {
+    return null;
+  }
+  if (!jahr || !monat || !tag || monat < 1 || monat > 12 || tag < 1 || tag > 31) return null;
+  const datum = new Date(jahr, monat - 1, tag);
+  if (datum.getFullYear() !== jahr || datum.getMonth() !== monat - 1 || datum.getDate() !== tag) {
+    return null;
+  }
+  return datum;
+}
+
+/// 24-Stunden-Format: HH:MM (einstellige Stunde erlaubt, z. B. 9:05).
+function zeitParsen(text) {
+  const treffer = String(text || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!treffer) return null;
+  const stunden = Number(treffer[1]);
+  const minuten = Number(treffer[2]);
+  if (stunden < 0 || stunden > 23 || minuten < 0 || minuten > 59) return null;
+  return { stunden, minuten };
 }
 
 function zeitInput(datum) {
@@ -458,7 +500,229 @@ function ganztagsFelderAktualisieren() {
   const ganztags = formular.elements.ganztags.checked;
   formular.elements.beginn_zeit.disabled = ganztags;
   formular.elements.ende_zeit.disabled = ganztags;
+  for (const knopf of formular.querySelectorAll('[data-picker="zeit"]')) {
+    knopf.disabled = ganztags;
+  }
+  if (ganztags) pickerSchliessen();
 }
+
+// ---------------------------------------- Eigener Datum-/Zeit-Picker --
+// Ersetzt die nativen Felder: Die lassen sich in WebKitGTK weder auf
+// Deutsch/24h zwingen noch umstylen noch per Außenklick schließen.
+// Der eigene Picker nutzt Nanomail-Farben, schließt bei Klick außerhalb
+// und bei Escape. Tab-Reihenfolge bleibt reine DOM-Reihenfolge
+// (Datum von → Datum bis → Uhrzeit von → Uhrzeit bis): Die Icon-Knöpfe
+// sind per tabindex="-1" aus der Tab-Kette genommen, per Tastatur lässt
+// sich tippen bzw. mit Alt+Pfeil-runter öffnen.
+
+const pickerZustand = { art: null, feld: null, monat: null };
+const pickerMonatFormat = new Intl.DateTimeFormat("de-DE", { month: "long", year: "numeric" });
+
+function pickerPositionieren(picker, anker) {
+  const dialogKasten = el("termin-dialog").getBoundingClientRect();
+  const kasten = anker.getBoundingClientRect();
+  picker.style.left = `${Math.max(0, kasten.left - dialogKasten.left)}px`;
+  picker.style.top = `${kasten.bottom - dialogKasten.top + 4}px`;
+  picker.style.minWidth = `${Math.max(kasten.width, 248)}px`;
+}
+
+function pickerSchliessen() {
+  if (!pickerZustand.art) return;
+  pickerZustand.art = null;
+  pickerZustand.feld = null;
+  pickerZustand.monat = null;
+  zeige("datum-picker", false);
+  zeige("zeit-picker", false);
+}
+
+function datumPickerOeffnen(feldName, anker) {
+  if (pickerZustand.art === "datum" && pickerZustand.feld === feldName) {
+    pickerSchliessen();
+    return;
+  }
+  const eingabe = el("termin-formular").elements[feldName];
+  const start = datumParsen(eingabe.value) || new Date();
+  pickerZustand.art = "datum";
+  pickerZustand.feld = feldName;
+  pickerZustand.monat = new Date(start.getFullYear(), start.getMonth(), 1);
+  datumPickerZeichnen();
+  pickerPositionieren(el("datum-picker"), anker || eingabe);
+  zeige("zeit-picker", false);
+  zeige("datum-picker", true);
+}
+
+function datumPickerZeichnen() {
+  const picker = el("datum-picker");
+  picker.innerHTML = "";
+  const monat = pickerZustand.monat;
+  const formular = el("termin-formular");
+  const gewählt = datumParsen(formular.elements[pickerZustand.feld].value);
+  const heute = new Date();
+  heute.setHours(0, 0, 0, 0);
+
+  const kopf = document.createElement("div");
+  kopf.className = "picker-kopf";
+  const zurück = document.createElement("button");
+  zurück.type = "button";
+  zurück.className = "icon-knopf klein";
+  zurück.title = "Voriger Monat";
+  zurück.appendChild(icon("caret-left"));
+  zurück.addEventListener("click", () => {
+    pickerZustand.monat = new Date(monat.getFullYear(), monat.getMonth() - 1, 1);
+    datumPickerZeichnen();
+  });
+  const titel = document.createElement("strong");
+  titel.textContent = pickerMonatFormat.format(monat);
+  const vor = document.createElement("button");
+  vor.type = "button";
+  vor.className = "icon-knopf klein";
+  vor.title = "Nächster Monat";
+  vor.appendChild(icon("caret-right"));
+  vor.addEventListener("click", () => {
+    pickerZustand.monat = new Date(monat.getFullYear(), monat.getMonth() + 1, 1);
+    datumPickerZeichnen();
+  });
+  kopf.append(zurück, titel, vor);
+  picker.appendChild(kopf);
+
+  const wochentage = document.createElement("div");
+  wochentage.className = "picker-raster picker-wochentage";
+  for (const name of ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]) {
+    const feld = document.createElement("span");
+    feld.textContent = name;
+    wochentage.appendChild(feld);
+  }
+  picker.appendChild(wochentage);
+
+  const raster = document.createElement("div");
+  raster.className = "picker-raster";
+  const start = new Date(monat);
+  start.setDate(1 - ((monat.getDay() + 6) % 7)); // Montag = Wochenstart
+  for (let i = 0; i < 42; i += 1) {
+    const tag = new Date(start);
+    tag.setDate(start.getDate() + i);
+    const knopf = document.createElement("button");
+    knopf.type = "button";
+    knopf.className = "picker-tag";
+    knopf.textContent = String(tag.getDate());
+    if (tag.getMonth() !== monat.getMonth()) knopf.classList.add("nebenmonat");
+    if (tag.getTime() === heute.getTime()) knopf.classList.add("heute");
+    if (gewählt && tag.getTime() === new Date(
+      gewählt.getFullYear(), gewählt.getMonth(), gewählt.getDate(),
+    ).getTime()) knopf.classList.add("ausgewaehlt");
+    knopf.addEventListener("click", () => {
+      formular.elements[pickerZustand.feld].value = datumInput(tag);
+      const feld = pickerZustand.feld;
+      pickerSchliessen();
+      formular.elements[feld].focus();
+    });
+    raster.appendChild(knopf);
+  }
+  picker.appendChild(raster);
+}
+
+function zeitPickerOeffnen(feldName, anker) {
+  if (pickerZustand.art === "zeit" && pickerZustand.feld === feldName) {
+    pickerSchliessen();
+    return;
+  }
+  pickerZustand.art = "zeit";
+  pickerZustand.feld = feldName;
+  zeitPickerZeichnen();
+  pickerPositionieren(el("zeit-picker"), anker || el("termin-formular").elements[feldName]);
+  zeige("datum-picker", false);
+  zeige("zeit-picker", true);
+}
+
+function zeitPickerZeichnen() {
+  const picker = el("zeit-picker");
+  picker.innerHTML = "";
+  const formular = el("termin-formular");
+  const aktuell = zeitParsen(formular.elements[pickerZustand.feld].value);
+  const hinweis = document.createElement("div");
+  hinweis.className = "picker-hinweis";
+  hinweis.textContent = "24-Stunden-Format — freie Eingabe möglich";
+  picker.appendChild(hinweis);
+  const liste = document.createElement("div");
+  liste.className = "picker-zeitliste";
+  for (let stunde = 0; stunde < 24; stunde += 1) {
+    for (const minute of [0, 30]) {
+      const wert = `${zwei(stunde)}:${zwei(minute)}`;
+      const knopf = document.createElement("button");
+      knopf.type = "button";
+      knopf.className = "picker-zeit";
+      knopf.setAttribute("role", "option");
+      knopf.textContent = wert;
+      if (aktuell && aktuell.stunden === stunde && aktuell.minuten === minute) {
+        knopf.classList.add("ausgewaehlt");
+      }
+      knopf.addEventListener("click", () => {
+        formular.elements[pickerZustand.feld].value = wert;
+        const feld = pickerZustand.feld;
+        pickerSchliessen();
+        formular.elements[feld].focus();
+      });
+      liste.appendChild(knopf);
+    }
+  }
+  picker.appendChild(liste);
+  const treffer = liste.querySelector(".ausgewaehlt");
+  if (treffer) treffer.scrollIntoView({ block: "center" });
+}
+
+for (const knopf of document.querySelectorAll('#termin-formular [data-picker]')) {
+  knopf.addEventListener("click", () => {
+    if (knopf.dataset.picker === "datum") datumPickerOeffnen(knopf.dataset.feld, knopf);
+    else zeitPickerOeffnen(knopf.dataset.feld, knopf);
+  });
+}
+
+// Eingaben beim Verlassen normalisieren (9:5 → 09:05, 1.2.26 → 01.02.2026).
+for (const name of ["beginn_datum", "ende_datum"]) {
+  const feld = el("termin-formular").elements[name];
+  feld.addEventListener("keydown", (ereignis) => {
+    if (ereignis.altKey && (ereignis.key === "ArrowDown" || ereignis.key === "Enter")) {
+      ereignis.preventDefault();
+      datumPickerOeffnen(name, feld);
+    }
+  });
+  feld.addEventListener("blur", () => {
+    const datum = datumParsen(feld.value);
+    if (datum) feld.value = datumInput(datum);
+  });
+}
+for (const name of ["beginn_zeit", "ende_zeit"]) {
+  const feld = el("termin-formular").elements[name];
+  feld.addEventListener("keydown", (ereignis) => {
+    if (ereignis.altKey && (ereignis.key === "ArrowDown" || ereignis.key === "Enter")) {
+      ereignis.preventDefault();
+      if (!feld.disabled) zeitPickerOeffnen(name, feld);
+    }
+  });
+  feld.addEventListener("blur", () => {
+    const uhr = zeitParsen(feld.value);
+    if (uhr) feld.value = `${zwei(uhr.stunden)}:${zwei(uhr.minuten)}`;
+  });
+}
+
+// Klick außerhalb schließt den Picker (nur terminieren, nie den Dialog).
+document.addEventListener("pointerdown", (ereignis) => {
+  if (!pickerZustand.art) return;
+  const offen = pickerZustand.art === "datum" ? el("datum-picker") : el("zeit-picker");
+  if (offen.contains(ereignis.target)) return;
+  if (ereignis.target.closest?.("[data-picker]")) return;
+  pickerSchliessen();
+}, true);
+
+// Escape schließt erst den Picker, nicht den Dialog.
+el("termin-dialog").addEventListener("keydown", (ereignis) => {
+  if (ereignis.key === "Escape" && pickerZustand.art) {
+    ereignis.preventDefault();
+    ereignis.stopPropagation();
+    pickerSchliessen();
+  }
+}, true);
+el("termin-dialog").addEventListener("close", pickerSchliessen);
 
 function einladungsFelderAktualisieren() {
   const formular = el("termin-formular");
@@ -532,9 +796,12 @@ function terminFormularDaten(formular) {
 }
 
 function datumZeitAusFormular(datum, zeit) {
-  const [jahr, monat, tag] = datum.split("-").map(Number);
-  const [stunde, minute] = zeit.split(":").map(Number);
-  return new Date(jahr, monat - 1, tag, stunde, minute, 0, 0);
+  const tag = datumParsen(datum);
+  const uhr = zeitParsen(zeit);
+  if (!tag || !uhr) {
+    throw new Error("Bitte Datum als TT.MM.JJJJ und Uhrzeit als HH:MM (24 Stunden) eingeben.");
+  }
+  return new Date(tag.getFullYear(), tag.getMonth(), tag.getDate(), uhr.stunden, uhr.minuten, 0, 0);
 }
 
 async function terminLoeschen(termin) {

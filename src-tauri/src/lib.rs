@@ -91,6 +91,24 @@ pub fn run() {
                     }
                     true
                 })
+                .on_webview_ready(|webview| {
+                    #[cfg(target_os = "linux")]
+                    {
+                        use webkit2gtk::{WebContextExt, WebViewExt};
+                        if let Err(fehler) = webview.with_webview(|webview| {
+                            if let Some(kontext) = webview.inner().context() {
+                                kontext.set_spell_checking_enabled(true);
+                                kontext.set_spell_checking_languages(&["de_DE"]);
+                            }
+                        }) {
+                            tracing::warn!(
+                                "Rechtschreibprüfung konnte nicht aktiviert werden: {fehler:#}"
+                            );
+                        }
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    let _ = webview;
+                })
                 .build(),
         )
         .setup(|app| {
@@ -102,6 +120,7 @@ pub fn run() {
                 sync_laeuft: Mutex::new(HashSet::new()),
                 idle_tasks: Mutex::new(std::collections::HashMap::new()),
                 kalender_sync_laeuft: Mutex::new(false),
+                ms_anmeldungen: Mutex::new(std::collections::HashMap::new()),
             });
             // Live-Update je Konto + periodischer Voll-Sync als Sicherheitsnetz.
             let handle = app.handle();
@@ -129,6 +148,8 @@ pub fn run() {
             commands::konto_loeschen,
             commands::konten_liste,
             commands::konten_reihenfolge,
+            commands::ms_anmeldung_starten,
+            commands::ms_anmeldung_abfragen,
             commands::ordner_liste,
             commands::sync_starten,
             commands::mails_liste,

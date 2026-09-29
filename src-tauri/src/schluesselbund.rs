@@ -48,6 +48,35 @@ pub fn passwort_loeschen(konto_id: i64) -> Result<()> {
     }
 }
 
+// ------------------------------------------------- Microsoft-Tokens (M6) --
+// Eigener Eintrag je Microsoft-Konto (`microsoft:<id>`): JSON mit
+// Auffrisch- und Zugangs-Token plus Ablaufzeit. Wie Passwörter: nur hier,
+// nie in SQLite, Config-Dateien oder Logs.
+
+fn microsoft_eintrag(konto_id: i64) -> Result<keyring_core::Entry> {
+    keyring_core::Entry::new(DIENST, &format!("microsoft:{konto_id}"))
+        .context("Schlüsselbund-Eintrag anlegen")
+}
+
+pub fn microsoft_token_speichern(konto_id: i64, token_json: &str) -> Result<()> {
+    microsoft_eintrag(konto_id)?
+        .set_password(token_json)
+        .context("Microsoft-Token im Schlüsselbund speichern")
+}
+
+pub fn microsoft_token_holen(konto_id: i64) -> Result<String> {
+    microsoft_eintrag(konto_id)?
+        .get_password()
+        .context("Microsoft-Token aus dem Schlüsselbund lesen")
+}
+
+pub fn microsoft_token_loeschen(konto_id: i64) -> Result<()> {
+    match microsoft_eintrag(konto_id)?.delete_credential() {
+        Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+        Err(fehler) => Err(fehler).context("Microsoft-Token aus dem Schlüsselbund löschen"),
+    }
+}
+
 // ------------------------------------------------- Kalender-Konten (M4) --
 // Eigener Eintrag je Kalender-Konto (`kalender:<id>`), getrennt von den
 // Mail-Konten — gleiche Regeln, gleicher Dienstname.

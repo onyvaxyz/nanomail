@@ -131,11 +131,91 @@ function signaturSetzen(konto) {
   textAlsZeilen(block, konto.signatur.trim());
 }
 
+function auswahlBereich() {
+  const editor = el("verfassen-editor");
+  const auswahl = window.getSelection();
+  if (!auswahl.rangeCount) return null;
+  const bereich = auswahl.getRangeAt(0);
+  return editor.contains(bereich.commonAncestorContainer) ? bereich : null;
+}
+
+function auswahlBloecke() {
+  const editor = el("verfassen-editor");
+  const bereich = auswahlBereich();
+  if (!bereich) return [];
+  const bloecke = [];
+  for (const kind of editor.children) {
+    if (/^(P|DIV)$/.test(kind.tagName)) {
+      bloecke.push(kind);
+    } else if (/^(UL|OL)$/.test(kind.tagName)) {
+      for (const li of kind.children) {
+        if (li.tagName === "LI") bloecke.push(li);
+      }
+    }
+  }
+  return bloecke.filter((block) => bereich.intersectsNode(block));
+}
+
+function auswahlBlock() {
+  return auswahlBloecke()[0] || null;
+}
+
+function cursorBrEntfernen(knoten) {
+  while (knoten.lastChild) {
+    const kind = knoten.lastChild;
+    if (kind.nodeType === Node.TEXT_NODE) break;
+    if (kind.nodeName === "BR") {
+      knoten.removeChild(kind);
+      break;
+    }
+    if (kind.nodeType !== Node.ELEMENT_NODE) break;
+    cursorBrEntfernen(kind);
+    if (!kind.textContent && !kind.querySelector("img, hr, table")) {
+      knoten.removeChild(kind);
+      continue;
+    }
+    break;
+  }
+}
+
+function listeSetzen(typ) {
+  const editor = el("verfassen-editor");
+  const block = auswahlBlock();
+  if (!block) return;
+  if (block.tagName !== "LI") {
+    const bloecke = auswahlBloecke();
+    const items = bloecke.map((eintrag) => {
+      const kopie = eintrag.cloneNode(true);
+      cursorBrEntfernen(kopie);
+      return `<li>${kopie.innerHTML || "<br>"}</li>`;
+    }).join("");
+    const bereich = document.createRange();
+    if (bloecke.length === 1) {
+      bereich.selectNodeContents(bloecke[0]);
+    } else {
+      bereich.setStartBefore(bloecke[0]);
+      bereich.setEndAfter(bloecke[bloecke.length - 1]);
+    }
+    const auswahl = window.getSelection();
+    auswahl.removeAllRanges();
+    auswahl.addRange(bereich);
+    document.execCommand("insertHTML", false, `<${typ}>${items}</${typ}>`);
+    editor.focus();
+    return;
+  }
+  document.execCommand(typ === "ol" ? "insertOrderedList" : "insertUnorderedList", false, null);
+}
+
 // Formatleiste: mousedown abfangen, damit die Auswahl im Editor bleibt.
 document.querySelectorAll(".editor-leiste [data-befehl]").forEach((knopf) => {
   knopf.addEventListener("mousedown", (ereignis) => ereignis.preventDefault());
   knopf.addEventListener("click", () => {
-    document.execCommand(knopf.dataset.befehl, false, null);
+    const befehl = knopf.dataset.befehl;
+    if (befehl === "insertUnorderedList" || befehl === "insertOrderedList") {
+      listeSetzen(befehl === "insertOrderedList" ? "ol" : "ul");
+    } else {
+      document.execCommand(befehl, false, null);
+    }
     el("verfassen-editor").focus();
   });
 });
@@ -517,11 +597,81 @@ el("abbrechen-knopf").addEventListener("click", () => aktuellesFenster.close());
 // sichtbar („Text (URL)“). `innerText` allein verwirft die URLs — dann zeigt
 // der Text-Teil andere Ziele als der HTML-Teil, was Spamfilter als Phishing
 // werten (verstecktes Link-Ziel) und die Mail aussortieren.
-function editorAlsText(knoten) {
+function editorNormalisieren(quelle) {
+  const kopie = quelle.cloneNode(true);
+  let ungueltig = [...kopie.querySelectorAll("p > ul, p > ol, div > ul, div > ol")]
+    .find((liste) => liste.parentElement !== kopie || kopie.nodeName === "P");
+  while (ungueltig) {
+    const eltern = ungueltig.parentElement;
+    if (eltern === kopie) {
+      const huelle = document.createElement("div");
+      huelle.append(...[...kopie.childNodes]);
+      return editorNormalisieren(huelle);
+    }
+    const ersatz = document.createDocumentFragment();
+    let wrapper = null;
+    for (const kind of [...eltern.childNodes]) {
+      const istListe = kind.nodeType === Node.ELEMENT_NODE && /^(UL|OL)$/.test(kind.tagName);
+      if (istListe) {
+        if (wrapper) {
+          if (wrapper.textContent || wrapper.querySelector("br, img, hr, table")) {
+            ersatz.appendChild(wrapper);
+          }
+          wrapper = null;
+        }
+        ersatz.appendChild(kind);
+      } else {
+        if (!wrapper) wrapper = document.createElement(eltern.tagName);
+        wrapper.appendChild(kind);
+      }
+    }
+    if (wrapper && (wrapper.textContent || wrapper.querySelector("br, img, hr, table"))) {
+      ersatz.appendChild(wrapper);
+    }
+    eltern.replaceWith(ersatz);
+    ungueltig = [...kopie.querySelectorAll("p > ul, p > ol, div > ul, div > ol")]
+      .find((liste) => liste.parentElement !== kopie || kopie.nodeName === "P");
+  }
+  kopie.querySelectorAll("li").forEach(cursorBrEntfernen);
+  kopie.querySelectorAll("p").forEach((absatz) => {
+    const leer = !absatz.textContent && !absatz.querySelector("img, hr, table");
+    if (leer && (absatz.previousElementSibling?.matches("ul, ol") || absatz.nextElementSibling?.matches("ul, ol"))) {
+      absatz.remove();
+    }
+  });
+  if (quelle.nodeName !== "P") {
+    const ersatz = document.createDocumentFragment();
+    let wrapper = null;
+    for (const kind of [...kopie.childNodes]) {
+      const block = kind.nodeType === Node.ELEMENT_NODE && /^(DIV|P|LI|UL|OL|BLOCKQUOTE|H[1-6]|TABLE|HR)$/.test(kind.tagName);
+      if (block) {
+        if (wrapper) {
+          ersatz.appendChild(wrapper);
+          wrapper = null;
+        }
+        ersatz.appendChild(kind);
+      } else {
+        if (!wrapper) wrapper = document.createElement("p");
+        wrapper.appendChild(kind);
+      }
+    }
+    if (wrapper) ersatz.appendChild(wrapper);
+    kopie.replaceChildren(ersatz);
+  }
+  for (const span of kopie.querySelectorAll("span")) {
+    const style = span.getAttribute("style") || "";
+    if (span.attributes.length === 1 && /^font-family\s*:\s*var\(--schrift-sans\)\s*;?$/i.test(style)) {
+      span.removeAttribute("style");
+    }
+  }
+  return kopie;
+}
+
+function editorTextAusKnoten(knoten) {
   let text = "";
   let trennung = "";
   for (const n of knoten.childNodes) {
-    const block = n.nodeType === Node.ELEMENT_NODE && /^(DIV|P|LI|BLOCKQUOTE|H[1-6]|TR)$/.test(n.tagName);
+    const block = n.nodeType === Node.ELEMENT_NODE && /^(DIV|P|LI|UL|OL|BLOCKQUOTE|H[1-6]|TR)$/.test(n.tagName);
     const abstand = n.nodeName === "P" ? "\n\n" : "\n";
     if (n.previousSibling && (block || trennung)) text += trennung.length > abstand.length ? trennung : block ? abstand : trennung;
     trennung = "";
@@ -529,19 +679,26 @@ function editorAlsText(knoten) {
       text += n.textContent;
     } else if (n.nodeType === Node.ELEMENT_NODE) {
       if (n.tagName === "BR") {
-        // Das letzte BR in einem Absatz ist die unsichtbare Cursor-Stütze.
         if (n.nextSibling || knoten.nodeName !== "P") text += "\n";
       } else if (n.tagName === "A") {
         const url = n.getAttribute("href") || "";
         const beschriftung = n.textContent;
         text += url && url !== beschriftung ? `${beschriftung} (${url})` : beschriftung;
       } else {
-        text += editorAlsText(n);
+        text += editorTextAusKnoten(n);
       }
     }
     if (block) trennung = abstand;
   }
   return text;
+}
+
+function editorAlsText(knoten) {
+  return editorTextAusKnoten(editorNormalisieren(knoten));
+}
+
+function editorHtml(editor) {
+  return editorNormalisieren(editor).innerHTML;
 }
 
 // Nur wenn wirklich formatiert wurde (Links, Fett, Listen …), lohnt der
@@ -550,7 +707,7 @@ function editorAlsText(knoten) {
 // Reine Struktur-Tags (div/p/br) zählen nicht als Formatierung.
 function hatFormatierung(editor) {
   return (
-    editor.querySelector(
+    editorNormalisieren(editor).querySelector(
       "a[href],b,strong,i,em,u,s,strike,ul,ol,li,blockquote," +
         "h1,h2,h3,h4,h5,h6,font,code,pre,img,table,[style]",
     ) !== null
@@ -571,7 +728,7 @@ el("entwurf-knopf").addEventListener("click", async () => {
         cc: daten.get("cc"),
         betreff: daten.get("betreff"),
         text: editorAlsText(editor),
-        html: hatFormatierung(editor) ? editor.innerHTML : null,
+        html: hatFormatierung(editor) ? editorHtml(editor) : null,
         anhaenge: zustand.anhaenge,
         antwort_auf: null,
         weiterleiten: false,
@@ -604,7 +761,7 @@ el("verfassen-formular").addEventListener("submit", async (ereignis) => {
         cc: daten.get("cc"),
         betreff: daten.get("betreff"),
         text: editorAlsText(editor),
-        html: hatFormatierung(editor) ? editor.innerHTML : null,
+        html: hatFormatierung(editor) ? editorHtml(editor) : null,
         anhaenge: zustand.anhaenge,
         antwort_auf: zustand.antwortAuf,
         weiterleiten: zustand.weiterleiten,

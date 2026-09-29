@@ -50,6 +50,9 @@ icalendar = { version = "0.17.12", default-features = false, features = ["parser
 rrule = "0.14.0"
 chrono-tz = "0.10.4"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
+
 [profile.release]
 strip = true
 lto = true

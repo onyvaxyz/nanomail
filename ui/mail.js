@@ -38,7 +38,7 @@ function leseStil() {
 function htmlAnzeigen(html) {
   if (!html) return;
   const rahmen = el("mailfenster-html");
-  rahmen.srcdoc = `<style>${leseStil()}</style>${html}`;
+  rahmen.srcdoc = `<style>${leseStil()}</style>${htmlMitLinks(html)}`;
   zeige("mailfenster-text", false);
   zeige("mailfenster-html", true);
 }

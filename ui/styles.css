@@ -767,6 +767,9 @@ textarea:focus-visible {
   min-height: 0;
   min-width: 0;
   background: var(--bg-editor);
+  /* Eigene Breite als Maß für den Lesekopf-Umbruch (unabhängig vom Fenster). */
+  container-type: inline-size;
+  container-name: lesebereich;
 }
 
 .lese-kopf {
@@ -776,6 +779,7 @@ textarea:focus-visible {
   padding: 16px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .lese-kopf-mitte {
@@ -790,23 +794,29 @@ textarea:focus-visible {
   line-height: 1.3;
   margin-bottom: 12px;
   word-wrap: break-word;
+  overflow-wrap: anywhere;
   color: var(--text-hell);
 }
 
 .mail-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 4px 12px;
   align-items: baseline;
   font-size: 14px;
+  min-width: 0;
 }
 
 .meta-von {
   color: var(--text-hell);
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .meta-adresse {
   color: var(--text-muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 /* An-/Cc-Empfängerzeilen im Lesekopf. */
 .meta-empfaenger {
@@ -836,6 +846,72 @@ textarea:focus-visible {
   font-family: var(--schrift-mono);
   font-size: 12px;
   white-space: nowrap;
+}
+
+/* Enger Lesebereich: erst das Avatar-Bild ausblenden, dann alles
+   untereinander stapeln — Aktions-Icons kommen dabei als letztes. */
+@container lesebereich (max-width: 620px) {
+  #lese-avatar {
+    display: none;
+  }
+}
+@container lesebereich (max-width: 520px) {
+  .lese-kopf {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .lese-kopf-mitte {
+    flex-basis: auto;
+    width: 100%;
+  }
+  .lese-aktionen {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .lese-aktionen-knoepfe {
+    flex-wrap: wrap;
+  }
+  .lese-datum {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+/* Rückfall ohne Container-Queries (ältere WebKit-Version): gleiche
+   Stapelung über die Fensterbreite. */
+@supports not (container-type: inline-size) {
+  @media (max-width: 900px) {
+    #lese-avatar {
+      display: none;
+    }
+  }
+  @media (max-width: 760px) {
+    .lese-kopf {
+      flex-direction: column;
+      gap: 12px;
+    }
+    .lese-kopf-mitte {
+      width: 100%;
+    }
+    .lese-aktionen {
+      width: 100%;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+    }
+    .lese-aktionen-knoepfe {
+      flex-wrap: wrap;
+    }
+    .lese-datum {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
 }
 
 .hinweis-leiste {
@@ -1511,6 +1587,30 @@ body.fenster-verfassen {
 }
 .mailfenster-meta {
   min-width: 0;
+  flex: 1;
+}
+/* Schmales Lesefenster: Inhalt stapeln, Aktionen (Icons + Datum) zuletzt. */
+@media (max-width: 620px) {
+  .mailfenster-kopf {
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px;
+  }
+  .mailfenster-kopf .lese-aktionen {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .mailfenster-kopf .lese-aktionen-knoepfe {
+    flex-wrap: wrap;
+  }
+  .mailfenster-kopf .lese-datum {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 .mailfenster-meta h1 {
   margin: 0 0 8px;
@@ -2020,8 +2120,136 @@ body.fenster-verfassen {
   margin: 0 !important;
 }
 
-#termin-formular input[type="time"]:disabled {
+#termin-formular .picker-feld input:disabled {
   opacity: 0.45;
+}
+
+/* Eigener Datum-/Zeit-Picker im Nanomail-Design (statt nativer Popups). */
+.picker-feld {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+.picker-feld input {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0 !important;
+}
+.picker-knopf {
+  flex-shrink: 0;
+  width: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  color: var(--text-muted);
+  background: var(--bg-editor);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    color 0.12s;
+}
+.picker-knopf:hover:not(:disabled) {
+  border-color: var(--akzent);
+  color: var(--text-hell);
+}
+.picker-knopf:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.datum-picker {
+  position: absolute;
+  z-index: 30;
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+.picker-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--text-hell);
+  font-size: 14px;
+}
+.picker-kopf strong {
+  font-weight: 600;
+}
+.picker-raster {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.picker-wochentage {
+  margin-bottom: 4px;
+  color: var(--text-leise);
+  font-size: 12px;
+  text-align: center;
+}
+.picker-tag {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  min-height: 30px;
+  border-radius: var(--radius-klein);
+  cursor: pointer;
+}
+.picker-tag:hover {
+  background: var(--bg-hover);
+  color: var(--text-hell);
+}
+.picker-tag.nebenmonat {
+  color: var(--text-leise);
+  opacity: 0.55;
+}
+.picker-tag.heute {
+  outline: 1px solid var(--akzent);
+  outline-offset: -1px;
+}
+.picker-tag.ausgewaehlt {
+  background: var(--akzent);
+  color: #fff;
+}
+.zeit-picker {
+  padding: 10px;
+}
+.picker-hinweis {
+  font-size: 12px;
+  color: var(--text-leise);
+  margin-bottom: 8px;
+}
+.picker-zeitliste {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.picker-zeit {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  padding: 7px 4px;
+  border-radius: var(--radius-klein);
+  cursor: pointer;
+}
+.picker-zeit:hover {
+  background: var(--bg-hover);
+  color: var(--text-hell);
+}
+.picker-zeit.ausgewaehlt {
+  background: var(--akzent);
+  color: #fff;
 }
 
 #kal-adress-vorschlaege {

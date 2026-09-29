@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Nanomail</title>
     <link rel="stylesheet" href="phosphor/style.css" />
-    <link rel="stylesheet" href="styles.css?v=18" />
+    <link rel="stylesheet" href="styles.css?v=19" />
   </head>
-  <body>
+  <body spellcheck="false">
     <!-- Eigene Fensterleiste im App-Design (Systemrahmen ist abgeschaltet) -->
     <header class="titelleiste" data-tauri-drag-region>
       <span class="titelleiste-titel">Nanomail</span>
@@ -206,9 +206,11 @@
           </button>
         </div>
         <!-- Bereinigtes HTML wird ausschließlich hier angezeigt: keine
-           Skripte, kein Zugriff auf die App. Einzige erlaubte Aktion ist die
-           durch einen Klick ausgelöste Navigation (target=_top an den Links);
-           das Backend fängt sie ab und öffnet den Link im Standard-Browser. -->
+           Skripte, kein Zugriff auf die App. Nackte Links darin macht das
+           Frontend klickbar (htmlMitLinks in fenster.js); die einzige
+           erlaubte Aktion ist die durch einen Klick ausgelöste Navigation
+           (target=_top an den Links); das Backend fängt sie ab und öffnet den
+           Link im Standard-Browser. -->
         <div id="mail-einladungen" class="einladungen versteckt"></div>
         <iframe id="mail-html" class="versteckt"
                 sandbox="allow-top-navigation-by-user-activation"></iframe>
@@ -338,16 +340,106 @@
         </label>
         <div class="feld-reihe">
           <label class="feld-breit"
-            >Beginn
-            <input name="beginn_datum" type="date" required />
-            <input name="beginn_zeit" type="time" required />
+            >Datum von
+            <span class="picker-feld">
+              <input
+                name="beginn_datum"
+                type="text"
+                required
+                placeholder="TT.MM.JJJJ"
+                title="Datum als TT.MM.JJJJ"
+                autocomplete="off"
+                inputmode="numeric"
+              />
+              <button
+                type="button"
+                class="picker-knopf"
+                data-picker="datum"
+                data-feld="beginn_datum"
+                title="Kalender öffnen"
+                tabindex="-1"
+              >
+                <i class="ph-regular ph-calendar-blank"></i>
+              </button>
+            </span>
           </label>
           <label class="feld-breit"
-            >Ende
-            <input name="ende_datum" type="date" required />
-            <input name="ende_zeit" type="time" required />
+            >Datum bis
+            <span class="picker-feld">
+              <input
+                name="ende_datum"
+                type="text"
+                required
+                placeholder="TT.MM.JJJJ"
+                title="Datum als TT.MM.JJJJ"
+                autocomplete="off"
+                inputmode="numeric"
+              />
+              <button
+                type="button"
+                class="picker-knopf"
+                data-picker="datum"
+                data-feld="ende_datum"
+                title="Kalender öffnen"
+                tabindex="-1"
+              >
+                <i class="ph-regular ph-calendar-blank"></i>
+              </button>
+            </span>
           </label>
         </div>
+        <div class="feld-reihe">
+          <label class="feld-breit"
+            >Uhrzeit von
+            <span class="picker-feld">
+              <input
+                name="beginn_zeit"
+                type="text"
+                required
+                placeholder="HH:MM"
+                title="Uhrzeit als HH:MM (24 Stunden)"
+                autocomplete="off"
+                inputmode="numeric"
+              />
+              <button
+                type="button"
+                class="picker-knopf"
+                data-picker="zeit"
+                data-feld="beginn_zeit"
+                title="Uhrzeit wählen"
+                tabindex="-1"
+              >
+                <i class="ph-regular ph-clock"></i>
+              </button>
+            </span>
+          </label>
+          <label class="feld-breit"
+            >Uhrzeit bis
+            <span class="picker-feld">
+              <input
+                name="ende_zeit"
+                type="text"
+                required
+                placeholder="HH:MM"
+                title="Uhrzeit als HH:MM (24 Stunden)"
+                autocomplete="off"
+                inputmode="numeric"
+              />
+              <button
+                type="button"
+                class="picker-knopf"
+                data-picker="zeit"
+                data-feld="ende_zeit"
+                title="Uhrzeit wählen"
+                tabindex="-1"
+              >
+                <i class="ph-regular ph-clock"></i>
+              </button>
+            </span>
+          </label>
+        </div>
+        <div id="datum-picker" class="datum-picker versteckt" role="dialog" aria-label="Datum wählen"></div>
+        <div id="zeit-picker" class="datum-picker zeit-picker versteckt" role="listbox" aria-label="Uhrzeit wählen"></div>
         <label
           >Beschreibung
           <textarea name="beschreibung" rows="4"></textarea>
@@ -392,12 +484,36 @@
     <dialog id="konto-dialog">
       <form id="konto-formular" method="dialog">
         <h2 id="konto-dialog-titel">Mail-Konto einrichten</h2>
-        <p class="dialog-untertitel">
+        <p class="dialog-untertitel" id="konto-hinweis-passwort">
           Für Infomaniak sind die Server bereits ausgefüllt. Benutzername ist
           meist die <b>vollständige E-Mail-Adresse</b>. Bei aktivierter
           Zwei-Faktor-Anmeldung ist ein <b>App-Passwort</b>
           zwingend (im Anbieter-Konto unter „Sicherheit“ erstellbar).
         </p>
+        <p class="dialog-untertitel versteckt" id="konto-hinweis-microsoft">
+          Für <b>Microsoft 365</b> sind die Server bereits ausgefüllt.
+          Das Passwort wird <b>nicht</b> in Nanomail eingegeben — stattdessen
+          meldest du dich gleich im Browser bei Microsoft an.
+        </p>
+
+        <label
+          >Anmeldeart
+          <span class="farbe-zeile">
+            <label
+              ><input
+                type="radio"
+                name="auth_art"
+                value="passwort"
+                checked
+              />
+              Passwort</label
+            >
+            <label
+              ><input type="radio" name="auth_art" value="microsoft" />
+              Microsoft 365</label
+            >
+          </span>
+        </label>
 
         <label
           >Kontoname (frei wählbar)
@@ -424,6 +540,26 @@
           >Passwort / App-Passwort
           <input name="passwort" type="password" />
         </label>
+        <div id="microsoft-bereich" class="versteckt">
+          <p class="dialog-untertitel" id="microsoft-status">
+            Noch nicht mit Microsoft verbunden.
+          </p>
+          <p id="microsoft-code-zeile" class="versteckt">
+            Im Browser öffnen:
+            <a id="microsoft-link" href="#" target="_blank" rel="noopener"></a
+            ><br />
+            Dort diesen Code eingeben: <b id="microsoft-code"></b>
+          </p>
+          <div class="dialog-knoepfe">
+            <button
+              id="microsoft-code-knopf"
+              class="knopf-sekundaer"
+              type="button"
+            >
+              Anmeldecode holen
+            </button>
+          </div>
+        </div>
         <div class="feld-reihe">
           <label class="feld-breit"
             >Posteingangs-Server (IMAP)

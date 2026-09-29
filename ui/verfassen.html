@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verfassen — Nanomail</title>
   <link rel="stylesheet" href="phosphor/style.css" />
-  <link rel="stylesheet" href="styles.css?v=18" />
+  <link rel="stylesheet" href="styles.css?v=19" />
 </head>
-<body class="fenster-verfassen">
+<body class="fenster-verfassen" spellcheck="false">
   <!-- Eigene Fensterleiste im App-Design (Systemrahmen ist abgeschaltet) -->
   <header class="titelleiste" data-tauri-drag-region>
     <span id="fenster-titel" class="titelleiste-titel">Neue Mail</span>
@@ -31,15 +31,15 @@
       </label>
       <label class="feld">
         <span class="feld-titel">An</span>
-        <input name="an" required placeholder="empfaenger@example.com" autocomplete="off" />
+        <input name="an" required placeholder="empfaenger@example.com" autocomplete="off" spellcheck="false" />
       </label>
       <label class="feld">
         <span class="feld-titel">Kopie (CC)</span>
-        <input name="cc" autocomplete="off" />
+        <input name="cc" autocomplete="off" spellcheck="false" />
       </label>
       <label class="feld">
         <span class="feld-titel">Betreff</span>
-        <input name="betreff" />
+        <input name="betreff" spellcheck="false" />
       </label>
     </div>
 
@@ -76,7 +76,7 @@
     </div>
     <div id="emoji-auswahl" class="emoji-auswahl versteckt"></div>
 
-    <div id="verfassen-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Nachricht"
+    <div id="verfassen-editor" contenteditable="true" spellcheck="true" lang="de" role="textbox" aria-multiline="true" aria-label="Nachricht"
          data-platzhalter="Nachricht schreiben …"></div>
 
     <div id="anhang-liste" class="anhang-liste"></div>

@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name={{name}}
+Comment=Mail and calendar client
+Comment[de]={{comment}}
+Exec={{exec}}
+TryExec={{exec}}
+# System-Icon aus dem aktiven Omarchy-/Yaru-Icon-Set: passt sich Hell/Dunkel
+# automatisch an, statt festem Blau. Siehe auch packaging/arch/*.desktop.
+Icon=internet-mail-symbolic
+Terminal=false
+Categories=Network;Email;
+StartupWMClass={{exec}}
+{{#if mime_type}}
+MimeType={{mime_type}}
+{{/if}}

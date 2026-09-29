@@ -54,7 +54,11 @@ vollständiger Lizenztext fehlt bisher im Repository und muss vor öffentlicher
 Paketveröffentlichung vom Projektinhaber ergänzt werden. Die vorhandene
 Phosphor-Lizenz wird mitinstalliert.
 
-## Bauen unter Debian / Ubuntu
+## Bauen unter Debian / Ubuntu (Nebenschauplatz)
+
+Der Projektinhaber ist von Ubuntu auf Arch Linux/Omarchy umgestiegen — dieser
+Weg läuft technisch weiter mit, wird aber nicht mehr aktiv genutzt oder
+getestet. Primär ist der Abschnitt „Arch Linux / Omarchy“ oben.
 
 ```bash
 cd src-tauri
@@ -68,7 +72,7 @@ sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev \
   libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
 ```
 
-## Neuinstallation unter Debian / Ubuntu
+## Neuinstallation unter Debian / Ubuntu (Nebenschauplatz)
 
 Nanomail wird über die `.deb`-Datei installiert bzw. neu installiert:
 

@@ -32,6 +32,8 @@ pub struct Konto {
     pub farbe: String,
     /// Manuelle Sortierung in der Icon-Leiste (kleiner = weiter oben).
     pub position: i64,
+    /// Anmeldeart: `passwort` oder `microsoft` (M6, Token im Schlüsselbund).
+    pub auth_art: String,
 }
 
 /// Ein IMAP-Ordner samt Cache-Stand und Zählern für die Anzeige.
@@ -433,6 +435,47 @@ fn migrieren(conn: &Connection) -> Result<()> {
         )
         .context("Migration 16 ausführen")?;
     }
+    if version < 17 {
+        conn.execute_batch(
+            r#"
+            -- Anmeldeart je Mail-Konto (M6): `passwort` (Bestand) oder
+            -- `microsoft` (OAuth2-Token im Schlüsselbund statt Passwort).
+            ALTER TABLE konten ADD COLUMN auth_art TEXT NOT NULL DEFAULT 'passwort';
+            INSERT INTO schema_version (version) VALUES (17);
+            "#,
+        )
+        .context("Migration 17 ausführen")?;
+    }
+    if version < 18 {
+        conn.execute_batch(
+            r#"
+            -- Favicon-Quelle wurde umgestellt (versuchsweise direkter Abruf
+            -- bei der Absender-Website, siehe Migration 19). Gespeicherte
+            -- Avatar-Bilder stammen teils aus veraltetem Google-Bestand und
+            -- werden einmalig verworfen; sie werden beim nächsten Anzeigen
+            -- neu geladen.
+            DELETE FROM absender_avatar WHERE data_uri IS NOT NULL;
+            INSERT INTO schema_version (version) VALUES (18);
+            "#,
+        )
+        .context("Migration 18 ausführen")?;
+    }
+    if version < 19 {
+        conn.execute_batch(
+            r#"
+            -- Rückkehr zum Google-Favicon-Dienst als alleiniger Quelle
+            -- (neben Gravatar): Der direkte Abruf von `favicon.ico`
+            -- lieferte auf manchen Seiten nur eine Standard-Grafik (z. B.
+            -- das WordPress-Icon) oder defekte Dateien. Gespeicherte
+            -- Avatar-Bilder stammen teils aus diesem direkten Abruf und
+            -- werden einmalig verworfen; sie werden beim nächsten
+            -- Anzeigen neu vom Google-Dienst geladen.
+            DELETE FROM absender_avatar WHERE data_uri IS NOT NULL;
+            INSERT INTO schema_version (version) VALUES (19);
+            "#,
+        )
+        .context("Migration 19 ausführen")?;
+    }
     Ok(())
 }
 
@@ -451,6 +494,8 @@ pub struct KontoDaten {
     pub smtp_port: u16,
     pub signatur: String,
     pub farbe: String,
+    /// Anmeldeart: `passwort` oder `microsoft`.
+    pub auth_art: String,
 }
 
 pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
@@ -464,8 +509,8 @@ pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
         .context("Konto-Position bestimmen")?;
     conn.execute(
         "INSERT INTO konten (name, anzeigename, email, imap_host, imap_port, benutzer, smtp_host,
-                             smtp_port, signatur, farbe, position)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                             smtp_port, signatur, farbe, position, auth_art)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             daten.name,
             daten.anzeigename,
@@ -477,7 +522,8 @@ pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
             daten.smtp_port,
             daten.signatur,
             daten.farbe,
-            position
+            position,
+            daten.auth_art
         ],
     )
     .context("Konto speichern")?;
@@ -495,6 +541,7 @@ pub fn konto_anlegen(conn: &Connection, daten: &KontoDaten) -> Result<Konto> {
         signatur: daten.signatur.clone(),
         farbe: daten.farbe.clone(),
         position,
+        auth_art: daten.auth_art.clone(),
     })
 }
 
@@ -515,7 +562,7 @@ pub fn konto_aktualisieren(conn: &Connection, id: i64, daten: &KontoDaten) -> Re
     conn.execute(
         "UPDATE konten SET name = ?2, anzeigename = ?3, email = ?4, imap_host = ?5,
                            imap_port = ?6, benutzer = ?7, smtp_host = ?8,
-                           smtp_port = ?9, signatur = ?10, farbe = ?11
+                           smtp_port = ?9, signatur = ?10, farbe = ?11, auth_art = ?12
          WHERE id = ?1",
         params![
             id,
@@ -528,7 +575,8 @@ pub fn konto_aktualisieren(conn: &Connection, id: i64, daten: &KontoDaten) -> Re
             daten.smtp_host,
             daten.smtp_port,
             daten.signatur,
-            daten.farbe
+            daten.farbe,
+            daten.auth_art
         ],
     )
     .context("Konto aktualisieren")?;
@@ -539,7 +587,7 @@ pub fn konten_liste(conn: &Connection) -> Result<Vec<Konto>> {
     let mut stmt = conn
         .prepare(
             "SELECT id, name, anzeigename, email, imap_host, imap_port, benutzer, smtp_host,
-                    smtp_port, signatur, farbe, position
+                    smtp_port, signatur, farbe, position, auth_art
              FROM konten ORDER BY position, id",
         )
         .context("Konten abfragen")?;
@@ -553,7 +601,7 @@ pub fn konten_liste(conn: &Connection) -> Result<Vec<Konto>> {
 pub fn konto_holen(conn: &Connection, id: i64) -> Result<Option<Konto>> {
     conn.query_row(
         "SELECT id, name, anzeigename, email, imap_host, imap_port, benutzer, smtp_host,
-                smtp_port, signatur, farbe, position
+                smtp_port, signatur, farbe, position, auth_art
          FROM konten WHERE id = ?1",
         params![id],
         zeile_zu_konto,
@@ -576,6 +624,7 @@ fn zeile_zu_konto(zeile: &rusqlite::Row<'_>) -> rusqlite::Result<Konto> {
         signatur: zeile.get(9)?,
         farbe: zeile.get(10)?,
         position: zeile.get(11)?,
+        auth_art: zeile.get(12)?,
     })
 }
 
@@ -1311,6 +1360,7 @@ mod tests {
             smtp_port: 465,
             signatur: String::new(),
             farbe: String::new(),
+            auth_art: "passwort".into(),
         }
     }
 
@@ -1325,7 +1375,22 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |z| z.get(0))
             .unwrap();
-        assert_eq!(version, 16);
+        assert_eq!(version, 19);
+    }
+
+    #[test]
+    fn migration_17_auth_art_steht_auf_passwort_und_bleibt_gespeichert() {
+        let conn = oeffnen_im_speicher().unwrap();
+        // Bestand (Passwort-Konto) bekommt automatisch `passwort`.
+        let konto = beispiel_konto(&conn);
+        assert_eq!(konto.auth_art, "passwort");
+        // Microsoft-Konto übersteht Speichern und Lesen.
+        let mut daten = beispiel_daten();
+        daten.auth_art = "microsoft".into();
+        let ms = konto_anlegen(&conn, &daten).unwrap();
+        assert_eq!(ms.auth_art, "microsoft");
+        let gelesen = konto_holen(&conn, ms.id).unwrap().unwrap();
+        assert_eq!(gelesen.auth_art, "microsoft");
     }
 
     #[test]
@@ -1370,6 +1435,26 @@ mod tests {
         assert!(!bild_quelle_ist_erlaubt(&conn, "example.org").unwrap());
         bild_quelle_erlauben(&conn, "Example.ORG").unwrap();
         assert!(bild_quelle_ist_erlaubt(&conn, "example.org").unwrap());
+    }
+
+    #[test]
+    fn migration_19_verwirft_gespeicherte_avatar_bilder() {
+        let conn = oeffnen_im_speicher().unwrap();
+        avatar_speichern(&conn, "bild@example.org", Some("data:image/png;base64,xx")).unwrap();
+        avatar_speichern(&conn, "kein@example.org", None).unwrap();
+        // Version 19 zurücknehmen, als wäre die Migration noch offen.
+        conn.execute_batch("DELETE FROM schema_version WHERE version = 19")
+            .unwrap();
+        migrieren(&conn).unwrap();
+        // Gespeicherte Bilder werden verworfen (→ neu ermitteln) …
+        assert!(avatar_aus_cache(&conn, "bild@example.org", 30 * 86400)
+            .unwrap()
+            .is_none());
+        // … „kein Bild“-Einträge bleiben.
+        assert_eq!(
+            avatar_aus_cache(&conn, "kein@example.org", 30 * 86400).unwrap(),
+            Some(None)
+        );
     }
 
     #[test]
