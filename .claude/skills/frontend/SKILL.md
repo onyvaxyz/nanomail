@@ -12,6 +12,8 @@ zur Laufzeit**. Philipp passt Optik selbst über `ui/styles.css` an — deshalb:
 - Alle Farben/Maße als CSS-Variablen in `:root` am Dateianfang
 - Klassennamen und Kommentare auf Deutsch, selbsterklärend
 - Keine Inline-Styles im HTML, kein CSS in JS
+- Gemeinsame Helfer (`el`, `zeige`, `icon`, `anzahlText`) genau einmal in
+  `ui/gemeinsam.js` — wird in jedem Fenster zuerst geladen, keine Kopien
 
 ## Optik (ab M3)
 

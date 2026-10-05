@@ -160,6 +160,7 @@ pub fn run() {
             commands::mail_einladung_antworten,
             commands::mail_einladung_uebernehmen,
             commands::mail_loeschen,
+            commands::mails_loeschen,
             commands::mail_bilder_laden,
             commands::mail_bild_quelle_erlauben,
             commands::anhang_speichern,

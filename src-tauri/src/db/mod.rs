@@ -932,6 +932,19 @@ pub fn mail_entfernen(conn: &Connection, mail_id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Entfernt mehrere Mails anhand ihrer Cache-IDs in einem Rutsch
+/// (für das Sammel-Löschen aus der Mehrfachauswahl).
+pub fn mails_ids_entfernen(conn: &Connection, ids: &[i64]) -> Result<()> {
+    let mut stmt = conn
+        .prepare("DELETE FROM mails WHERE id = ?1")
+        .context("Mail-Delete vorbereiten")?;
+    for id in ids {
+        stmt.execute(params![id])
+            .context("Mail aus dem Cache entfernen")?;
+    }
+    Ok(())
+}
+
 /// Setzt das Gelesen-Flag im Cache — in beide Richtungen (Öffnen einer
 /// Mail bzw. Kontextmenü „Als (un)gelesen markieren“).
 pub fn mail_gelesen_setzen(conn: &Connection, mail_id: i64, gelesen: bool) -> Result<()> {
@@ -1610,6 +1623,34 @@ mod tests {
         assert_ne!(rest[0].id, erste);
     }
 
+    #[test]
+    fn mails_ids_entfernen_loescht_nur_die_gewaehlten() {
+        let conn = oeffnen_im_speicher().unwrap();
+        let konto = beispiel_konto(&conn);
+        let id = ordner_upsert(&conn, konto.id, "INBOX", "Posteingang", None).unwrap();
+        let koepfe: Vec<NeuerMailKopf> = (1..=3)
+            .map(|i| NeuerMailKopf {
+                uid: i,
+                betreff: format!("Mail {i}"),
+                von: String::new(),
+                von_email: String::new(),
+                an: String::new(),
+                cc: String::new(),
+                datum: None,
+                gelesen: false,
+                beantwortet: false,
+                hat_anhang: false,
+            })
+            .collect();
+        mails_einfuegen(&conn, id, &koepfe).unwrap();
+        let alle = mails_liste(&conn, id, false, 0, 10).unwrap();
+        assert_eq!(alle.len(), 3);
+        let weg: Vec<i64> = alle.iter().take(2).map(|mail| mail.id).collect();
+        mails_ids_entfernen(&conn, &weg).unwrap();
+        let rest = mails_liste(&conn, id, false, 0, 10).unwrap();
+        assert_eq!(rest.len(), 1);
+        assert_eq!(rest[0].id, alle[2].id);
+    }
     #[test]
     fn konto_aktualisieren_aendert_smtp_daten() {
         let conn = oeffnen_im_speicher().unwrap();

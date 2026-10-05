@@ -6,6 +6,33 @@ und freigegeben, bevor der nächste beginnt.**
 
 Stand: 2026-10-05
 
+## Sammel-Löschen, Befehls-Aufteilung, JS-Helfer (Oktober 2026)
+
+Umgesetzt und geprüft (fmt, Clippy, 135 Rust-Tests, JS-Syntax grün;
+Browser-Tests laufen in der CI):
+
+- **Mehrere Mails löschen geht jetzt in einem Rutsch:** Neuer Befehl
+  `mails_loeschen` — Mails desselben Ordners teilen sich eine
+  Server-Verbindung und einen Server-Durchgang (vorher: pro Mail einzeln
+  verbinden, wählen, verschieben, abmelden). Die Einträge verschwinden
+  sofort in der Liste, der Vorgang läuft im Hintergrund; bei Fehlern
+  meldet die Statusleiste, wie viele Mails übrig blieben (sie erscheinen
+  nach dem Neu-Laden wieder). Einzel-Löschen (`mail_loeschen`) unverändert.
+- **Befehls-Datei aufgeteilt (ohne Funktionsänderung):** `commands.rs`
+  (3100 Zeilen) ist jetzt `commands/` mit je einem Bereich
+  (`konten`, `sync`, `mails`, `senden`, `avatar`, `kalender` plus
+  Grundlagen in `mod.rs`). Aufrufe von außen (`commands::name`) bleiben
+  gleich. Drei neue Tests (UID-Mengen, Mehrfach-Entfernen aus dem Cache).
+- **JS-Helfer entdoppelt:** `el`, `zeige`, `icon`, `anzahlText` stehen
+  genau einmal in `ui/gemeinsam.js` (jedes Fenster lädt sie zuerst);
+  die Kopien in `main.js`/`mail.js`/`verfassen.js` sind entfernt.
+  Größere Doppelstellen (Adress-Vorschläge, Anhang-Leiste, Lesestil)
+  bleiben vorerst — sie unterscheiden sich in Details und wären ein
+  eigener Schritt mit Nachtest in allen Fenstern.
+
+Zum Ausprobieren: Mehrere Mails markieren (Absender-Bild, Shift-/Strg-Klick)
+und per Entf/Knopf/Rechtsklick löschen — die Liste reagiert sofort.
+
 ## Doku-Bereinigung (Oktober 2026)
 
 Kleine Korrekturrunde ohne Code-Änderung (außer zwei veralteten

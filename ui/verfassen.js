@@ -7,9 +7,8 @@ const { emit } = window.__TAURI__.event;
 const dateiDialog = window.__TAURI__.dialog.open;
 const aktuellesFenster = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
-const el = (id) => document.getElementById(id);
+// (el, icon: siehe gemeinsam.js — genau eine Quelle.)
 const params = new URLSearchParams(location.search);
-
 const STANDARD_FARBE = "#c678dd";
 
 const zustand = {
@@ -23,12 +22,7 @@ const zustand = {
   entwurfVon: params.get("entwurfId") ? Number(params.get("entwurfId")) : null,
 };
 
-function icon(name) {
-  const i = document.createElement("i");
-  i.className = `ph-light ph-${name}`;
-  return i;
-}
-
+// (icon: siehe gemeinsam.js — genau eine Quelle.)
 function fehler(text) {
   const feld = el("verfassen-fehler");
   feld.textContent = text;

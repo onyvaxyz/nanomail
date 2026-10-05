@@ -45,7 +45,7 @@ let ordnerLadeAnfrage = null;
 
 // ---------------------------------------------------------- DOM-Kürzel --
 
-const el = (id) => document.getElementById(id);
+// (el, zeige, icon, anzahlText: siehe gemeinsam.js — genau eine Quelle.)
 const datumFormat = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit", month: "2-digit", year: "2-digit",
   hour: "2-digit", minute: "2-digit",
@@ -69,16 +69,6 @@ function status(text, klasse = "") {
   if (klasse) span.className = klasse;
   span.textContent = text;
   el("backend-status").appendChild(span);
-}
-
-function zeige(id, sichtbar) {
-  el(id).classList.toggle("versteckt", !sichtbar);
-}
-
-function icon(name) {
-  const i = document.createElement("i");
-  i.className = `ph-light ph-${name}`;
-  return i;
 }
 
 // ------------------------------------------------------ Fensterleiste --
@@ -1043,11 +1033,7 @@ async function anhangSpeichern(mailId, anhang, knopf) {
 // -------------------------------------------------- Mehrfachauswahl --
 // (Paket C) Klick aufs Absender-Bild markiert die Mail, ohne sie zu
 // öffnen. Entf, der Löschen-Knopf und das Rechtsklick-Menü wirken dann
-// auf alle markierten Mails gemeinsam.
-
-function anzahlText(n, singular, plural) {
-  return n === 1 ? `1 ${singular}` : `${n} ${plural}`;
-}
+// auf alle markierten Mails gemeinsam (anzahlText: siehe gemeinsam.js).
 
 function auswahlUmschalten(mail, eintrag) {
   if (zustand.auswahl.has(mail.id)) {
@@ -1106,33 +1092,43 @@ async function ausgewaehlteLoeschen() {
     );
     if (!sicher) return;
   }
+  // Sofort ausblenden (optimistisch): Die Einträge verschwinden direkt,
+  // der eigentliche Löschvorgang läuft im Hintergrund in einem Rutsch.
+  const ids = mails.map((mail) => mail.id);
+  const idsMenge = new Set(ids);
   auswahlLeeren();
-  let fehler = 0;
-  const geloeschte = [];
-  let i = 0;
-  for (const mail of mails) {
-    i += 1;
-    status(`Lösche Mail ${i} von ${mails.length} …`);
-    try {
-      await invoke("mail_loeschen", { mailId: mail.id });
-      geloeschte.push(mail.id);
-      document.querySelector(`.mail-eintrag[data-mail-id="${mail.id}"]`)?.remove();
-    } catch {
-      fehler += 1;
-    }
+  for (const id of ids) {
+    document.querySelector(`.mail-eintrag[data-mail-id="${id}"]`)?.remove();
   }
-  zustand.offset = Math.max(0, zustand.offset - geloeschte.length);
-  if (geloeschte.includes(zustand.aktiveMailId)) {
+  zustand.offset = Math.max(0, zustand.offset - ids.length);
+  if (zustand.aktiveMailId !== null && idsMenge.has(zustand.aktiveMailId)) {
     zustand.aktiveMailId = null;
     lesebereichLeeren();
   }
+  status(
+    endgueltig
+      ? `${anzahlText(ids.length, "Mail wird endgültig gelöscht …", "Mails werden endgültig gelöscht …")}`
+      : `${anzahlText(ids.length, "Mail wird in den Papierkorb verschoben …", "Mails werden in den Papierkorb verschoben …")}`,
+  );
+  let ergebnis;
+  try {
+    ergebnis = await invoke("mails_loeschen", { mailIds: ids });
+  } catch {
+    // Fallback für den Fehlerfall: Liste neu laden (bringt die Mails zurück).
+    await listeNeuLaden();
+    kontenAnzeigen();
+    status(`✗ ${anzahlText(ids.length, "Mail konnte nicht gelöscht werden.", "Mails konnten nicht gelöscht werden.")}`, "fehler");
+    return;
+  }
+  const geloeschte = ergebnis?.geloeschte?.length ?? ids.length;
+  const fehler = ergebnis?.fehler?.length ?? 0;
   await listeNeuLaden();
   kontenAnzeigen();
   if (fehler === 0) {
     status(
       endgueltig
-        ? `✓ ${anzahlText(geloeschte.length, "Mail endgültig gelöscht.", "Mails endgültig gelöscht.")}`
-        : `✓ ${anzahlText(geloeschte.length, "Mail in den Papierkorb verschoben.", "Mails in den Papierkorb verschoben.")}`,
+        ? `✓ ${anzahlText(geloeschte, "Mail endgültig gelöscht.", "Mails endgültig gelöscht.")}`
+        : `✓ ${anzahlText(geloeschte, "Mail in den Papierkorb verschoben.", "Mails in den Papierkorb verschoben.")}`,
       "ok",
     );
   } else {

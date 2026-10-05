@@ -330,15 +330,23 @@ impl ImapVerbindung {
     /// (z. B. in den Papierkorb). Nutzt UID MOVE; kann der Server das nicht,
     /// greift der Fallback COPY + \Deleted + EXPUNGE.
     pub async fn verschieben(&mut self, uid: u32, ziel: &str) -> Result<()> {
-        match self.session.uid_mv(uid.to_string(), ziel).await {
+        self.mehrere_verschieben(std::slice::from_ref(&uid), ziel)
+            .await
+    }
+
+    /// Verschiebt mehrere Nachrichten in einem Rutsch (eine UID-Menge,
+    /// ein Server-Durchgang) — deutlich schneller als einzelne Aufrufe.
+    pub async fn mehrere_verschieben(&mut self, uids: &[u32], ziel: &str) -> Result<()> {
+        let menge = uid_menge(uids)?;
+        match self.session.uid_mv(menge.clone(), ziel).await {
             Ok(()) => Ok(()),
             Err(fehler) => {
                 tracing::debug!("UID MOVE nicht möglich, Fallback über COPY: {fehler}");
                 self.session
-                    .uid_copy(uid.to_string(), ziel)
+                    .uid_copy(menge.clone(), ziel)
                     .await
-                    .with_context(|| format!("Nachricht nach „{ziel}“ kopieren"))?;
-                self.endgueltig_loeschen(uid).await
+                    .with_context(|| format!("Nachrichten nach „{ziel}“ kopieren"))?;
+                self.mehrere_endgueltig_loeschen(uids).await
             }
         }
     }
@@ -348,16 +356,23 @@ impl ImapVerbindung {
     /// gezielt nur diese Nachricht); ohne UIDPLUS-Erweiterung bleibt nur
     /// das normale EXPUNGE des ganzen Ordners.
     pub async fn endgueltig_loeschen(&mut self, uid: u32) -> Result<()> {
+        self.mehrere_endgueltig_loeschen(std::slice::from_ref(&uid))
+            .await
+    }
+
+    /// Löscht mehrere Nachrichten in einem Rutsch endgültig.
+    pub async fn mehrere_endgueltig_loeschen(&mut self, uids: &[u32]) -> Result<()> {
+        let menge = uid_menge(uids)?;
         let _antworten: Vec<_> = self
             .session
-            .uid_store(uid.to_string(), "+FLAGS.SILENT (\\Deleted)")
+            .uid_store(menge.clone(), "+FLAGS.SILENT (\\Deleted)")
             .await
             .context("Löschen-Flag setzen")?
             .try_collect()
             .await
             .context("Antwort auf Flag-Änderung lesen")?;
 
-        match self.session.uid_expunge(uid.to_string()).await {
+        match self.session.uid_expunge(menge.clone()).await {
             Ok(antworten) => {
                 let _: Vec<_> = antworten
                     .try_collect()
@@ -414,6 +429,19 @@ fn ist_beantwortet(fetch: &async_imap::types::Fetch) -> bool {
     fetch
         .flags()
         .any(|flag| matches!(flag, async_imap::types::Flag::Answered))
+}
+
+/// Baut aus mehreren UIDs eine IMAP-Mengenangabe („1,2,3“) für genau
+/// einen Server-Durchgang (Sammel-Verschieben/-Löschen).
+fn uid_menge(uids: &[u32]) -> Result<String> {
+    if uids.is_empty() {
+        return Err(anyhow::anyhow!("keine Nachrichten gewählt"));
+    }
+    Ok(uids
+        .iter()
+        .map(|uid| uid.to_string())
+        .collect::<Vec<_>>()
+        .join(","))
 }
 
 /// SASL-Antwort für XOAUTH2: `user=<mail>` + Bearer-Token.
@@ -493,5 +521,16 @@ mod tests {
         };
         let antwort = auth.process(&[]);
         assert_eq!(antwort, b"user=a@b.de\x01auth=Bearer TOKEN\x01\x01");
+    }
+
+    #[test]
+    fn uid_menge_fasst_mehrere_zusammen() {
+        assert_eq!(uid_menge(&[7]).unwrap(), "7");
+        assert_eq!(uid_menge(&[3, 1, 2]).unwrap(), "3,1,2");
+    }
+
+    #[test]
+    fn uid_menge_ohne_auswahl_ist_fehler() {
+        assert!(uid_menge(&[]).is_err());
     }
 }

@@ -54,9 +54,17 @@ SURGICAL_CHANGES: Touch only what the task requires. Do not improve neighboring 
 
 ```
 ui/                  Frontend (HTML/CSS/JS) — reine Darstellung
+  gemeinsam.js       Geteilte Helfer (el, zeige, icon, anzahlText), jedes Fenster lädt zuerst
 src-tauri/src/
   lib.rs             Tauri-Setup, Command-Registrierung
-  commands.rs        Tauri-Commands (Konten, Sync, Mails, Kalender, Versand)
+  commands/          Tauri-Commands je Bereich (Untermodule, Re-Export als commands::*)
+    mod.rs           Grundlagen (Zustand, Fehler-Meldungen, Helfer)
+    konten.rs        Konten, Ordnerliste, Microsoft-Anmeldung (M6)
+    sync.rs          Abgleich, Live-Update (IDLE), Erinnerungen
+    mails.rs         Liste, Lesen, Suche, Löschen, Anhänge, Bilder
+    senden.rs        Senden, Antworten, Entwürfe
+    avatar.rs        Absender-/Konto-Avatare
+    kalender.rs      Kalender-Konten, Termine, CalDAV-Abgleich (M4/M5)
   anzeige.rs         Mail-Aufbereitung (Sanitizing, Bilder-Freigabe)
   avatar.rs          Absender-/Konto-Avatare (Gravatar → Google-Favicons → Initialen)
   schluesselbund.rs  Keyring-Zugriffe (ausschließlich via spawn_blocking)

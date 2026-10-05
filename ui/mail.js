@@ -7,7 +7,7 @@ const { WebviewWindow, getCurrentWebviewWindow } = window.__TAURI__.webviewWindo
 const params = new URLSearchParams(location.search);
 const mailId = Number(params.get("mailId"));
 const kontoId = Number(params.get("kontoId"));
-const el = (id) => document.getElementById(id);
+// (el, zeige: siehe gemeinsam.js — genau eine Quelle.)
 const fenster = getCurrentWebviewWindow();
 
 let ansicht = null;
@@ -16,10 +16,6 @@ let fensterZaehler = 0;
 el("fenster-minimieren").addEventListener("click", () => fenster.minimize());
 el("fenster-maximieren").addEventListener("click", () => fenster.toggleMaximize());
 el("fenster-schliessen").addEventListener("click", () => fenster.close());
-
-function zeige(id, sichtbar) {
-  el(id).classList.toggle("versteckt", !sichtbar);
-}
 
 function leseStil() {
   const stil = getComputedStyle(document.documentElement);
