@@ -11,7 +11,7 @@ archive="$output/nanomail-$version.tar.gz"
 # node_modules, generierten Schemas oder bereits gebauten Binärdateien.
 tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
   --transform="s,^,nanomail-$version/," -C "$repo" -cf - \
-  README.md ui src-tauri/Cargo.toml src-tauri/Cargo.lock \
+  README.md LICENSE ui src-tauri/Cargo.toml src-tauri/Cargo.lock \
   src-tauri/build.rs src-tauri/tauri.conf.json src-tauri/src \
   src-tauri/capabilities src-tauri/icons packaging/arch | gzip -n > "$archive"
 checksum=$(sha256sum "$archive" | cut -d ' ' -f1)

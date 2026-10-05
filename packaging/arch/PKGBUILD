@@ -47,5 +47,6 @@ package() {
   # Kein eigenes Icon mehr: Die Desktop-Datei nutzt das Mail-Icon des
   # aktiven Omarchy-Icon-Sets (Yaru-Variante, Hell/Dunkel-automatisch).
   install -Dm644 README.md "$pkgdir/usr/share/doc/nanomail/README.md"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/nanomail/LICENSE"
   install -Dm644 ui/phosphor/LICENSE "$pkgdir/usr/share/licenses/nanomail/phosphor-LICENSE"
 }

@@ -56,6 +56,12 @@ SURGICAL_CHANGES: Touch only what the task requires. Do not improve neighboring 
 ui/                  Frontend (HTML/CSS/JS) — reine Darstellung
 src-tauri/src/
   lib.rs             Tauri-Setup, Command-Registrierung
+  commands.rs        Tauri-Commands (Konten, Sync, Mails, Kalender, Versand)
+  anzeige.rs         Mail-Aufbereitung (Sanitizing, Bilder-Freigabe)
+  avatar.rs          Absender-/Konto-Avatare (Gravatar → Google-Favicons → Initialen)
+  schluesselbund.rs  Keyring-Zugriffe (ausschließlich via spawn_blocking)
+  thema.rs           Omarchy-/System-Theme
+  pfade.rs           XDG-Pfade
   logging.rs         tracing-Initialisierung (Datei + Terminal)
   imap/              Mail-Abruf & Sync (M1)
   smtp/              Versand inkl. Sent-Ordner-Ablage (M2)
@@ -72,14 +78,14 @@ Kommunikation ausschließlich über Tauri-Commands/Events
 
 - **Zugangsdaten:** Passwörter/Tokens ausschließlich im GNOME Keyring
   (`keyring-core` + `zbus-secret-service-keyring-store`; die `keyring`-Fassade
-  v4.1.3 hat einen Init-Bug). Zugriffe immer über `src/schluesselbund.rs`
+  v4.1.3 hat einen Init-Bug). Zugriffe immer über `src-tauri/src/schluesselbund.rs`
   und — wichtig — nur via `spawn_blocking` (zbus blockiert intern).
   Niemals im Klartext in Dateien, SQLite oder Logs.
 - **HTML-Mails:** Vor Anzeige mit `ammonia` sanitizen. Externe Bilder
   standardmäßig blockieren („Bilder laden“-Button). Kein Skript aus
   Mail-Inhalten darf je ausgeführt werden.
-- **Absender- und Konto-Avatare (Ausnahme, ab M3.1/M3.2):** `src/avatar.rs`
-  lädt bewusst externe Bilder (Gravatar → Favicon → sonst Initialen im
+- **Absender- und Konto-Avatare (Ausnahme, ab M3.1/M3.2):** `src-tauri/src/avatar.rs`
+  lädt bewusst externe Bilder (Gravatar → Google-Favicon-Dienst → sonst Initialen im
   Frontend) — einzige erlaubte externe Ladequelle, vom Projektinhaber
   ausdrücklich gewünscht. Gilt für Absender-Avatare (Mail-Liste, Lesebereich)
   ebenso wie für Konto-Icons in der Icon-Leiste (ab M3.2), jeweils über

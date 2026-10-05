@@ -4,7 +4,7 @@
 // Neustarts erhalten; Start-Standard ist „system“):
 //   "dunkel" – immer dunkel
 //   "hell"   – immer hell
-//   "system" – die Ubuntu-Einstellung (hell/dunkel) übernehmen
+//   "system" – die Systemeinstellung (hell/dunkel) übernehmen
 //   "omarchy" – aktive Linux-Omarchy-Palette, sonst Systemeinstellung
 //
 // Angewendet wird das Ergebnis als data-thema="hell"/"dunkel" am
@@ -70,7 +70,7 @@
     anwenden();
   });
 
-  // Wechselt Ubuntu selbst (z. B. abends auf dunkel), sofort mitziehen.
+  // Wechselt das System selbst (z. B. abends auf dunkel), sofort mitziehen.
   systemHell.addEventListener("change", () => {
     if (["system", "omarchy"].includes(wahlLesen())) anwenden();
   });

@@ -1,7 +1,9 @@
 # Nanomail
 
 Eigener Mail- (IMAP/SMTP) & Kalender-Client (CalDAV) für Linux.
-Rust + Tauri 2, Frontend in Vanilla HTML/CSS/JS; Arch-/Omarchy-Paket und `.deb`.
+Rust + Tauri 2, Frontend in Vanilla HTML/CSS/JS; primär Arch-/Omarchy-Paket,
+Debian-`.deb` nur noch als Nebenschauplatz (läuft technisch mit, wird aber
+nicht mehr aktiv genutzt oder getestet).
 
 - **[PROJEKTPLAN.md](PROJEKTPLAN.md)** — Meilensteine, Status, Entscheidungen
   und Testanleitung für den aktuellen Stand
@@ -49,10 +51,8 @@ Die Theme-Auswahl „Omarchy“ liest die lokale Omarchy-Palette automatisch.
 
 Ein Debian-/Ubuntu-Build ist **kein Arch-Binärpaket**. Bei Bedarf den erzeugten
 PKGBUILD samt Quellarchiv in einem sauberen Arch-Chroot mit `extra-x86_64-build`
-aus `devtools` bauen. Die MIT-Angabe stammt aus Cargo.toml; ein eigener
-vollständiger Lizenztext fehlt bisher im Repository und muss vor öffentlicher
-Paketveröffentlichung vom Projektinhaber ergänzt werden. Die vorhandene
-Phosphor-Lizenz wird mitinstalliert.
+aus `devtools` bauen. Die MIT-Angabe stammt aus Cargo.toml und LICENSE;
+die vorhandene Phosphor-Lizenz wird mitinstalliert.
 
 ## Bauen unter Debian / Ubuntu (Nebenschauplatz)
 

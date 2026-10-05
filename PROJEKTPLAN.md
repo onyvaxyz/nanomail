@@ -4,7 +4,26 @@ Lebendes Übersichtsdokument. Wird nach jedem Meilenstein aktualisiert.
 Regel: **Ein Meilenstein nach dem anderen, jeder wird von Philipp getestet
 und freigegeben, bevor der nächste beginnt.**
 
-Stand: 2026-09-29
+Stand: 2026-10-05
+
+## Doku-Bereinigung (Oktober 2026)
+
+Kleine Korrekturrunde ohne Code-Änderung (außer zwei veralteten
+Code-Kommentaren in `ui/thema.js`):
+
+- `LICENSE` (MIT) im Repo ergänzt und ins Arch-Paket aufgenommen; der alte
+  Hinweis „Lizenztext fehlt“ ist damit erledigt.
+- Testanleitung unten auf den aktuellen Stand (M6-Praxistest) umgestellt;
+  die alte M5-Abnahme bleibt als Historie erhalten.
+- „Offene Entscheidungen“ geleert — beide Punkte waren längst entschieden
+  (Firmen-Tenant ohne Admin für M6; M5 umgesetzt) und stehen jetzt unter
+  „Getroffene Entscheidungen“.
+- Klargestellt: Signatur erscheint seit September 2026 **auch bei Antworten**
+  (mit Leerzeile davor); ältere Einträge „nur bei Erstnachricht“ sind damit
+  überholt. Avatar-Quellen aktuell: Gravatar → Google-Dienst (der direkte
+  `favicon.ico`-Versuch vom 28.09. wurde am 29.09. zurückgenommen, Migration 19).
+- Ubuntu-Relikte auf Omarchy/Systemeinstellung umformuliert; Push-Regel
+  vereinheitlicht (kein Push/Release ohne Freigabe).
 
 ## Alltags-Fixes: Favicon & Magic-Link (September 2026)
 
@@ -61,11 +80,12 @@ wieder ihr echtes Icon zeigen, medium.com wieder das Medium-Icon.
   Secret Service oder Live-Mailkonto. `namcap` erkennt den dynamisch benutzten
   `xdg-open`-Fallback nicht; `xdg-utils` bleibt daher eine Laufzeitabhängigkeit.
   Makepkg meldet eingebettete Rust-Quellpfade unter `/build` (keine persönlichen
-  Pfade). Der eigene vollständige MIT-Lizenztext fehlt bereits im Repository;
-  vor einer öffentlichen Veröffentlichung muss der Projektinhaber ihn ergänzen.
+  Pfade). Die MIT-Lizenz liegt als `LICENSE` im Repository und wird
+  mitinstalliert (Phosphor-Lizenz zusätzlich).
 
 Installation und lokaler Nachbau: siehe README, Abschnitt „Arch Linux / Omarchy“.
-Kein Push, Release, Deployment oder Pull Request; keine Freigabe weiterer Meilensteine.
+Kein Release, Deployment oder Pull Request ohne Freigabe; keine Freigabe
+weiterer Meilensteine ohne Praxistest.
 
 ## Beauftragte Nachbesserungen zu M5.1 (September 2026)
 
@@ -106,7 +126,8 @@ Lokal umgesetzt; keine Veröffentlichung und keine Freigabe von M6:
   [Farbschema](https://github.com/basecamp/omarchy/blob/master/themes/tokyo-night/colors.toml).
 
 Prüfung: Rust-Kerntests, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
-`cargo check`, vollständiger Tauri-`.deb`-Build sowie Browserprüfungen in Chromium
+`cargo check`, Tauri-Build (`.deb`-Build als reiner Build-Nachweis; primärer
+Installationsweg ist das Arch-Paket) sowie Browserprüfungen in Chromium
 und WebKit. Letztere testen echte Tastatureingaben, Rückgängig, Text-Roundtrips,
 Kontrastwechsel, Themewechsel/Fallback, Maus-Textselektion und Einladungsaktionen.
 Screenshots für neue Mail, Antwort, Einladung und Kalender wurden inspiziert.
@@ -116,7 +137,8 @@ Ein echter Omarchy-Desktop und Live-IMAP/SMTP/CalDAV waren im Orb nicht eingeric
 Zum Abnehmen: Neue Mail und Antwort mit Enter/Shift+Enter verfassen, Signaturabstand
 prüfen, einen Entwurf wieder öffnen; bei einer echten Einladung bewusst Zu-/Absage
 testen; Termintext über den Popoverrand hinaus markieren; Theme und Desktop-Dialog
-auf dem Zielrechner ausprobieren. Danach M5/M5.1 freigeben, nicht automatisch M6 starten.
+auf dem Zielrechner ausprobieren. (Erledigt — M5/M5.1 wurden am 17.09.2026
+freigegeben, danach startete M6.)
 
 ## Nachbesserungen Pakete A–D, Icon und Fenster-Fixes (September 2026)
 
@@ -124,8 +146,10 @@ Lokal umgesetzt, per Arch-Paket installiert und vom Projektinhaber freigegeben
 (17.09.2026). Befunde aus dem Alltagstest werden gesammelt und folgen als
 nächste Runde:
 
-- **Paket A:** Signatur nur noch bei neuen Mails (nicht bei Antworten/
-  Weiterleitungen; Hinweis im Konto-Dialog angepasst). Mail-Listen-Breite per
+- **Paket A:** Signatur zunächst nur bei neuen Mails (nicht bei Antworten/
+  Weiterleitungen; Hinweis im Konto-Dialog angepasst) — **überholt:** seit
+  September 2026 erscheint die Signatur ausdrücklich auch bei Antworten
+  (mit Leerzeile davor). Mail-Listen-Breite per
   Zieh-Griff änderbar (wird gemerkt). Links in reinen Text-Mails werden erkannt
   und öffnen im Standard-Browser. Nachbesserung: Lange Links spreizten den
   Lesebereich über das Fenster hinaus (unklickbar) — der Bereich darf jetzt
@@ -182,10 +206,9 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 
 ## Offene Entscheidungen
 
-| Entscheidung | Wann klären |
-|---|---|
-| Microsoft-Konto: privat oder Firmen-Tenant (mit/ohne Admin-Zugriff)? | Zu Beginn von M6 per Mini-Auth-Test |
-| Kalender auch schreiben (M5) oder nur lesen? | Nach Abnahme von M4 |
+Keine — beide früheren Punkte sind entschieden und unter „Getroffene
+Entscheidungen“ festgehalten (M6: Firmen-Tenant ohne Admin-Zugriff;
+M5: schreibend umgesetzt).
 
 ## Getroffene Entscheidungen
 
@@ -245,23 +268,29 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
 | 2026-07-10 | M5-Qualitätsprüfung (Code-Review mit mehreren Prüf-Perspektiven, da die Umsetzung extern erfolgte): 10 bestätigte bzw. plausible Probleme gefunden und behoben. Die wichtigsten: (1) Ein Anzeigename mit Komma/Klammern hätte jeden Mailversand des Kontos blockiert — Absender wird jetzt strukturiert gebaut statt als Text geparst. (2) Löschen eines einzelnen Serien-Vorkommens löscht die ganze Serie — die Rückfrage warnt jetzt ausdrücklich davor. (3) Der Organisator in Einladungs-Mails ist jetzt die Adresse des gewählten Versand-Mailkontos (vorher der Nextcloud-Anmeldename, der meist keine E-Mail-Adresse ist — Einladungen wären ohne Organisator formal ungültig gewesen und hätten beim Empfänger keine Zusagen-Knöpfe gezeigt). Außerdem: strengere Prüfung von Teilnehmeradressen (Sonderzeichen hätten das Kalenderformat beschädigt), Kalender-Auswahl beim Bearbeiten gesperrt (Verschieben wird noch nicht unterstützt), verständliche Meldung bei abgelehnter Anmeldung auch beim Speichern/Löschen, mehrere Randfälle bei Server-Versionskennungen (ETags) und Groß-/Kleinschreibung von Teilnehmern. |
 | 2026-07-10 | Einladungs-Mail und Kalender-Objekt bekommen bewusst zwei verschiedene Fassungen: Der Mail-Anbieter lehnte Nanomails Einladungs-Mail ab („550 Reject for policy reason“), sobald sie den Organisator enthielt — vermutlich ein Schutz gegen Kalender-Spoofing, der Einladungen nur aus dem anbietereigenen Kalender zulässt. Die verschickte Mail nutzt deshalb wieder exakt das Format ohne Organisator, das nachweislich durchkam und bei den Empfängern funktionierte (Bestätigen-Knöpfe inklusive). Das in Nextcloud gespeicherte Objekt behält den Organisator (saubere Anzeige) samt „Server bleibt still“-Schalter. |
 | 2026-07-16 | Infomaniak-Konto ließ sich nicht hinzufügen („peer closed connection without sending TLS close_notify“), obwohl die Einstellungen stimmten: Nanomail schickte die Anmeldung sofort nach dem Verbindungsaufbau los, ohne die Begrüßung des Servers abzuwarten. Die meisten Anbieter verzeihen das — Infomaniak verwirft solche zu frühen Anfragen in gut der Hälfte der Fälle und trennt dann kommentarlos (live am Server nachgemessen: sofort gesendet 3 von 5 Fehlversuchen, nach Begrüßung 5 von 5 erfolgreich). Nanomail wartet jetzt — wie Thunderbird — erst auf die Server-Begrüßung. Die IP-Sperren im Infomaniak-Manager waren Folge der vielen Einrichtungsversuche, nicht die Ursache. |
-| 2026-07-16 | Helles/dunkles Design (Wunsch von Philipp): Neuer Umschalt-Knopf in der Icon-Leiste unter dem Kalender-Symbol. Er wechselt reihum Dunkel → Hell → Systemeinstellung (Ubuntu) und zeigt als Symbol immer den nächsten Schritt (Mond/Sonne/Bildschirm). Das helle Design nutzt bewusst #EBEBEC statt Weiß als Hintergrund. Die Wahl wird gespeichert und beim nächsten Start übernommen; Erststandard ist „Systemeinstellung“ — wechselt Ubuntu selbst zwischen hell/dunkel, zieht Nanomail live mit. Gilt für Haupt- und Verfassen-Fenster sowie die Mail-Anzeige in der App-Ansicht; die „Originalansicht des Absenders“ bleibt wie bisher hell. |
+| 2026-07-16 | Helles/dunkles Design (Wunsch von Philipp): Neuer Umschalt-Knopf in der Icon-Leiste unter dem Kalender-Symbol. Er wechselt reihum Dunkel → Hell → Systemeinstellung (damals Ubuntu, heute System/Omarchy) und zeigt als Symbol immer den nächsten Schritt (Mond/Sonne/Bildschirm). Das helle Design nutzt bewusst #EBEBEC statt Weiß als Hintergrund. Die Wahl wird gespeichert und beim nächsten Start übernommen; Erststandard ist „Systemeinstellung“ — wechselt das System selbst zwischen hell/dunkel, zieht Nanomail live mit. Gilt für Haupt- und Verfassen-Fenster sowie die Mail-Anzeige in der App-Ansicht; die „Originalansicht des Absenders“ bleibt wie bisher hell. |
 | 2026-07-10 | Einladungen laufen jetzt komplett „nativ“ über Nanomail (Wunsch von Philipp): Durch die Organisator-Korrektur hatte Nextcloud begonnen, zusätzlich eigene Einladungs-Mails mit Web-Link zu verschicken — zwei „Akzeptieren“-Wege verwirrten. Nanomail markiert Teilnehmer jetzt mit dem offiziellen Schalter `SCHEDULE-AGENT=CLIENT` (RFC 6638): Der Kalender-Server verschickt nichts mehr, nur noch Nanomails eigene Einladungs-Mail. Folge: Zu-/Absagen der Empfänger kommen als normale Mail an und aktualisieren den Teilnehmerstatus im Kalender (noch) nicht automatisch — die Verarbeitung solcher Antwort-Mails wäre ein eigener späterer Schritt. |
 | 2026-07-07 | M3.4: Adress-Vorschläge ohne Adressbuch — beim Senden werden Empfänger gemerkt, zusätzlich zählen Absender aus dem Mail-Cache. Vorschläge erscheinen beim Tippen im An-/CC-Feld. |
 | 2026-07-07 | M3.4: „Als ungelesen markieren“ ändert das Flag sofort in der App und überträgt es im Hintergrund zum Server (wie beim Lesen); klappt das nicht (offline), korrigiert es der nächste Abgleich. |
 | 2026-07-05 | **M3.2: Komplettes Redesign nach eigener Vorlage** (Zed One Dark, Violett-Akzent, Schriften JetBrains Mono/Inter). Löst den Kachel-Fehler bei Absender-Avataren (Ursache: eine CSS-Kurzschreibweise in JS überschrieb versehentlich die Bild-Darstellung). Konto-Icons in der neuen Icon-Leiste nutzen ab jetzt ebenfalls Gravatar → Favicon → Initialen — die bestehende Ausnahme vom „keine externen Ladevorgänge“-Prinzip gilt damit für Absender- **und** Konto-Avatare. Schriften/Symbole werden weiterhin nur lokal mitgeliefert, nicht aus dem Netz geladen. Löschen/Archivieren/Markieren sind als Symbole schon sichtbar, aber noch ohne Funktion (kommt später). |
 | 2026-07-20 | **M5.1 Nachtrag 2:** (a) Im Gesendet-Ordner zeigt die Liste jetzt den Empfänger („An: …") statt meiner eigenen Adresse. (b) Beim Lesen werden An- und (falls vorhanden) Cc-Empfänger im Kopf angezeigt — man sieht jetzt, ob jemand in Kopie stand. (c) Das Datum steht im Lesekopf unter den Buttons (rechts), damit ein langer Absender keine schiefen Umbrüche mehr erzeugt. Für (a)/(b) werden An/Cc je Mail schon beim Abgleich gespeichert (zwei neue Cache-Spalten); der Mail-Cache wird dafür einmalig neu aufgebaut (Konten/Einstellungen bleiben, die Listen laden beim nächsten Start neu). Zum dev-Fenster: `GDK_BACKEND=x11 cargo tauri dev` wurde auf diesem Rechner als funktionierend verifiziert (Fenster mit Inhalt); wichtig ist, die installierte Nanomail-App vorher zu schließen (sonst ist der lokale Cache gesperrt). |
-| 2026-07-20 | **M5.1 Nachtrag:** (a) Beim Antworten/Weiterleiten wurde als Absender fälschlich das erste Konto vorgewählt statt des Kontos, in dessen Ordner man sich befindet — es wird jetzt die aktive Konto-ID ans Verfassen-Fenster übergeben. (b) Strg + Mausrad zoomt jetzt das ganze Fenster (Mail wird mitvergrößert); zusätzlich ist der native Zoom über Strg + Plus/Minus aktiv (`zoomHotkeysEnabled`). Direkt über dem Mail-Inhalt fängt das Sicherheits-iframe das Mausrad ab — dort wirkt Strg + Plus/Minus. (c) Hinweis: `cargo tauri dev` zeigt auf diesem System ein leeres Fenster (WebKitGTK-Darstellungsfehler im Debug-Build unter Wayland); die installierte .deb rendert korrekt. Für dev hilft i. d. R. `GDK_BACKEND=x11 cargo tauri dev`. |
-| 2026-07-20 | **M5.1 (Komfort- & Fehlerbehebungsrunde, 9 Wünsche von Philipp):** (1) Nach dem Öffnen eines Wiederholungstermins ließ sich kein neuer Termin mehr anlegen („Termin lokal nicht mehr vorhanden“) — das versteckte Termin-Kennzeichen blieb im Formular hängen; es wird beim Anlegen jetzt sauber geleert. (2) Links in Mails öffnen jetzt im Standard-Browser des Systems (Backend fängt den Klick ab; Mail-Inhalte bleiben unverändert streng geschützt). (3) Der Ungelesen-Zähler am Konto-Symbol zählt nur noch den Posteingang statt aller Ordner (Spam/Papierkorb blähten die Zahl auf). (4) Favicon-Fallback greift jetzt auch bei Absender-Subdomains (z. B. `notify.docker.com` → `docker.com`); zusätzlich werden bisher als „kein Bild“ gemerkte Einträge einmalig verworfen und neu ermittelt. (5) Bei Gravatar/Favicon hat der Avatar-Kreis keinen farbigen Hintergrund mehr — nur Initialen behalten die Farbe. (6) Die Signatur erscheint nur noch bei einer neuen Erstnachricht, nicht beim Antworten/Weiterleiten. (7) Adress-Vorschläge lassen sich auch mit Tab übernehmen (nicht nur Enter). (8) Tab springt von den Empfängern direkt in den Mailinhalt; die Formatier-Knöpfe werden übersprungen. (9) Neue Emoji-Auswahl im Verfassen-Fenster (Smiley-Knopf oder „Super + .“). |
-| 2026-07-21 | **M5.1 Nachtrag 3 (wartet auf Praxistest):** (a) Die Suche arbeitet jetzt nur im gerade geöffneten Ordner, sodass „Gesendet“ keine Posteingangstreffer mehr zeigt. (b) Online ergänzt eine direkte IMAP-Volltextsuche den lokalen Index und findet dadurch auch ungeöffnete Mails, ohne alle Nachrichten samt Anhängen herunterzuladen; offline bleibt der lokale Bestand durchsuchbar. (c) Im Editor erzeugt Enter einen Absatz mit sichtbarem Abstand und Umschalt+Enter eine einfache neue Zeile ohne Zusatzabstand. (d) Der Fensterzoom reagiert auf Strg+Mausrad und Umschalt+Mausrad. (e) Nanomail zeigt 30 Minuten vor einem sichtbaren Kalendertermin eine Ubuntu-Systembenachrichtigung mit Titel, Uhrzeit und optionalem Ort. Die Prüfung läuft minütlich, berücksichtigt Serien/Zeitzonen und merkt sich gezeigte Erinnerungen dauerhaft, damit sie nicht doppelt erscheinen. Nanomail muss dafür laufen; ein eigener Hintergrunddienst bei geschlossener App ist bewusst nicht hinzugefügt. |
-| 2026-07-24 | **M5.1 Nachtrag 4 (wartet auf Praxistest):** Die Oberfläche wurde auf Wunsch in einem ruhigen, von Amp inspirierten Stil neu gestaltet: warme Grün-Neutraltöne, Ubuntu-/Systemschrift, feinere Trennlinien, zurückhaltende Rundungen und eine flachere Mail-Liste. Hell-, Dunkel- und Systemmodus bleiben erhalten; Funktionen und gespeicherte Daten sind unverändert. |
+| 2026-07-20 | **M5.1 Nachtrag:** (a) Beim Antworten/Weiterleiten wurde als Absender fälschlich das erste Konto vorgewählt statt des Kontos, in dessen Ordner man sich befindet — es wird jetzt die aktive Konto-ID ans Verfassen-Fenster übergeben. (b) Strg + Mausrad zoomt jetzt das ganze Fenster (Mail wird mitvergrößert); zusätzlich ist der native Zoom über Strg + Plus/Minus aktiv (`zoomHotkeysEnabled`). Direkt über dem Mail-Inhalt fängt das Sicherheits-iframe das Mausrad ab — dort wirkt Strg + Plus/Minus. (c) Hinweis: `cargo tauri dev` zeigt auf diesem System ein leeres Fenster (WebKitGTK-Darstellungsfehler im Debug-Build unter Wayland); die installierte App rendert korrekt. Für dev hilft i. d. R. `GDK_BACKEND=x11 cargo tauri dev`. |
+| 2026-07-20 | **M5.1 (Komfort- & Fehlerbehebungsrunde, 9 Wünsche von Philipp):** (1) Nach dem Öffnen eines Wiederholungstermins ließ sich kein neuer Termin mehr anlegen („Termin lokal nicht mehr vorhanden“) — das versteckte Termin-Kennzeichen blieb im Formular hängen; es wird beim Anlegen jetzt sauber geleert. (2) Links in Mails öffnen jetzt im Standard-Browser des Systems (Backend fängt den Klick ab; Mail-Inhalte bleiben unverändert streng geschützt). (3) Der Ungelesen-Zähler am Konto-Symbol zählt nur noch den Posteingang statt aller Ordner (Spam/Papierkorb blähten die Zahl auf). (4) Favicon-Fallback greift jetzt auch bei Absender-Subdomains (z. B. `notify.docker.com` → `docker.com`); zusätzlich werden bisher als „kein Bild“ gemerkte Einträge einmalig verworfen und neu ermittelt. (5) Bei Gravatar/Favicon hat der Avatar-Kreis keinen farbigen Hintergrund mehr — nur Initialen behalten die Farbe. (6) Die Signatur erscheint zunächst nur bei einer neuen Erstnachricht, nicht beim Antworten/Weiterleiten — **überholt:** seit September 2026 erscheint sie ausdrücklich auch bei Antworten (mit Leerzeile davor). (7) Adress-Vorschläge lassen sich auch mit Tab übernehmen (nicht nur Enter). (8) Tab springt von den Empfängern direkt in den Mailinhalt; die Formatier-Knöpfe werden übersprungen. (9) Neue Emoji-Auswahl im Verfassen-Fenster (Smiley-Knopf oder „Super + .“). |
+| 2026-07-21 | **M5.1 Nachtrag 3 (wartet auf Praxistest):** (a) Die Suche arbeitet jetzt nur im gerade geöffneten Ordner, sodass „Gesendet“ keine Posteingangstreffer mehr zeigt. (b) Online ergänzt eine direkte IMAP-Volltextsuche den lokalen Index und findet dadurch auch ungeöffnete Mails, ohne alle Nachrichten samt Anhängen herunterzuladen; offline bleibt der lokale Bestand durchsuchbar. (c) Im Editor erzeugt Enter einen Absatz mit sichtbarem Abstand und Umschalt+Enter eine einfache neue Zeile ohne Zusatzabstand. (d) Der Fensterzoom reagiert auf Strg+Mausrad und Umschalt+Mausrad. (e) Nanomail zeigt 30 Minuten vor einem sichtbaren Kalendertermin eine Systembenachrichtigung mit Titel, Uhrzeit und optionalem Ort. Die Prüfung läuft minütlich, berücksichtigt Serien/Zeitzonen und merkt sich gezeigte Erinnerungen dauerhaft, damit sie nicht doppelt erscheinen. Nanomail muss dafür laufen; ein eigener Hintergrunddienst bei geschlossener App ist bewusst nicht hinzugefügt. |
+| 2026-07-24 | **M5.1 Nachtrag 4 (wartet auf Praxistest):** Die Oberfläche wurde auf Wunsch in einem ruhigen, von Amp inspirierten Stil neu gestaltet: warme Grün-Neutraltöne, Systemschrift, feinere Trennlinien, zurückhaltende Rundungen und eine flachere Mail-Liste. Hell-, Dunkel- und Systemmodus bleiben erhalten; Funktionen und gespeicherte Daten sind unverändert. |
 | 2026-07-24 | **M5.1 Nachtrag 5 (wartet auf Praxistest):** Design-Nachbesserung nach Sichtprüfung: Der gesamte helle Inhaltsbereich nutzt einheitlich `#F9FDF6` und liegt leicht eingerückt mit abgerundeten Ecken auf der gemeinsamen Fläche von Fensterkopf und Statusleiste. Jede Mail besitzt wieder einen eigenen feinen Rahmen. Die bisherige Bedeutung leer gespeicherter Kontofarben bleibt erhalten, damit insbesondere das Hauptkonto wieder sein früheres Standard-Violett statt des neuen Grüns verwendet; ausdrücklich gewählte eigene Farben bleiben unverändert. |
 | 2026-07-24 | **M5.1 Nachtrag 6 (wartet auf Praxistest):** Weitere Bedienungsrunde: „Allen antworten“ mit Doppelpfeil und bereinigter Empfängerliste (eigene Konten/Dubletten werden entfernt), zuverlässige Absatz-/Zeilenwechsel auch in neuen Mails sowie Strg+Z, eigenes Lesefenster per Doppelklick, dauerhaft erlaubbare externe Bilder je Absender-Domain, reine größere Ordner-Symbole, gleichzeitiger Status je Mailkonto und Google statt DuckDuckGo als Favicon-Fallback. Ohne Funktionsverlust beschleunigt: Ordnerstände werden je Konto parallel geladen, doppelte Avatar-Abfragen zusammengeführt und externe Mailbilder begrenzt parallel geladen. Die bekannten Beispieldomains `artischock.net`, `gra.ch`, `rizag.ch` und `woistroci.de` liefern bei DuckDuckGo 404, bei Google dagegen ein Bild; Microsoft 365 ist nicht die Ursache. |
 | 2026-09-24 | **Listen-/Rechtschreib-Nachtrag (wartet auf Praxistest):** Listen erzeugen im Versand wieder gültige Absätze und Zeilenumbrüche; das lokale WebKit-Wörterbuch markiert Tippfehler direkt im Verfassen-Fenster. |
 | 2026-09-28 | **Alltags-Fixes:** (1) Favicon-Abruf fragt zuerst die Absender-Website selbst ab (`favicon.ico`), Google nur noch als Fallback — Googles Zwischen-Cache lieferte wochenlang alte Icons (z. B. milchbüechli24). Gespeicherte Avatar-Bilder werden einmalig verworfen und neu geladen (Migration 18). (2) Nackte HTTP(S)-Links in HTML-Mails werden vom Frontend klickbar gemacht (Magic-Link-Mails wie die von milchbüechli24 liefern die URL als reinen Text statt als Link). |
 | 2026-09-29 | **Favicon-Rückbau:** Der direkte `favicon.ico`-Abruf ist wieder zurückgenommen — viele Websites liefern dort nur eine Standard-Grafik (z. B. das WordPress-Logo statt des echten Seiten-Icons), und medium.com liefert derzeit eine defekte Datei; solche Bilder wurden zudem 30 Tage lang gecacht. Wieder Gravatar → Google-Dienst als einzige Quellen; Migration 19 verwirft die falsch geladenen Avatar-Bilder einmalig. |
 
-## So testest du den aktuellen Stand (M5)
+## So testest du den aktuellen Stand (M6-Praxistest)
+
+Die M5-Abnahme unten ist als Historie erhalten (M5/M5.1 wurden am 17.09.2026
+freigegeben). Aktuell zu prüfen: Microsoft-365-Konto (`webmaster@gbz2.ch`)
+anlegen, lesen und senden — Details siehe Meilenstein-Tabelle (M6).
+
+### M5-Abnahme (Historie, bereits freigegeben)
 
 1. Bauen und installieren (Omarchy/Arch, siehe README):
    `bash packaging/arch/prepare-source.sh`, dann in `.amp/arch-build`
@@ -321,7 +350,7 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
     Seitenleiste am Mausrad drehen. Das Fenster muss größer/kleiner werden.
     Über dem geschützten Mail-Inhalt weiterhin Strg+Plus/Minus verwenden.
 16. **Terminerinnerung:** Einen Termin auf ungefähr 30 Minuten ab jetzt setzen
-    und Nanomail geöffnet lassen. Spätestens nach einer Minute muss Ubuntu eine
+    und Nanomail geöffnet lassen. Spätestens nach einer Minute muss eine
     Systembenachrichtigung mit Termintitel, Beginn und ggf. Ort zeigen. Sie darf
     bei den folgenden Prüfungen nicht erneut erscheinen.
 17. **Neues Design:** Hell- und Dunkelmodus über den Knopf links durchschalten.
@@ -354,12 +383,13 @@ Status-Legende: ⚪ Offen · 🔵 In Arbeit · 🟡 Wartet auf Freigabe · 🟢 
     sollten die Google-Favicons erscheinen; vorhandene echte Gravatars haben
     weiterhin Vorrang.
 
-Wenn das passt: M5 freigeben → danach folgt M6 (Microsoft, zuletzt).
+Wenn das passt: M6-Praxistest bestehen → danach M6 freigeben. (Die alte M5-Abnahme
+ist bereits freigegeben.)
 
 ## Was bewusst noch fehlt
 
 Vorschau-/Schnipseltext in der Mail-Liste,
-Microsoft (M6, zuletzt), Bearbeiten von Wiederholungstermin-Serien,
+M6-Freigabe nach Praxistest, Bearbeiten von Wiederholungstermin-Serien,
 automatische Übernahme von Zu-/Absage-Mails in den Teilnehmerstatus,
 Wochen-/Tagesansicht im Kalender (bewusst weggelassen),
 Archivieren/Markieren/Verschieben in beliebige Ordner,
